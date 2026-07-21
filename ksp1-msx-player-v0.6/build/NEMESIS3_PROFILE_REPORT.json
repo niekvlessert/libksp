@@ -1,0 +1,14 @@
+[
+  {
+    "file": "NEMESIS3.KSP",
+    "bytes": 38121,
+    "tracks": 24,
+    "pages": 24,
+    "page_encodings": {
+      "sparse overlay": 24
+    },
+    "maximum_page_payload_raw": 4182,
+    "all_page_crcs_valid": true,
+    "profile_compatible": true
+  }
+]

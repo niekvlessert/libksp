@@ -1,0 +1,2226 @@
+0100  31 F0 3F                            ld sp,STACK_TOP
+0103  CD 3D 02                            call parse_command_line
+0106  DA A1 01                            jp c,usage_error
+0109  11 E2 13                            ld de,msg_banner
+010C  01 24 00                            ld bc,msg_banner_end-msg_banner
+010F  CD 52 03                            call write_stdout
+0112  11 62 13                            ld de,filename
+0115  AF                                  xor a
+0116  0E 43                               ld c,DOS_OPEN
+0118  CD 05 00                            call BDOS
+011B  C2 D1 01                            jp nz,file_error
+011E  78                                  ld a,b
+011F  32 B4 12                            ld (file_handle),a
+0122  CD 84 03                            call get_mapper_api
+0125  DA BF 01                            jp c,mapper_error
+0128  CD D5 03                            call capture_original_pages
+012B  AF                                  xor a
+012C  21 00 00                            ld hl,0
+012F  11 00 18                            ld de,KSP_HEADER
+0132  01 50 00                            ld bc,80
+0135  CD 5C 03                            call read_at
+0138  C2 D1 01                            jp nz,file_error
+013B  CD C5 04                            call validate_header
+013E  DA AD 01                            jp c,format_error
+0141  CD 33 05                            call load_engine_zero
+0144  DA AD 01                            jp c,format_error
+0147  CD 49 05                            call validate_engine_profile
+014A  DA B6 01                            jp c,profile_error
+014D  AF                                  xor a
+014E  32 C1 12                            ld (hybrid_ready),a
+0151  CD 19 06                            call find_hpol_resource
+0154  DA 73 01                            jr c,start_no_hpol
+0157  CD AB 06                            call load_hpl_header
+015A  DA AD 01                            jp c,format_error
+015D  CD 30 04                            call allocate_hot_segments
+0160  DA C8 01                            jp c,memory_error
+0163  3E 04                               ld a,4
+0165  32 C0 12                            ld (decode_stage),a
+0168  CD 55 08                            call preload_hybrid_pool
+016B  DA E3 01                            jp c,decode_error
+016E  3E 01                               ld a,1
+0170  32 C1 12                            ld (hybrid_ready),a
+0173  2A B7 12                            ld hl,(selected_track)
+0176  CD 2E 09                            call select_track
+0179  DA DA 01                            jp c,track_error
+017C  CD 68 0A                            call show_current_title
+017F  CD F7 0A                            call install_current_track
+0182  DA E3 01                            jp c,decode_error
+0185  FB                                  ei
+0186  76                                  halt
+0187  F3                                  di
+0188  CD C2 0E                            call call_play
+018B  CD CC 0E                            call read_controls
+018E  FE 01                               cp 1
+0190  CA 32 02                            jp z,clean_exit
+0193  FE 02                               cp 2
+0195  C2 85 01                            jr nz,main_loop
+0198  CD 6E 0E                            call next_track
+019B  DA DA 01                            jp c,track_error
+019E  C3 85 01                            jr main_loop
+01A1  11 06 14                            ld de,msg_usage
+01A4  01 39 00                            ld bc,msg_usage_end-msg_usage
+01A7  CD 52 03                            call write_stdout
+01AA  C3 2A 02                            jp terminate_error_no_file
+01AD  11 3F 14                            ld de,msg_format
+01B0  01 2D 00                            ld bc,msg_format_end-msg_format
+01B3  C3 24 02                            jr fatal_with_file
+01B6  11 6C 14                            ld de,msg_profile
+01B9  01 33 00                            ld bc,msg_profile_end-msg_profile
+01BC  C3 24 02                            jr fatal_with_file
+01BF  11 9F 14                            ld de,msg_mapper
+01C2  01 29 00                            ld bc,msg_mapper_end-msg_mapper
+01C5  C3 24 02                            jr fatal_with_file
+01C8  11 C8 14                            ld de,msg_memory
+01CB  01 33 00                            ld bc,msg_memory_end-msg_memory
+01CE  C3 24 02                            jr fatal_with_file
+01D1  11 FB 14                            ld de,msg_file
+01D4  01 1C 00                            ld bc,msg_file_end-msg_file
+01D7  C3 24 02                            jr fatal_with_file
+01DA  11 17 15                            ld de,msg_track
+01DD  01 1F 00                            ld bc,msg_track_end-msg_track
+01E0  C3 24 02                            jr fatal_with_file
+01E3  3A C0 12                            ld a,(decode_stage)
+01E6  FE 01                               cp 1
+01E8  CA 03 02                            jr z,decode_template_error
+01EB  FE 02                               cp 2
+01ED  CA 0C 02                            jr z,decode_sparse_error
+01F0  FE 03                               cp 3
+01F2  CA 15 02                            jr z,decode_complete_error
+01F5  FE 04                               cp 4
+01F7  CA 1E 02                            jr z,decode_hybrid_error
+01FA  11 36 15                            ld de,msg_decode
+01FD  01 2B 00                            ld bc,msg_decode_end-msg_decode
+0200  C3 24 02                            jr fatal_with_file
+0203  11 61 15                            ld de,msg_decode_template
+0206  01 2D 00                            ld bc,msg_decode_template_end-msg_decode_template
+0209  C3 24 02                            jr fatal_with_file
+020C  11 8E 15                            ld de,msg_decode_sparse
+020F  01 33 00                            ld bc,msg_decode_sparse_end-msg_decode_sparse
+0212  C3 24 02                            jr fatal_with_file
+0215  11 C1 15                            ld de,msg_decode_complete
+0218  01 27 00                            ld bc,msg_decode_complete_end-msg_decode_complete
+021B  C3 24 02                            jr fatal_with_file
+021E  11 E8 15                            ld de,msg_decode_hybrid
+0221  01 37 00                            ld bc,msg_decode_hybrid_end-msg_decode_hybrid
+0224  CD 52 03                            call write_stdout
+0227  CD 95 04                            call cleanup
+022A  06 01                               ld b,1
+022C  0E 62                               ld c,DOS_TERM
+022E  CD 05 00                            call BDOS
+0231  C9                                  ret
+0232  CD 95 04                            call cleanup
+0235  06 00                               ld b,0
+0237  0E 62                               ld c,DOS_TERM
+0239  CD 05 00                            call BDOS
+023C  C9                                  ret
+023D  AF                                  xor a
+023E  32 B7 12                            ld (selected_track),a
+0241  32 B8 12                            ld (selected_track+1),a
+0244  3E 02                               ld a,2
+0246  32 B5 12                            ld (scc_slot),a
+0249  21 81 00                            ld hl,0x0081
+024C  3A 80 00                            ld a,(0x0080)
+024F  32 B6 12                            ld (cmd_remaining),a
+0252  3A B6 12                            ld a,(cmd_remaining)
+0255  B7                                  or a
+0256  CA 6A 02                            jr z,parse_bad
+0259  7E                                  ld a,(hl)
+025A  FE 20                               cp ' '
+025C  C2 6C 02                            jr nz,parse_filename
+025F  23                                  inc hl
+0260  3A B6 12                            ld a,(cmd_remaining)
+0263  3D                                  dec a
+0264  32 B6 12                            ld (cmd_remaining),a
+0267  C3 52 02                            jr parse_skip_spaces
+026A  37                                  scf
+026B  C9                                  ret
+026C  11 62 13                            ld de,filename
+026F  0E 00                               ld c,0
+0271  3A B6 12                            ld a,(cmd_remaining)
+0274  B7                                  or a
+0275  CA 97 02                            jr z,parse_filename_done
+0278  7E                                  ld a,(hl)
+0279  FE 20                               cp ' '
+027B  CA 97 02                            jr z,parse_filename_done
+027E  FE 09                               cp 9
+0280  CA 97 02                            jr z,parse_filename_done
+0283  12                                  ld (de),a
+0284  13                                  inc de
+0285  23                                  inc hl
+0286  0C                                  inc c
+0287  79                                  ld a,c
+0288  FE 7E                               cp 126
+028A  D2 6A 02                            jr nc,parse_bad
+028D  3A B6 12                            ld a,(cmd_remaining)
+0290  3D                                  dec a
+0291  32 B6 12                            ld (cmd_remaining),a
+0294  C3 71 02                            jr parse_filename_loop
+0297  AF                                  xor a
+0298  12                                  ld (de),a
+0299  3A B6 12                            ld a,(cmd_remaining)
+029C  B7                                  or a
+029D  CA 50 03                            jr z,parse_good
+02A0  7E                                  ld a,(hl)
+02A1  FE 20                               cp ' '
+02A3  C2 B1 02                            jr nz,parse_track_start
+02A6  23                                  inc hl
+02A7  3A B6 12                            ld a,(cmd_remaining)
+02AA  3D                                  dec a
+02AB  32 B6 12                            ld (cmd_remaining),a
+02AE  C3 99 02                            jr parse_track_spaces
+02B1  11 00 00                            ld de,0
+02B4  3A B6 12                            ld a,(cmd_remaining)
+02B7  B7                                  or a
+02B8  CA 04 03                            jr z,parse_track_done
+02BB  7E                                  ld a,(hl)
+02BC  FE 20                               cp ' '
+02BE  CA 04 03                            jr z,parse_track_done
+02C1  FE 09                               cp 9
+02C3  CA 04 03                            jr z,parse_track_done
+02C6  FE 30                               cp '0'
+02C8  DA 6A 02                            jr c,parse_bad
+02CB  FE 3A                               cp '9'+1
+02CD  D2 6A 02                            jr nc,parse_bad
+02D0  D6 30                               sub '0'
+02D2  4F                                  ld c,a
+02D3  E5                                  push hl
+02D4  62                                  ld h,d
+02D5  6B                                  ld l,e
+02D6  29                                  add hl,hl
+02D7  DA 00 03                            jr c,parse_overflow
+02DA  E5                                  push hl
+02DB  29                                  add hl,hl
+02DC  DA FF 02                            jr c,parse_overflow_pop
+02DF  29                                  add hl,hl
+02E0  DA FF 02                            jr c,parse_overflow_pop
+02E3  D1                                  pop de
+02E4  19                                  add hl,de
+02E5  DA 00 03                            jr c,parse_overflow
+02E8  7D                                  ld a,l
+02E9  81                                  add a,c
+02EA  6F                                  ld l,a
+02EB  D2 F2 02                            jr nc,parse_track_store
+02EE  24                                  inc h
+02EF  CA 00 03                            jr z,parse_overflow
+02F2  EB                                  ex de,hl
+02F3  E1                                  pop hl
+02F4  23                                  inc hl
+02F5  3A B6 12                            ld a,(cmd_remaining)
+02F8  3D                                  dec a
+02F9  32 B6 12                            ld (cmd_remaining),a
+02FC  C3 B4 02                            jr parse_track_loop
+02FF  D1                                  pop de
+0300  E1                                  pop hl
+0301  C3 6A 02                            jr parse_bad
+0304  ED 53 B7 12                         ld (selected_track),de
+0308  3A B6 12                            ld a,(cmd_remaining)
+030B  B7                                  or a
+030C  CA 50 03                            jr z,parse_good
+030F  7E                                  ld a,(hl)
+0310  FE 20                               cp ' '
+0312  C2 20 03                            jr nz,parse_slot_start
+0315  23                                  inc hl
+0316  3A B6 12                            ld a,(cmd_remaining)
+0319  3D                                  dec a
+031A  32 B6 12                            ld (cmd_remaining),a
+031D  C3 08 03                            jr parse_slot_spaces
+0320  7E                                  ld a,(hl)
+0321  FE 30                               cp '0'
+0323  DA 6A 02                            jr c,parse_bad
+0326  FE 34                               cp '4'
+0328  D2 6A 02                            jr nc,parse_bad
+032B  D6 30                               sub '0'
+032D  32 B5 12                            ld (scc_slot),a
+0330  23                                  inc hl
+0331  3A B6 12                            ld a,(cmd_remaining)
+0334  3D                                  dec a
+0335  32 B6 12                            ld (cmd_remaining),a
+0338  3A B6 12                            ld a,(cmd_remaining)
+033B  B7                                  or a
+033C  CA 50 03                            jr z,parse_good
+033F  7E                                  ld a,(hl)
+0340  FE 20                               cp ' '
+0342  C2 6A 02                            jr nz,parse_bad
+0345  23                                  inc hl
+0346  3A B6 12                            ld a,(cmd_remaining)
+0349  3D                                  dec a
+034A  32 B6 12                            ld (cmd_remaining),a
+034D  C3 38 03                            jr parse_trailing
+0350  B7                                  or a
+0351  C9                                  ret
+0352  60                                  ld h,b
+0353  69                                  ld l,c
+0354  06 01                               ld b,1
+0356  0E 49                               ld c,DOS_WRITE
+0358  CD 05 00                            call BDOS
+035B  C9                                  ret
+035C  C5                                  push bc
+035D  D5                                  push de
+035E  32 EA 12                            ld (tmp_offset_hi),a
+0361  22 E0 12                            ld (tmp_offset_lo),hl
+0364  3A B4 12                            ld a,(file_handle)
+0367  47                                  ld b,a
+0368  AF                                  xor a
+0369  16 00                               ld d,0
+036B  3A EA 12                            ld a,(tmp_offset_hi)
+036E  5F                                  ld e,a
+036F  2A E0 12                            ld hl,(tmp_offset_lo)
+0372  0E 4A                               ld c,DOS_SEEK
+0374  CD 05 00                            call BDOS
+0377  D1                                  pop de
+0378  E1                                  pop hl
+0379  C0                                  ret nz
+037A  3A B4 12                            ld a,(file_handle)
+037D  47                                  ld b,a
+037E  0E 48                               ld c,DOS_READ
+0380  CD 05 00                            call BDOS
+0383  C9                                  ret
+0384  AF                                  xor a
+0385  16 04                               ld d,4
+0387  1E 02                               ld e,2
+0389  CD CA FF                            call EXTBIO
+038C  B7                                  or a
+038D  CA D2 03                            jr z,get_mapper_fail
+0390  22 C3 12                            ld (mapper_base),hl
+0393  79                                  ld a,c
+0394  32 D1 12                            ld (mapper_free_count),a
+0397  11 00 00                            ld de,0x0000
+039A  19                                  add hl,de
+039B  22 C5 12                            ld (mapper_all),hl
+039E  2A C3 12                            ld hl,(mapper_base)
+03A1  11 03 00                            ld de,0x0003
+03A4  19                                  add hl,de
+03A5  22 C7 12                            ld (mapper_free),hl
+03A8  2A C3 12                            ld hl,(mapper_base)
+03AB  11 1E 00                            ld de,0x001E
+03AE  19                                  add hl,de
+03AF  22 C9 12                            ld (mapper_put_p1),hl
+03B2  2A C3 12                            ld hl,(mapper_base)
+03B5  11 24 00                            ld de,0x0024
+03B8  19                                  add hl,de
+03B9  22 CB 12                            ld (mapper_put_p2),hl
+03BC  2A C3 12                            ld hl,(mapper_base)
+03BF  11 21 00                            ld de,0x0021
+03C2  19                                  add hl,de
+03C3  22 CD 12                            ld (mapper_get_p1),hl
+03C6  2A C3 12                            ld hl,(mapper_base)
+03C9  11 27 00                            ld de,0x0027
+03CC  19                                  add hl,de
+03CD  22 CF 12                            ld (mapper_get_p2),hl
+03D0  B7                                  or a
+03D1  C9                                  ret
+03D2  37                                  scf
+03D3  C9                                  ret
+03D4  E9                                  jp (hl)
+03D5  2A CD 12                            ld hl,(mapper_get_p1)
+03D8  CD D4 03                            call call_hl
+03DB  32 D2 12                            ld (original_p1),a
+03DE  32 D5 12                            ld (mapped_p1),a
+03E1  2A CF 12                            ld hl,(mapper_get_p2)
+03E4  CD D4 03                            call call_hl
+03E7  32 D3 12                            ld (original_p2),a
+03EA  32 D6 12                            ld (mapped_p2),a
+03ED  DB A8                               in a,(PORT_PPI_A)
+03EF  32 D4 12                            ld (original_a8),a
+03F2  3E 01                               ld a,1
+03F4  32 BE 12                            ld (mapper_ready),a
+03F7  C9                                  ret
+03F8  32 D5 12                            ld (mapped_p1),a
+03FB  2A C9 12                            ld hl,(mapper_put_p1)
+03FE  CD D4 03                            call call_hl
+0401  C9                                  ret
+0402  32 D6 12                            ld (mapped_p2),a
+0405  2A CB 12                            ld hl,(mapper_put_p2)
+0408  CD D4 03                            call call_hl
+040B  C9                                  ret
+040C  3A D4 12                            ld a,(original_a8)
+040F  D3 A8                               out (PORT_PPI_A),a
+0411  3A D2 12                            ld a,(original_p1)
+0414  CD F8 03                            call map_p1
+0417  3A D3 12                            ld a,(original_p2)
+041A  CD 02 04                            call map_p2
+041D  C9                                  ret
+041E  DB A8                               in a,(PORT_PPI_A)
+0420  E6 CF                               and 0xCF
+0422  47                                  ld b,a
+0423  3A B5 12                            ld a,(scc_slot)
+0426  E6 03                               and 3
+0428  07                                  rlca
+0429  07                                  rlca
+042A  07                                  rlca
+042B  07                                  rlca
+042C  B0                                  or b
+042D  D3 A8                               out (PORT_PPI_A),a
+042F  C9                                  ret
+0430  2A 1A 13                            ld hl,(hpl_hot_raw)
+0433  3A 1C 13                            ld a,(hpl_hot_raw+2)
+0436  B7                                  or a
+0437  C2 78 04                            jr nz,alloc_hot_bad
+043A  11 FF 3F                            ld de,0x3FFF
+043D  19                                  add hl,de
+043E  7C                                  ld a,h
+043F  E6 C0                               and 0xC0
+0441  07                                  rlca
+0442  07                                  rlca
+0443  FE 04                               cp 4
+0445  D2 78 04                            jr nc,alloc_hot_bad
+0448  32 DD 12                            ld (hot_needed_count),a
+044B  AF                                  xor a
+044C  32 DC 12                            ld (hot_segment_count),a
+044F  3A DD 12                            ld a,(hot_needed_count)
+0452  47                                  ld b,a
+0453  21 D9 12                            ld hl,hot_segments
+0456  78                                  ld a,b
+0457  B7                                  or a
+0458  CA 76 04                            jr z,alloc_hot_done
+045B  E5                                  push hl
+045C  C5                                  push bc
+045D  AF                                  xor a
+045E  06 00                               ld b,0
+0460  2A C5 12                            ld hl,(mapper_all)
+0463  CD D4 03                            call call_hl
+0466  C1                                  pop bc
+0467  E1                                  pop hl
+0468  DA 78 04                            jr c,alloc_hot_bad
+046B  77                                  ld (hl),a
+046C  23                                  inc hl
+046D  3A DC 12                            ld a,(hot_segment_count)
+0470  3C                                  inc a
+0471  32 DC 12                            ld (hot_segment_count),a
+0474  10 E0                               djnz alloc_hot_loop
+0476  B7                                  or a
+0477  C9                                  ret
+0478  37                                  scf
+0479  C9                                  ret
+047A  3A DC 12                            ld a,(hot_segment_count)
+047D  47                                  ld b,a
+047E  21 D9 12                            ld hl,hot_segments
+0481  78                                  ld a,b
+0482  B7                                  or a
+0483  C8                                  ret z
+0484  7E                                  ld a,(hl)
+0485  23                                  inc hl
+0486  E5                                  push hl
+0487  C5                                  push bc
+0488  06 00                               ld b,0
+048A  2A C7 12                            ld hl,(mapper_free)
+048D  CD D4 03                            call call_hl
+0490  C1                                  pop bc
+0491  E1                                  pop hl
+0492  10 ED                               djnz free_hot_loop
+0494  C9                                  ret
+0495  F3                                  di
+0496  3A BE 12                            ld a,(mapper_ready)
+0499  B7                                  or a
+049A  CA B2 04                            jr z,cleanup_close_file
+049D  CD 95 0E                            call stop_engine
+04A0  3A D4 12                            ld a,(original_a8)
+04A3  D3 A8                               out (PORT_PPI_A),a
+04A5  CD 0C 04                            call restore_process_pages
+04A8  CD 7A 04                            call free_hot_segments
+04AB  AF                                  xor a
+04AC  32 DC 12                            ld (hot_segment_count),a
+04AF  32 BE 12                            ld (mapper_ready),a
+04B2  3A B4 12                            ld a,(file_handle)
+04B5  B7                                  or a
+04B6  CA C3 04                            jr z,cleanup_done
+04B9  47                                  ld b,a
+04BA  0E 45                               ld c,DOS_CLOSE
+04BC  CD 05 00                            call BDOS
+04BF  AF                                  xor a
+04C0  32 B4 12                            ld (file_handle),a
+04C3  FB                                  ei
+04C4  C9                                  ret
+04C5  21 00 18                            ld hl,KSP_HEADER
+04C8  7E                                  ld a,(hl)
+04C9  FE 4B                               cp 'K'
+04CB  C2 31 05                            jr nz,header_bad
+04CE  23                                  inc hl
+04CF  7E                                  ld a,(hl)
+04D0  FE 53                               cp 'S'
+04D2  C2 31 05                            jr nz,header_bad
+04D5  23                                  inc hl
+04D6  7E                                  ld a,(hl)
+04D7  FE 50                               cp 'P'
+04D9  C2 31 05                            jr nz,header_bad
+04DC  23                                  inc hl
+04DD  7E                                  ld a,(hl)
+04DE  FE 31                               cp '1'
+04E0  C2 31 05                            jr nz,header_bad
+04E3  2A 04 18                            ld hl,(KSP_HEADER+4)
+04E6  11 50 00                            ld de,80
+04E9  B7                                  or a
+04EA  ED 52                               sbc hl,de
+04EC  C2 31 05                            jr nz,header_bad
+04EF  2A 06 18                            ld hl,(KSP_HEADER+6)
+04F2  7C                                  ld a,h
+04F3  B5                                  or l
+04F4  C2 31 05                            jr nz,header_bad
+04F7  2A 14 18                            ld hl,(KSP_HEADER+0x14)
+04FA  7C                                  ld a,h
+04FB  B5                                  or l
+04FC  CA 31 05                            jr z,header_bad
+04FF  2A 16 18                            ld hl,(KSP_HEADER+0x16)
+0502  11 40 00                            ld de,64
+0505  B7                                  or a
+0506  ED 52                               sbc hl,de
+0508  DA 31 05                            jr c,header_bad
+050B  2A 1E 18                            ld hl,(KSP_HEADER+0x1E)
+050E  11 18 00                            ld de,24
+0511  B7                                  or a
+0512  ED 52                               sbc hl,de
+0514  DA 31 05                            jr c,header_bad
+0517  2A 26 18                            ld hl,(KSP_HEADER+0x26)
+051A  11 20 00                            ld de,32
+051D  B7                                  or a
+051E  ED 52                               sbc hl,de
+0520  DA 31 05                            jr c,header_bad
+0523  2A 2E 18                            ld hl,(KSP_HEADER+0x2E)
+0526  11 20 00                            ld de,32
+0529  B7                                  or a
+052A  ED 52                               sbc hl,de
+052C  DA 31 05                            jr c,header_bad
+052F  B7                                  or a
+0530  C9                                  ret
+0531  37                                  scf
+0532  C9                                  ret
+0533  2A 10 18                            ld hl,(KSP_HEADER+0x10)
+0536  3A 12 18                            ld a,(KSP_HEADER+0x12)
+0539  11 50 18                            ld de,ENGINE_ENTRY
+053C  01 40 00                            ld bc,64
+053F  CD 5C 03                            call read_at
+0542  C2 47 05                            jr nz,load_engine_bad
+0545  B7                                  or a
+0546  C9                                  ret
+0547  37                                  scf
+0548  C9                                  ret
+0549  2A 50 18                            ld hl,(ENGINE_ENTRY)
+054C  7C                                  ld a,h
+054D  B5                                  or l
+054E  C2 17 06                            jr nz,engine_profile_bad
+0551  2A 52 18                            ld hl,(ENGINE_ENTRY+2)
+0554  7C                                  ld a,h
+0555  B5                                  or l
+0556  C2 17 06                            jr nz,engine_profile_bad
+0559  3A 54 18                            ld a,(ENGINE_ENTRY+4)
+055C  E6 FC                               and 0xFC
+055E  C2 17 06                            jr nz,engine_profile_bad
+0561  3A 55 18                            ld a,(ENGINE_ENTRY+5)
+0564  B7                                  or a
+0565  C2 17 06                            jr nz,engine_profile_bad
+0568  2A 56 18                            ld hl,(ENGINE_ENTRY+6)
+056B  7C                                  ld a,h
+056C  B5                                  or l
+056D  C2 17 06                            jr nz,engine_profile_bad
+0570  2A 58 18                            ld hl,(ENGINE_ENTRY+8)
+0573  11 01 00                            ld de,1
+0576  B7                                  or a
+0577  ED 52                               sbc hl,de
+0579  C2 17 06                            jr nz,engine_profile_bad
+057C  2A 5A 18                            ld hl,(ENGINE_ENTRY+10)
+057F  11 32 00                            ld de,50
+0582  B7                                  or a
+0583  ED 52                               sbc hl,de
+0585  CA 92 05                            jr z,engine_tick_ok
+0588  19                                  add hl,de
+0589  11 3C 00                            ld de,60
+058C  B7                                  or a
+058D  ED 52                               sbc hl,de
+058F  C2 17 06                            jr nz,engine_profile_bad
+0592  2A 5C 18                            ld hl,(ENGINE_ENTRY+12)
+0595  11 00 40                            ld de,0x4000
+0598  B7                                  or a
+0599  ED 52                               sbc hl,de
+059B  C2 17 06                            jr nz,engine_profile_bad
+059E  2A 5E 18                            ld hl,(ENGINE_ENTRY+14)
+05A1  11 00 40                            ld de,0x4000
+05A4  B7                                  or a
+05A5  ED 52                               sbc hl,de
+05A7  C2 17 06                            jr nz,engine_profile_bad
+05AA  2A 60 18                            ld hl,(ENGINE_ENTRY+16)
+05AD  7C                                  ld a,h
+05AE  FE 40                               cp 0x40
+05B0  DA 17 06                            jr c,engine_profile_bad
+05B3  FE 80                               cp 0x80
+05B5  D2 17 06                            jr nc,engine_profile_bad
+05B8  2A 62 18                            ld hl,(ENGINE_ENTRY+18)
+05BB  7C                                  ld a,h
+05BC  FE 40                               cp 0x40
+05BE  DA 17 06                            jr c,engine_profile_bad
+05C1  FE 80                               cp 0x80
+05C3  D2 17 06                            jr nc,engine_profile_bad
+05C6  3A 72 18                            ld a,(ENGINE_ENTRY+34)
+05C9  B7                                  or a
+05CA  C2 17 06                            jr nz,engine_profile_bad
+05CD  3A 73 18                            ld a,(ENGINE_ENTRY+35)
+05D0  B7                                  or a
+05D1  C2 17 06                            jr nz,engine_profile_bad
+05D4  3A 70 18                            ld a,(ENGINE_ENTRY+32)
+05D7  FE 02                               cp 2
+05D9  D2 17 06                            jr nc,engine_profile_bad
+05DC  32 C2 12                            ld (template_compression),a
+05DF  3A 77 18                            ld a,(ENGINE_ENTRY+39)
+05E2  B7                                  or a
+05E3  C2 17 06                            jr nz,engine_profile_bad
+05E6  2A 7A 18                            ld hl,(ENGINE_ENTRY+42)
+05E9  7C                                  ld a,h
+05EA  B5                                  or l
+05EB  C2 17 06                            jr nz,engine_profile_bad
+05EE  2A 7C 18                            ld hl,(ENGINE_ENTRY+44)
+05F1  11 00 40                            ld de,0x4000
+05F4  B7                                  or a
+05F5  ED 52                               sbc hl,de
+05F7  C2 17 06                            jr nz,engine_profile_bad
+05FA  2A 7E 18                            ld hl,(ENGINE_ENTRY+46)
+05FD  7C                                  ld a,h
+05FE  B5                                  or l
+05FF  C2 17 06                            jr nz,engine_profile_bad
+0602  3A C2 12                            ld a,(template_compression)
+0605  B7                                  or a
+0606  C2 15 06                            jr nz,engine_template_ok
+0609  2A 78 18                            ld hl,(ENGINE_ENTRY+40)
+060C  11 00 40                            ld de,0x4000
+060F  B7                                  or a
+0610  ED 52                               sbc hl,de
+0612  C2 17 06                            jr nz,engine_profile_bad
+0615  B7                                  or a
+0616  C9                                  ret
+0617  37                                  scf
+0618  C9                                  ret
+0619  2A 2C 18                            ld hl,(KSP_HEADER+0x2C)
+061C  22 EB 12                            ld (resource_count),hl
+061F  2A 28 18                            ld hl,(KSP_HEADER+0x28)
+0622  3A 2A 18                            ld a,(KSP_HEADER+0x2A)
+0625  22 EF 12                            ld (resource_cursor_lo),hl
+0628  32 F1 12                            ld (resource_cursor_hi),a
+062B  AF                                  xor a
+062C  32 ED 12                            ld (resource_index),a
+062F  32 EE 12                            ld (resource_index+1),a
+0632  2A EB 12                            ld hl,(resource_count)
+0635  7C                                  ld a,h
+0636  B5                                  or l
+0637  CA A9 06                            jr z,find_hpol_bad
+063A  2A EF 12                            ld hl,(resource_cursor_lo)
+063D  3A F1 12                            ld a,(resource_cursor_hi)
+0640  11 D0 18                            ld de,RESOURCE_ENTRY
+0643  01 20 00                            ld bc,32
+0646  CD 5C 03                            call read_at
+0649  C2 A9 06                            jr nz,find_hpol_bad
+064C  21 D0 18                            ld hl,RESOURCE_ENTRY
+064F  7E                                  ld a,(hl)
+0650  FE 48                               cp 'H'
+0652  C2 84 06                            jr nz,find_hpol_next
+0655  23                                  inc hl
+0656  7E                                  ld a,(hl)
+0657  FE 50                               cp 'P'
+0659  C2 84 06                            jr nz,find_hpol_next
+065C  23                                  inc hl
+065D  7E                                  ld a,(hl)
+065E  FE 4F                               cp 'O'
+0660  C2 84 06                            jr nz,find_hpol_next
+0663  23                                  inc hl
+0664  7E                                  ld a,(hl)
+0665  FE 4C                               cp 'L'
+0667  C2 84 06                            jr nz,find_hpol_next
+066A  2A D8 18                            ld hl,(RESOURCE_ENTRY+8)
+066D  3A DA 18                            ld a,(RESOURCE_ENTRY+10)
+0670  22 F2 12                            ld (hpol_offset_lo),hl
+0673  32 F4 12                            ld (hpol_offset_hi),a
+0676  2A DC 18                            ld hl,(RESOURCE_ENTRY+12)
+0679  3A DE 18                            ld a,(RESOURCE_ENTRY+14)
+067C  22 F5 12                            ld (hpol_size_lo),hl
+067F  32 F7 12                            ld (hpol_size_hi),a
+0682  B7                                  or a
+0683  C9                                  ret
+0684  2A EF 12                            ld hl,(resource_cursor_lo)
+0687  11 20 00                            ld de,32
+068A  19                                  add hl,de
+068B  22 EF 12                            ld (resource_cursor_lo),hl
+068E  D2 98 06                            jr nc,find_hpol_no_carry
+0691  3A F1 12                            ld a,(resource_cursor_hi)
+0694  3C                                  inc a
+0695  32 F1 12                            ld (resource_cursor_hi),a
+0698  2A EB 12                            ld hl,(resource_count)
+069B  2B                                  dec hl
+069C  22 EB 12                            ld (resource_count),hl
+069F  2A ED 12                            ld hl,(resource_index)
+06A2  23                                  inc hl
+06A3  22 ED 12                            ld (resource_index),hl
+06A6  C3 32 06                            jr find_hpol_loop
+06A9  37                                  scf
+06AA  C9                                  ret
+06AB  2A F2 12                            ld hl,(hpol_offset_lo)
+06AE  3A F4 12                            ld a,(hpol_offset_hi)
+06B1  11 00 19                            ld de,HPL_HEADER
+06B4  01 60 00                            ld bc,96
+06B7  CD 5C 03                            call read_at
+06BA  C2 53 08                            jp nz,hpl_bad
+06BD  21 00 19                            ld hl,HPL_HEADER
+06C0  7E                                  ld a,(hl)
+06C1  FE 48                               cp 'H'
+06C3  C2 53 08                            jp nz,hpl_bad
+06C6  23                                  inc hl
+06C7  7E                                  ld a,(hl)
+06C8  FE 50                               cp 'P'
+06CA  C2 53 08                            jp nz,hpl_bad
+06CD  23                                  inc hl
+06CE  7E                                  ld a,(hl)
+06CF  FE 4C                               cp 'L'
+06D1  C2 53 08                            jp nz,hpl_bad
+06D4  23                                  inc hl
+06D5  7E                                  ld a,(hl)
+06D6  FE 31                               cp '1'
+06D8  C2 53 08                            jp nz,hpl_bad
+06DB  2A 04 19                            ld hl,(HPL_HEADER+4)
+06DE  11 60 00                            ld de,96
+06E1  B7                                  or a
+06E2  ED 52                               sbc hl,de
+06E4  C2 53 08                            jp nz,hpl_bad
+06E7  2A 06 19                            ld hl,(HPL_HEADER+6)
+06EA  11 01 00                            ld de,1
+06ED  B7                                  or a
+06EE  ED 52                               sbc hl,de
+06F0  C2 53 08                            jp nz,hpl_bad
+06F3  2A 08 19                            ld hl,(HPL_HEADER+8)
+06F6  22 FB 12                            ld (hpl_block_size),hl
+06F9  7C                                  ld a,h
+06FA  B7                                  or a
+06FB  C2 53 08                            jp nz,hpl_bad
+06FE  7D                                  ld a,l
+06FF  FE 40                               cp 64
+0701  DA 53 08                            jp c,hpl_bad
+0704  FE 40                               cp 64
+0706  CA 11 07                            jr z,hpl_bs64
+0709  FE 80                               cp 128
+070B  CA 16 07                            jr z,hpl_bs128
+070E  C3 1B 07                            jr hpl_check_256
+0711  3E 06                               ld a,6
+0713  C3 3A 07                            jr hpl_shift_ready
+0716  3E 07                               ld a,7
+0718  C3 3A 07                            jr hpl_shift_ready
+071B  2A FB 12                            ld hl,(hpl_block_size)
+071E  11 00 01                            ld de,256
+0721  B7                                  or a
+0722  ED 52                               sbc hl,de
+0724  CA 38 07                            jr z,hpl_bs256
+0727  2A FB 12                            ld hl,(hpl_block_size)
+072A  11 00 02                            ld de,512
+072D  B7                                  or a
+072E  ED 52                               sbc hl,de
+0730  C2 53 08                            jp nz,hpl_bad
+0733  3E 09                               ld a,9
+0735  C3 3A 07                            jr hpl_shift_ready
+0738  3E 08                               ld a,8
+073A  32 FD 12                            ld (hpl_block_shift),a
+073D  2A 0A 19                            ld hl,(HPL_HEADER+10)
+0740  22 FE 12                            ld (hpl_position_count),hl
+0743  29                                  add hl,hl
+0744  11 00 02                            ld de,POS_BUFFER_MAX
+0747  B7                                  or a
+0748  ED 52                               sbc hl,de
+074A  D2 53 08                            jp nc,hpl_bad
+074D  2A 0C 19                            ld hl,(HPL_HEADER+12)
+0750  ED 5B 1C 18                         ld de,(KSP_HEADER+0x1C)
+0754  B7                                  or a
+0755  ED 52                               sbc hl,de
+0757  C2 53 08                            jp nz,hpl_bad
+075A  2A 0E 19                            ld hl,(HPL_HEADER+14)
+075D  22 00 13                            ld (hpl_hot_count),hl
+0760  2A 10 19                            ld hl,(HPL_HEADER+16)
+0763  22 02 13                            ld (hpl_warm_count),hl
+0766  2A 12 19                            ld hl,(HPL_HEADER+18)
+0769  22 04 13                            ld (hpl_cold_count),hl
+076C  2A 14 19                            ld hl,(HPL_HEADER+20)
+076F  22 06 13                            ld (hpl_slab_count),hl
+0772  2A 16 19                            ld hl,(HPL_HEADER+22)
+0775  7C                                  ld a,h
+0776  B5                                  or l
+0777  C2 53 08                            jp nz,hpl_bad
+077A  2A 18 19                            ld hl,(HPL_HEADER+24)
+077D  3A 1A 19                            ld a,(HPL_HEADER+26)
+0780  22 08 13                            ld (hpl_positions_off),hl
+0783  32 0A 13                            ld (hpl_positions_off+2),a
+0786  2A 1C 19                            ld hl,(HPL_HEADER+28)
+0789  3A 1E 19                            ld a,(HPL_HEADER+30)
+078C  22 0B 13                            ld (hpl_maps_off),hl
+078F  32 0D 13                            ld (hpl_maps_off+2),a
+0792  2A 20 19                            ld hl,(HPL_HEADER+32)
+0795  3A 22 19                            ld a,(HPL_HEADER+34)
+0798  22 0E 13                            ld (hpl_maps_packed),hl
+079B  32 10 13                            ld (hpl_maps_packed+2),a
+079E  2A 24 19                            ld hl,(HPL_HEADER+36)
+07A1  3A 26 19                            ld a,(HPL_HEADER+38)
+07A4  22 11 13                            ld (hpl_maps_raw),hl
+07A7  32 13 13                            ld (hpl_maps_raw+2),a
+07AA  2A 28 19                            ld hl,(HPL_HEADER+40)
+07AD  3A 2A 19                            ld a,(HPL_HEADER+42)
+07B0  22 14 13                            ld (hpl_hot_off),hl
+07B3  32 16 13                            ld (hpl_hot_off+2),a
+07B6  2A 2C 19                            ld hl,(HPL_HEADER+44)
+07B9  3A 2E 19                            ld a,(HPL_HEADER+46)
+07BC  22 17 13                            ld (hpl_hot_packed),hl
+07BF  32 19 13                            ld (hpl_hot_packed+2),a
+07C2  2A 30 19                            ld hl,(HPL_HEADER+48)
+07C5  3A 32 19                            ld a,(HPL_HEADER+50)
+07C8  22 1A 13                            ld (hpl_hot_raw),hl
+07CB  32 1C 13                            ld (hpl_hot_raw+2),a
+07CE  2A 34 19                            ld hl,(HPL_HEADER+52)
+07D1  3A 36 19                            ld a,(HPL_HEADER+54)
+07D4  22 1D 13                            ld (hpl_warm_off),hl
+07D7  32 1F 13                            ld (hpl_warm_off+2),a
+07DA  2A 38 19                            ld hl,(HPL_HEADER+56)
+07DD  3A 3A 19                            ld a,(HPL_HEADER+58)
+07E0  22 20 13                            ld (hpl_warm_packed),hl
+07E3  32 22 13                            ld (hpl_warm_packed+2),a
+07E6  2A 3C 19                            ld hl,(HPL_HEADER+60)
+07E9  3A 3E 19                            ld a,(HPL_HEADER+62)
+07EC  22 23 13                            ld (hpl_warm_raw),hl
+07EF  32 25 13                            ld (hpl_warm_raw+2),a
+07F2  2A 40 19                            ld hl,(HPL_HEADER+64)
+07F5  3A 42 19                            ld a,(HPL_HEADER+66)
+07F8  22 26 13                            ld (hpl_cold_table_off),hl
+07FB  32 28 13                            ld (hpl_cold_table_off+2),a
+07FE  3A 13 13                            ld a,(hpl_maps_raw+2)
+0801  B7                                  or a
+0802  C2 53 08                            jp nz,hpl_bad
+0805  2A 11 13                            ld hl,(hpl_maps_raw)
+0808  11 01 18                            ld de,MAP_BUFFER_MAX+1
+080B  B7                                  or a
+080C  ED 52                               sbc hl,de
+080E  D2 53 08                            jp nc,hpl_bad
+0811  3A 10 13                            ld a,(hpl_maps_packed+2)
+0814  B7                                  or a
+0815  C2 53 08                            jp nz,hpl_bad
+0818  3A 19 13                            ld a,(hpl_hot_packed+2)
+081B  B7                                  or a
+081C  C2 53 08                            jp nz,hpl_bad
+081F  3A 22 13                            ld a,(hpl_warm_packed+2)
+0822  B7                                  or a
+0823  C2 53 08                            jp nz,hpl_bad
+0826  3A 1C 13                            ld a,(hpl_hot_raw+2)
+0829  B7                                  or a
+082A  C2 53 08                            jp nz,hpl_bad
+082D  2A 1A 13                            ld hl,(hpl_hot_raw)
+0830  11 01 C0                            ld de,0xC001
+0833  B7                                  or a
+0834  ED 52                               sbc hl,de
+0836  D2 53 08                            jp nc,hpl_bad
+0839  3A 25 13                            ld a,(hpl_warm_raw+2)
+083C  B7                                  or a
+083D  CA 51 08                            jr z,hpl_warm_ok
+0840  FE 01                               cp 1
+0842  C2 53 08                            jp nz,hpl_bad
+0845  2A 23 13                            ld hl,(hpl_warm_raw)
+0848  11 01 80                            ld de,0x8001
+084B  B7                                  or a
+084C  ED 52                               sbc hl,de
+084E  D2 53 08                            jp nc,hpl_bad
+0851  B7                                  or a
+0852  C9                                  ret
+0853  37                                  scf
+0854  C9                                  ret
+0855  CD 05 09                            call make_abs_positions_offset
+0858  11 00 1D                            ld de,POS_BUFFER
+085B  2A FE 12                            ld hl,(hpl_position_count)
+085E  29                                  add hl,hl
+085F  44                                  ld b,h
+0860  4D                                  ld c,l
+0861  2A F8 12                            ld hl,(abs_offset_lo)
+0864  3A FA 12                            ld a,(abs_offset_hi)
+0867  CD 5C 03                            call read_at
+086A  C2 00 09                            jr nz,preload_bad
+086D  CD 0B 09                            call make_abs_maps_offset
+0870  2A F8 12                            ld hl,(abs_offset_lo)
+0873  3A FA 12                            ld a,(abs_offset_hi)
+0876  ED 5B 0E 13                         ld de,(hpl_maps_packed)
+087A  42                                  ld b,d
+087B  4B                                  ld c,e
+087C  CD 0D 0F                            call stream_begin
+087F  DA 00 09                            jr c,preload_bad
+0882  AF                                  xor a
+0883  32 48 13                            ld (zx_mode),a
+0886  21 00 1F                            ld hl,MAP_BUFFER
+0889  22 56 13                            ld (linear_base),hl
+088C  2A 11 13                            ld hl,(hpl_maps_raw)
+088F  3A 13 13                            ld a,(hpl_maps_raw+2)
+0892  CD 4D 10                            call zx_set_output_size
+0895  CD 67 10                            call zx_decode
+0898  DA 00 09                            jr c,preload_bad
+089B  CD 0C 04                            call restore_process_pages
+089E  CD 17 09                            call make_abs_warm_offset
+08A1  2A F8 12                            ld hl,(abs_offset_lo)
+08A4  3A FA 12                            ld a,(abs_offset_hi)
+08A7  ED 5B 20 13                         ld de,(hpl_warm_packed)
+08AB  42                                  ld b,d
+08AC  4B                                  ld c,e
+08AD  CD 0D 0F                            call stream_begin
+08B0  DA 00 09                            jr c,preload_bad
+08B3  3E 01                               ld a,1
+08B5  32 48 13                            ld (zx_mode),a
+08B8  CD 3C 12                            call vram_set_warm_base_write
+08BB  2A 23 13                            ld hl,(hpl_warm_raw)
+08BE  3A 25 13                            ld a,(hpl_warm_raw+2)
+08C1  CD 4D 10                            call zx_set_output_size
+08C4  CD 67 10                            call zx_decode
+08C7  DA 00 09                            jr c,preload_bad
+08CA  CD 11 09                            call make_abs_hot_offset
+08CD  2A F8 12                            ld hl,(abs_offset_lo)
+08D0  3A FA 12                            ld a,(abs_offset_hi)
+08D3  ED 5B 17 13                         ld de,(hpl_hot_packed)
+08D7  42                                  ld b,d
+08D8  4B                                  ld c,e
+08D9  CD 0D 0F                            call stream_begin
+08DC  DA 00 09                            jr c,preload_bad
+08DF  3E 02                               ld a,2
+08E1  32 48 13                            ld (zx_mode),a
+08E4  3E FF                               ld a,0xFF
+08E6  32 DE 12                            ld (hot_write_mapped),a
+08E9  32 DF 12                            ld (hot_read_mapped),a
+08EC  2A 1A 13                            ld hl,(hpl_hot_raw)
+08EF  3A 1C 13                            ld a,(hpl_hot_raw+2)
+08F2  CD 4D 10                            call zx_set_output_size
+08F5  CD 67 10                            call zx_decode
+08F8  DA 00 09                            jr c,preload_bad
+08FB  CD 0C 04                            call restore_process_pages
+08FE  B7                                  or a
+08FF  C9                                  ret
+0900  CD 0C 04                            call restore_process_pages
+0903  37                                  scf
+0904  C9                                  ret
+0905  21 08 13                            ld hl,hpl_positions_off
+0908  C3 1A 09                            jr make_hpol_abs
+090B  21 0B 13                            ld hl,hpl_maps_off
+090E  C3 1A 09                            jr make_hpol_abs
+0911  21 14 13                            ld hl,hpl_hot_off
+0914  C3 1A 09                            jr make_hpol_abs
+0917  21 1D 13                            ld hl,hpl_warm_off
+091A  5E                                  ld e,(hl)
+091B  23                                  inc hl
+091C  56                                  ld d,(hl)
+091D  23                                  inc hl
+091E  4E                                  ld c,(hl)
+091F  2A F2 12                            ld hl,(hpol_offset_lo)
+0922  19                                  add hl,de
+0923  22 F8 12                            ld (abs_offset_lo),hl
+0926  3A F4 12                            ld a,(hpol_offset_hi)
+0929  89                                  adc a,c
+092A  32 FA 12                            ld (abs_offset_hi),a
+092D  C9                                  ret
+092E  ED 5B 24 18                         ld de,(KSP_HEADER+0x24)
+0932  B7                                  or a
+0933  ED 52                               sbc hl,de
+0935  D2 04 0A                            jr nc,select_track_bad
+0938  19                                  add hl,de
+0939  22 B7 12                            ld (selected_track),hl
+093C  ED 5B 26 18                         ld de,(KSP_HEADER+0x26)
+0940  CD 06 0A                            call mul16x16_24
+0943  4F                                  ld c,a
+0944  ED 5B 20 18                         ld de,(KSP_HEADER+0x20)
+0948  19                                  add hl,de
+0949  3A 22 18                            ld a,(KSP_HEADER+0x22)
+094C  89                                  adc a,c
+094D  11 90 18                            ld de,TRACK_ENTRY
+0950  01 20 00                            ld bc,32
+0953  CD 5C 03                            call read_at
+0956  C2 04 0A                            jr nz,select_track_bad
+0959  2A 90 18                            ld hl,(TRACK_ENTRY)
+095C  22 B9 12                            ld (current_page),hl
+095F  2A 92 18                            ld hl,(TRACK_ENTRY+2)
+0962  22 BB 12                            ld (current_song_id),hl
+0965  2A B9 12                            ld hl,(current_page)
+0968  ED 5B 1E 18                         ld de,(KSP_HEADER+0x1E)
+096C  CD 06 0A                            call mul16x16_24
+096F  4F                                  ld c,a
+0970  ED 5B 18 18                         ld de,(KSP_HEADER+0x18)
+0974  19                                  add hl,de
+0975  3A 1A 18                            ld a,(KSP_HEADER+0x1A)
+0978  89                                  adc a,c
+0979  11 B0 18                            ld de,PAGE_ENTRY
+097C  01 18 00                            ld bc,24
+097F  CD 5C 03                            call read_at
+0982  C2 04 0A                            jr nz,select_track_bad
+0985  2A B0 18                            ld hl,(PAGE_ENTRY)
+0988  7C                                  ld a,h
+0989  B5                                  or l
+098A  C2 04 0A                            jr nz,select_track_bad
+098D  3A B2 18                            ld a,(PAGE_ENTRY+2)
+0990  FE 00                               cp 0
+0992  CA A8 09                            jr z,select_sparse_page
+0995  FE 01                               cp 1
+0997  CA D6 09                            jr z,select_complete_page
+099A  FE 04                               cp 4
+099C  C2 04 0A                            jr nz,select_track_bad
+099F  3A C1 12                            ld a,(hybrid_ready)
+09A2  B7                                  or a
+09A3  CA 04 0A                            jr z,select_track_bad
+09A6  B7                                  or a
+09A7  C9                                  ret
+09A8  2A B4 18                            ld hl,(PAGE_ENTRY+4)
+09AB  7C                                  ld a,h
+09AC  B5                                  or l
+09AD  C2 04 0A                            jr nz,select_track_bad
+09B0  3A B3 18                            ld a,(PAGE_ENTRY+3)
+09B3  FE 02                               cp 2
+09B5  D2 04 0A                            jr nc,select_track_bad
+09B8  2A BE 18                            ld hl,(PAGE_ENTRY+14)
+09BB  7C                                  ld a,h
+09BC  B5                                  or l
+09BD  C2 04 0A                            jr nz,select_track_bad
+09C0  2A C2 18                            ld hl,(PAGE_ENTRY+18)
+09C3  7C                                  ld a,h
+09C4  B5                                  or l
+09C5  C2 04 0A                            jr nz,select_track_bad
+09C8  2A C0 18                            ld hl,(PAGE_ENTRY+16)
+09CB  11 01 40                            ld de,0x4001
+09CE  B7                                  or a
+09CF  ED 52                               sbc hl,de
+09D1  D2 04 0A                            jr nc,select_track_bad
+09D4  B7                                  or a
+09D5  C9                                  ret
+09D6  2A B4 18                            ld hl,(PAGE_ENTRY+4)
+09D9  7C                                  ld a,h
+09DA  B5                                  or l
+09DB  C2 04 0A                            jr nz,select_track_bad
+09DE  3A B3 18                            ld a,(PAGE_ENTRY+3)
+09E1  FE 02                               cp 2
+09E3  D2 04 0A                            jr nc,select_track_bad
+09E6  2A BE 18                            ld hl,(PAGE_ENTRY+14)
+09E9  7C                                  ld a,h
+09EA  B5                                  or l
+09EB  C2 04 0A                            jr nz,select_track_bad
+09EE  2A C0 18                            ld hl,(PAGE_ENTRY+16)
+09F1  11 00 40                            ld de,0x4000
+09F4  B7                                  or a
+09F5  ED 52                               sbc hl,de
+09F7  C2 04 0A                            jr nz,select_track_bad
+09FA  2A C2 18                            ld hl,(PAGE_ENTRY+18)
+09FD  7C                                  ld a,h
+09FE  B5                                  or l
+09FF  C2 04 0A                            jr nz,select_track_bad
+0A02  B7                                  or a
+0A03  C9                                  ret
+0A04  37                                  scf
+0A05  C9                                  ret
+0A06  22 E2 12                            ld (mul_multiplicand),hl
+0A09  AF                                  xor a
+0A0A  32 E4 12                            ld (mul_multiplicand+2),a
+0A0D  ED 53 E5 12                         ld (mul_multiplier),de
+0A11  21 00 00                            ld hl,0
+0A14  22 E7 12                            ld (mul_result),hl
+0A17  32 E9 12                            ld (mul_result+2),a
+0A1A  06 10                               ld b,16
+0A1C  2A E5 12                            ld hl,(mul_multiplier)
+0A1F  CB 45                               bit 0,l
+0A21  CA 3A 0A                            jr z,mul24_no_add
+0A24  2A E7 12                            ld hl,(mul_result)
+0A27  ED 5B E2 12                         ld de,(mul_multiplicand)
+0A2B  19                                  add hl,de
+0A2C  22 E7 12                            ld (mul_result),hl
+0A2F  3A E9 12                            ld a,(mul_result+2)
+0A32  4F                                  ld c,a
+0A33  3A E4 12                            ld a,(mul_multiplicand+2)
+0A36  89                                  adc a,c
+0A37  32 E9 12                            ld (mul_result+2),a
+0A3A  2A E2 12                            ld hl,(mul_multiplicand)
+0A3D  29                                  add hl,hl
+0A3E  22 E2 12                            ld (mul_multiplicand),hl
+0A41  3A E4 12                            ld a,(mul_multiplicand+2)
+0A44  8F                                  adc a,a
+0A45  32 E4 12                            ld (mul_multiplicand+2),a
+0A48  2A E5 12                            ld hl,(mul_multiplier)
+0A4B  CB 3C                               srl h
+0A4D  CB 1D                               rr l
+0A4F  22 E5 12                            ld (mul_multiplier),hl
+0A52  10 C8                               djnz mul24_loop
+0A54  2A E7 12                            ld hl,(mul_result)
+0A57  3A E9 12                            ld a,(mul_result+2)
+0A5A  C9                                  ret
+0A5B  44                                  ld b,h
+0A5C  4D                                  ld c,l
+0A5D  21 00 00                            ld hl,0
+0A60  78                                  ld a,b
+0A61  B1                                  or c
+0A62  C8                                  ret z
+0A63  19                                  add hl,de
+0A64  0B                                  dec bc
+0A65  C3 60 0A                            jr mul16_real_loop
+0A68  CD 0C 04                            call restore_process_pages
+0A6B  11 1F 16                            ld de,msg_track_prefix
+0A6E  01 06 00                            ld bc,msg_track_prefix_end-msg_track_prefix
+0A71  CD 52 03                            call write_stdout
+0A74  2A B7 12                            ld hl,(selected_track)
+0A77  CD 7E 12                            call print_u16
+0A7A  11 25 16                            ld de,msg_colon
+0A7D  01 02 00                            ld bc,msg_colon_end-msg_colon
+0A80  CD 52 03                            call write_stdout
+0A83  2A 9C 18                            ld hl,(TRACK_ENTRY+12)
+0A86  7C                                  ld a,h
+0A87  A5                                  and l
+0A88  FE FF                               cp 0xFF
+0A8A  C2 97 0A                            jr nz,show_title_present
+0A8D  2A 9E 18                            ld hl,(TRACK_ENTRY+14)
+0A90  7C                                  ld a,h
+0A91  A5                                  and l
+0A92  FE FF                               cp 0xFF
+0A94  CA ED 0A                            jr z,show_title_done
+0A97  AF                                  xor a
+0A98  21 80 19                            ld hl,TITLE_BUFFER
+0A9B  11 81 19                            ld de,TITLE_BUFFER+1
+0A9E  77                                  ld (hl),a
+0A9F  01 9F 00                            ld bc,159
+0AA2  ED B0                               ldir
+0AA4  2A 9C 18                            ld hl,(TRACK_ENTRY+12)
+0AA7  3A 9E 18                            ld a,(TRACK_ENTRY+14)
+0AAA  4F                                  ld c,a
+0AAB  ED 5B 30 18                         ld de,(KSP_HEADER+0x30)
+0AAF  19                                  add hl,de
+0AB0  3A 32 18                            ld a,(KSP_HEADER+0x32)
+0AB3  89                                  adc a,c
+0AB4  11 80 19                            ld de,TITLE_BUFFER
+0AB7  01 A0 00                            ld bc,160
+0ABA  CD 5C 03                            call read_at
+0ABD  C2 ED 0A                            jr nz,show_title_done
+0AC0  21 80 19                            ld hl,TITLE_BUFFER
+0AC3  01 A0 00                            ld bc,160
+0AC6  78                                  ld a,b
+0AC7  B1                                  or c
+0AC8  CA E2 0A                            jr z,show_title_write
+0ACB  7E                                  ld a,(hl)
+0ACC  B7                                  or a
+0ACD  CA E2 0A                            jr z,show_title_write
+0AD0  FE 80                               cp 0x80
+0AD2  D2 E2 0A                            jr nc,show_title_write
+0AD5  FE 20                               cp 0x20
+0AD7  D2 DD 0A                            jr nc,show_title_ascii
+0ADA  3E 3F                               ld a,'?'
+0ADC  77                                  ld (hl),a
+0ADD  23                                  inc hl
+0ADE  0B                                  dec bc
+0ADF  C3 C6 0A                            jr show_title_scan
+0AE2  11 80 19                            ld de,TITLE_BUFFER
+0AE5  B7                                  or a
+0AE6  ED 52                               sbc hl,de
+0AE8  44                                  ld b,h
+0AE9  4D                                  ld c,l
+0AEA  CD 52 03                            call write_stdout
+0AED  11 27 16                            ld de,msg_newline
+0AF0  01 02 00                            ld bc,msg_newline_end-msg_newline
+0AF3  CD 52 03                            call write_stdout
+0AF6  C9                                  ret
+0AF7  F3                                  di
+0AF8  CD 95 0E                            call stop_engine
+0AFB  CD 0C 04                            call restore_process_pages
+0AFE  3A B2 18                            ld a,(PAGE_ENTRY+2)
+0B01  FE 01                               cp 1
+0B03  CA 39 0B                            jr z,install_complete
+0B06  3E 01                               ld a,1
+0B08  32 C0 12                            ld (decode_stage),a
+0B0B  CD 57 0B                            call load_template_page
+0B0E  DA 52 0B                            jr c,install_bad
+0B11  3A B2 18                            ld a,(PAGE_ENTRY+2)
+0B14  B7                                  or a
+0B15  CA 2B 0B                            jr z,install_sparse
+0B18  FE 04                               cp 4
+0B1A  C2 52 0B                            jr nz,install_bad
+0B1D  3E 04                               ld a,4
+0B1F  32 C0 12                            ld (decode_stage),a
+0B22  CD C6 0C                            call apply_hybrid_page
+0B25  DA 52 0B                            jr c,install_bad
+0B28  C3 44 0B                            jr install_start_engine
+0B2B  3E 02                               ld a,2
+0B2D  32 C0 12                            ld (decode_stage),a
+0B30  CD E8 0B                            call apply_sparse_page
+0B33  DA 52 0B                            jr c,install_bad
+0B36  C3 44 0B                            jr install_start_engine
+0B39  3E 03                               ld a,3
+0B3B  32 C0 12                            ld (decode_stage),a
+0B3E  CD 98 0B                            call load_complete_page
+0B41  DA 52 0B                            jr c,install_bad
+0B44  CD 1E 04                            call map_scc_page2
+0B47  CD AE 0E                            call call_init
+0B4A  3E 01                               ld a,1
+0B4C  32 BF 12                            ld (engine_running),a
+0B4F  FB                                  ei
+0B50  B7                                  or a
+0B51  C9                                  ret
+0B52  CD 0C 04                            call restore_process_pages
+0B55  37                                  scf
+0B56  C9                                  ret
+0B57  3A C2 12                            ld a,(template_compression)
+0B5A  B7                                  or a
+0B5B  CA 82 0B                            jr z,load_template_raw
+0B5E  2A 74 18                            ld hl,(ENGINE_ENTRY+36)
+0B61  3A 76 18                            ld a,(ENGINE_ENTRY+38)
+0B64  ED 5B 78 18                         ld de,(ENGINE_ENTRY+40)
+0B68  42                                  ld b,d
+0B69  4B                                  ld c,e
+0B6A  CD 0D 0F                            call stream_begin
+0B6D  D8                                  ret c
+0B6E  AF                                  xor a
+0B6F  32 48 13                            ld (zx_mode),a
+0B72  21 00 40                            ld hl,0x4000
+0B75  22 56 13                            ld (linear_base),hl
+0B78  21 00 40                            ld hl,0x4000
+0B7B  AF                                  xor a
+0B7C  CD 4D 10                            call zx_set_output_size
+0B7F  C3 67 10                            jp zx_decode
+0B82  2A 74 18                            ld hl,(ENGINE_ENTRY+36)
+0B85  3A 76 18                            ld a,(ENGINE_ENTRY+38)
+0B88  11 00 40                            ld de,0x4000
+0B8B  01 00 40                            ld bc,0x4000
+0B8E  CD 5C 03                            call read_at
+0B91  C2 96 0B                            jr nz,load_template_bad
+0B94  B7                                  or a
+0B95  C9                                  ret
+0B96  37                                  scf
+0B97  C9                                  ret
+0B98  3A B3 18                            ld a,(PAGE_ENTRY+3)
+0B9B  B7                                  or a
+0B9C  CA B7 0B                            jr z,load_complete_raw
+0B9F  CD D9 0B                            call begin_page_payload_stream
+0BA2  D8                                  ret c
+0BA3  AF                                  xor a
+0BA4  32 48 13                            ld (zx_mode),a
+0BA7  21 00 40                            ld hl,0x4000
+0BAA  22 56 13                            ld (linear_base),hl
+0BAD  21 00 40                            ld hl,0x4000
+0BB0  AF                                  xor a
+0BB1  CD 4D 10                            call zx_set_output_size
+0BB4  C3 67 10                            jp zx_decode
+0BB7  2A BC 18                            ld hl,(PAGE_ENTRY+12)
+0BBA  11 00 40                            ld de,0x4000
+0BBD  B7                                  or a
+0BBE  ED 52                               sbc hl,de
+0BC0  C2 D7 0B                            jr nz,load_complete_bad
+0BC3  2A B8 18                            ld hl,(PAGE_ENTRY+8)
+0BC6  3A BA 18                            ld a,(PAGE_ENTRY+10)
+0BC9  11 00 40                            ld de,0x4000
+0BCC  01 00 40                            ld bc,0x4000
+0BCF  CD 5C 03                            call read_at
+0BD2  C2 D7 0B                            jr nz,load_complete_bad
+0BD5  B7                                  or a
+0BD6  C9                                  ret
+0BD7  37                                  scf
+0BD8  C9                                  ret
+0BD9  2A B8 18                            ld hl,(PAGE_ENTRY+8)
+0BDC  3A BA 18                            ld a,(PAGE_ENTRY+10)
+0BDF  ED 5B BC 18                         ld de,(PAGE_ENTRY+12)
+0BE3  42                                  ld b,d
+0BE4  4B                                  ld c,e
+0BE5  C3 0D 0F                            jp stream_begin
+0BE8  2A C0 18                            ld hl,(PAGE_ENTRY+16)
+0BEB  7C                                  ld a,h
+0BEC  B5                                  or l
+0BED  C8                                  ret z
+0BEE  3A B3 18                            ld a,(PAGE_ENTRY+3)
+0BF1  B7                                  or a
+0BF2  CA 11 0C                            jr z,load_sparse_raw
+0BF5  CD D9 0B                            call begin_page_payload_stream
+0BF8  D8                                  ret c
+0BF9  AF                                  xor a
+0BFA  32 48 13                            ld (zx_mode),a
+0BFD  21 00 80                            ld hl,0x8000
+0C00  22 56 13                            ld (linear_base),hl
+0C03  2A C0 18                            ld hl,(PAGE_ENTRY+16)
+0C06  AF                                  xor a
+0C07  CD 4D 10                            call zx_set_output_size
+0C0A  CD 67 10                            call zx_decode
+0C0D  D8                                  ret c
+0C0E  C3 31 0C                            jr apply_sparse_records
+0C11  2A BC 18                            ld hl,(PAGE_ENTRY+12)
+0C14  ED 5B C0 18                         ld de,(PAGE_ENTRY+16)
+0C18  B7                                  or a
+0C19  ED 52                               sbc hl,de
+0C1B  C2 C4 0C                            jr nz,sparse_bad
+0C1E  2A B8 18                            ld hl,(PAGE_ENTRY+8)
+0C21  3A BA 18                            ld a,(PAGE_ENTRY+10)
+0C24  11 00 80                            ld de,0x8000
+0C27  ED 4B C0 18                         ld bc,(PAGE_ENTRY+16)
+0C2B  CD 5C 03                            call read_at
+0C2E  C2 C4 0C                            jr nz,sparse_bad
+0C31  21 00 80                            ld hl,0x8000
+0C34  22 30 13                            ld (overlay_ptr),hl
+0C37  2A C0 18                            ld hl,(PAGE_ENTRY+16)
+0C3A  22 32 13                            ld (overlay_remaining),hl
+0C3D  21 00 00                            ld hl,0
+0C40  22 34 13                            ld (overlay_previous_end),hl
+0C43  2A 32 13                            ld hl,(overlay_remaining)
+0C46  7C                                  ld a,h
+0C47  B5                                  or l
+0C48  C8                                  ret z
+0C49  11 04 00                            ld de,4
+0C4C  B7                                  or a
+0C4D  ED 52                               sbc hl,de
+0C4F  DA C4 0C                            jr c,sparse_bad
+0C52  22 32 13                            ld (overlay_remaining),hl
+0C55  2A 30 13                            ld hl,(overlay_ptr)
+0C58  5E                                  ld e,(hl)
+0C59  23                                  inc hl
+0C5A  56                                  ld d,(hl)
+0C5B  23                                  inc hl
+0C5C  4E                                  ld c,(hl)
+0C5D  23                                  inc hl
+0C5E  46                                  ld b,(hl)
+0C5F  23                                  inc hl
+0C60  22 30 13                            ld (overlay_ptr),hl
+0C63  ED 53 36 13                         ld (overlay_offset),de
+0C67  ED 43 38 13                         ld (overlay_length),bc
+0C6B  78                                  ld a,b
+0C6C  B1                                  or c
+0C6D  CA C4 0C                            jr z,sparse_bad
+0C70  2A 36 13                            ld hl,(overlay_offset)
+0C73  ED 5B 34 13                         ld de,(overlay_previous_end)
+0C77  B7                                  or a
+0C78  ED 52                               sbc hl,de
+0C7A  DA C4 0C                            jr c,sparse_bad
+0C7D  2A 36 13                            ld hl,(overlay_offset)
+0C80  ED 5B 38 13                         ld de,(overlay_length)
+0C84  19                                  add hl,de
+0C85  DA C4 0C                            jr c,sparse_bad
+0C88  22 3A 13                            ld (overlay_end),hl
+0C8B  11 01 40                            ld de,0x4001
+0C8E  B7                                  or a
+0C8F  ED 52                               sbc hl,de
+0C91  D2 C4 0C                            jr nc,sparse_bad
+0C94  2A 32 13                            ld hl,(overlay_remaining)
+0C97  ED 4B 38 13                         ld bc,(overlay_length)
+0C9B  B7                                  or a
+0C9C  ED 42                               sbc hl,bc
+0C9E  DA C4 0C                            jr c,sparse_bad
+0CA1  22 32 13                            ld (overlay_remaining),hl
+0CA4  2A 30 13                            ld hl,(overlay_ptr)
+0CA7  E5                                  push hl
+0CA8  21 00 40                            ld hl,0x4000
+0CAB  ED 5B 36 13                         ld de,(overlay_offset)
+0CAF  19                                  add hl,de
+0CB0  EB                                  ex de,hl
+0CB1  E1                                  pop hl
+0CB2  ED 4B 38 13                         ld bc,(overlay_length)
+0CB6  ED B0                               ldir
+0CB8  22 30 13                            ld (overlay_ptr),hl
+0CBB  2A 3A 13                            ld hl,(overlay_end)
+0CBE  22 34 13                            ld (overlay_previous_end),hl
+0CC1  C3 43 0C                            jr sparse_record_loop
+0CC4  37                                  scf
+0CC5  C9                                  ret
+0CC6  2A B9 12                            ld hl,(current_page)
+0CC9  ED 5B FE 12                         ld de,(hpl_position_count)
+0CCD  CD 5B 0A                            call mul16_real
+0CD0  29                                  add hl,hl
+0CD1  11 00 1F                            ld de,MAP_BUFFER
+0CD4  19                                  add hl,de
+0CD5  22 2C 13                            ld (current_map_ptr),hl
+0CD8  21 00 1D                            ld hl,POS_BUFFER
+0CDB  22 2E 13                            ld (current_pos_ptr),hl
+0CDE  ED 4B FE 12                         ld bc,(hpl_position_count)
+0CE2  78                                  ld a,b
+0CE3  B1                                  or c
+0CE4  C8                                  ret z
+0CE5  C5                                  push bc
+0CE6  2A 2E 13                            ld hl,(current_pos_ptr)
+0CE9  5E                                  ld e,(hl)
+0CEA  23                                  inc hl
+0CEB  56                                  ld d,(hl)
+0CEC  23                                  inc hl
+0CED  22 2E 13                            ld (current_pos_ptr),hl
+0CF0  2A 2C 13                            ld hl,(current_map_ptr)
+0CF3  4E                                  ld c,(hl)
+0CF4  23                                  inc hl
+0CF5  46                                  ld b,(hl)
+0CF6  23                                  inc hl
+0CF7  22 2C 13                            ld (current_map_ptr),hl
+0CFA  D5                                  push de
+0CFB  C5                                  push bc
+0CFC  CD 07 0D                            call copy_global_block
+0CFF  C1                                  pop bc
+0D00  D1                                  pop de
+0D01  C1                                  pop bc
+0D02  D8                                  ret c
+0D03  0B                                  dec bc
+0D04  C3 E2 0C                            jr apply_page_loop
+0D07  2A 00 13                            ld hl,(hpl_hot_count)
+0D0A  B7                                  or a
+0D0B  ED 42                               sbc hl,bc
+0D0D  DA 17 0D                            jr c,block_not_hot
+0D10  CA 17 0D                            jr z,block_not_hot
+0D13  CD 3D 0D                            call copy_hot_block
+0D16  C9                                  ret
+0D17  2A 00 13                            ld hl,(hpl_hot_count)
+0D1A  79                                  ld a,c
+0D1B  95                                  sub l
+0D1C  4F                                  ld c,a
+0D1D  78                                  ld a,b
+0D1E  9C                                  sbc a,h
+0D1F  47                                  ld b,a
+0D20  2A 02 13                            ld hl,(hpl_warm_count)
+0D23  B7                                  or a
+0D24  ED 42                               sbc hl,bc
+0D26  DA 30 0D                            jr c,block_not_warm
+0D29  CA 30 0D                            jr z,block_not_warm
+0D2C  CD 71 0D                            call copy_warm_block
+0D2F  C9                                  ret
+0D30  2A 02 13                            ld hl,(hpl_warm_count)
+0D33  79                                  ld a,c
+0D34  95                                  sub l
+0D35  4F                                  ld c,a
+0D36  78                                  ld a,b
+0D37  9C                                  sbc a,h
+0D38  47                                  ld b,a
+0D39  CD 96 0D                            call copy_cold_block
+0D3C  C9                                  ret
+0D3D  D5                                  push de
+0D3E  60                                  ld h,b
+0D3F  69                                  ld l,c
+0D40  CD 62 0E                            call shift_block_offset
+0D43  B7                                  or a
+0D44  C2 6E 0D                            jr nz,copy_hot_bad
+0D47  E5                                  push hl
+0D48  7C                                  ld a,h
+0D49  E6 C0                               and 0xC0
+0D4B  07                                  rlca
+0D4C  07                                  rlca
+0D4D  4F                                  ld c,a
+0D4E  06 00                               ld b,0
+0D50  21 D9 12                            ld hl,hot_segments
+0D53  09                                  add hl,bc
+0D54  7E                                  ld a,(hl)
+0D55  CD 02 04                            call map_p2
+0D58  E1                                  pop hl
+0D59  7C                                  ld a,h
+0D5A  E6 3F                               and 0x3F
+0D5C  F6 80                               or 0x80
+0D5E  67                                  ld h,a
+0D5F  D1                                  pop de
+0D60  7A                                  ld a,d
+0D61  E6 3F                               and 0x3F
+0D63  F6 40                               or 0x40
+0D65  57                                  ld d,a
+0D66  ED 4B FB 12                         ld bc,(hpl_block_size)
+0D6A  ED B0                               ldir
+0D6C  B7                                  or a
+0D6D  C9                                  ret
+0D6E  D1                                  pop de
+0D6F  37                                  scf
+0D70  C9                                  ret
+0D71  D5                                  push de
+0D72  60                                  ld h,b
+0D73  69                                  ld l,c
+0D74  CD 62 0E                            call shift_block_offset
+0D77  11 00 80                            ld de,0x8000
+0D7A  19                                  add hl,de
+0D7B  CE 00                               adc a,0
+0D7D  CD 62 12                            call vram_set_read_address
+0D80  D1                                  pop de
+0D81  21 00 40                            ld hl,0x4000
+0D84  19                                  add hl,de
+0D85  EB                                  ex de,hl
+0D86  ED 4B FB 12                         ld bc,(hpl_block_size)
+0D8A  DB 98                               in a,(PORT_VDP_DATA)
+0D8C  12                                  ld (de),a
+0D8D  13                                  inc de
+0D8E  0B                                  dec bc
+0D8F  78                                  ld a,b
+0D90  B1                                  or c
+0D91  C2 8A 0D                            jr nz,copy_warm_loop
+0D94  B7                                  or a
+0D95  C9                                  ret
+0D96  D5                                  push de
+0D97  3E 0E                               ld a,14
+0D99  57                                  ld d,a
+0D9A  3A FD 12                            ld a,(hpl_block_shift)
+0D9D  5F                                  ld e,a
+0D9E  7A                                  ld a,d
+0D9F  93                                  sub e
+0DA0  DA E7 0D                            jr c,cold_bad
+0DA3  32 2B 13                            ld (cold_div_shift),a
+0DA6  60                                  ld h,b
+0DA7  69                                  ld l,c
+0DA8  3A 2B 13                            ld a,(cold_div_shift)
+0DAB  B7                                  or a
+0DAC  CA BA 0D                            jr z,cold_div_done
+0DAF  CB 3C                               srl h
+0DB1  CB 1D                               rr l
+0DB3  3D                                  dec a
+0DB4  32 2B 13                            ld (cold_div_shift),a
+0DB7  C3 A8 0D                            jr cold_div_loop
+0DBA  ED 5B 29 13                         ld de,(cold_cached_slab)
+0DBE  B7                                  or a
+0DBF  ED 52                               sbc hl,de
+0DC1  CA CD 0D                            jr z,cold_cache_ready
+0DC4  19                                  add hl,de
+0DC5  C5                                  push bc
+0DC6  CD EA 0D                            call load_cold_slab
+0DC9  C1                                  pop bc
+0DCA  DA E7 0D                            jr c,cold_bad
+0DCD  60                                  ld h,b
+0DCE  69                                  ld l,c
+0DCF  CD 62 0E                            call shift_block_offset
+0DD2  7C                                  ld a,h
+0DD3  E6 3F                               and 0x3F
+0DD5  F6 80                               or 0x80
+0DD7  67                                  ld h,a
+0DD8  D1                                  pop de
+0DD9  7A                                  ld a,d
+0DDA  E6 3F                               and 0x3F
+0DDC  F6 40                               or 0x40
+0DDE  57                                  ld d,a
+0DDF  ED 4B FB 12                         ld bc,(hpl_block_size)
+0DE3  ED B0                               ldir
+0DE5  B7                                  or a
+0DE6  C9                                  ret
+0DE7  D1                                  pop de
+0DE8  37                                  scf
+0DE9  C9                                  ret
+0DEA  22 29 13                            ld (cold_cached_slab),hl
+0DED  29                                  add hl,hl
+0DEE  29                                  add hl,hl
+0DEF  29                                  add hl,hl
+0DF0  29                                  add hl,hl
+0DF1  ED 5B 26 13                         ld de,(hpl_cold_table_off)
+0DF5  19                                  add hl,de
+0DF6  3A 28 13                            ld a,(hpl_cold_table_off+2)
+0DF9  CE 00                               adc a,0
+0DFB  ED 5B F2 12                         ld de,(hpol_offset_lo)
+0DFF  19                                  add hl,de
+0E00  4F                                  ld c,a
+0E01  3A F4 12                            ld a,(hpol_offset_hi)
+0E04  89                                  adc a,c
+0E05  11 D0 18                            ld de,RESOURCE_ENTRY
+0E08  01 10 00                            ld bc,16
+0E0B  CD 5C 03                            call read_at
+0E0E  C2 60 0E                            jr nz,load_cold_bad
+0E11  3A DA 18                            ld a,(RESOURCE_ENTRY+10)
+0E14  FE 01                               cp 1
+0E16  C2 60 0E                            jr nz,load_cold_bad
+0E19  2A D8 18                            ld hl,(RESOURCE_ENTRY+8)
+0E1C  11 01 40                            ld de,0x4001
+0E1F  B7                                  or a
+0E20  ED 52                               sbc hl,de
+0E22  D2 60 0E                            jr nc,load_cold_bad
+0E25  2A D0 18                            ld hl,(RESOURCE_ENTRY)
+0E28  3A D2 18                            ld a,(RESOURCE_ENTRY+2)
+0E2B  ED 5B F2 12                         ld de,(hpol_offset_lo)
+0E2F  19                                  add hl,de
+0E30  4F                                  ld c,a
+0E31  3A F4 12                            ld a,(hpol_offset_hi)
+0E34  89                                  adc a,c
+0E35  ED 5B D4 18                         ld de,(RESOURCE_ENTRY+4)
+0E39  42                                  ld b,d
+0E3A  4B                                  ld c,e
+0E3B  CD 0D 0F                            call stream_begin
+0E3E  DA 60 0E                            jr c,load_cold_bad
+0E41  3A D3 12                            ld a,(original_p2)
+0E44  CD 02 04                            call map_p2
+0E47  AF                                  xor a
+0E48  32 48 13                            ld (zx_mode),a
+0E4B  21 00 80                            ld hl,0x8000
+0E4E  22 56 13                            ld (linear_base),hl
+0E51  2A D8 18                            ld hl,(RESOURCE_ENTRY+8)
+0E54  AF                                  xor a
+0E55  CD 4D 10                            call zx_set_output_size
+0E58  CD 67 10                            call zx_decode
+0E5B  DA 60 0E                            jr c,load_cold_bad
+0E5E  B7                                  or a
+0E5F  C9                                  ret
+0E60  37                                  scf
+0E61  C9                                  ret
+0E62  AF                                  xor a
+0E63  47                                  ld b,a
+0E64  3A FD 12                            ld a,(hpl_block_shift)
+0E67  47                                  ld b,a
+0E68  AF                                  xor a
+0E69  29                                  add hl,hl
+0E6A  8F                                  adc a,a
+0E6B  10 FC                               djnz shift_block_loop
+0E6D  C9                                  ret
+0E6E  F3                                  di
+0E6F  CD 95 0E                            call stop_engine
+0E72  CD 0C 04                            call restore_process_pages
+0E75  2A B7 12                            ld hl,(selected_track)
+0E78  23                                  inc hl
+0E79  ED 5B 24 18                         ld de,(KSP_HEADER+0x24)
+0E7D  B7                                  or a
+0E7E  ED 52                               sbc hl,de
+0E80  DA 89 0E                            jr c,next_track_in_range
+0E83  21 00 00                            ld hl,0
+0E86  C3 8A 0E                            jr next_track_selected
+0E89  19                                  add hl,de
+0E8A  CD 2E 09                            call select_track
+0E8D  D8                                  ret c
+0E8E  CD 68 0A                            call show_current_title
+0E91  CD F7 0A                            call install_current_track
+0E94  C9                                  ret
+0E95  3A BF 12                            ld a,(engine_running)
+0E98  B7                                  or a
+0E99  C8                                  ret z
+0E9A  AF                                  xor a
+0E9B  32 BF 12                            ld (engine_running),a
+0E9E  2A 64 18                            ld hl,(ENGINE_ENTRY+20)
+0EA1  7C                                  ld a,h
+0EA2  B5                                  or l
+0EA3  C8                                  ret z
+0EA4  22 AB 0E                            ld (stop_call+1),hl
+0EA7  CD 1E 04                            call map_scc_page2
+0EAA  CD 00 00                            call 0
+0EAD  C9                                  ret
+0EAE  2A 60 18                            ld hl,(ENGINE_ENTRY+16)
+0EB1  22 BF 0E                            ld (init_call+1),hl
+0EB4  2A BB 12                            ld hl,(current_song_id)
+0EB7  7D                                  ld a,l
+0EB8  01 00 00                            ld bc,0
+0EBB  11 00 00                            ld de,0
+0EBE  CD 00 00                            call 0
+0EC1  C9                                  ret
+0EC2  2A 62 18                            ld hl,(ENGINE_ENTRY+18)
+0EC5  22 C9 0E                            ld (play_call+1),hl
+0EC8  CD 00 00                            call 0
+0ECB  C9                                  ret
+0ECC  DB AA                               in a,(PORT_KEY_ROW)
+0ECE  57                                  ld d,a
+0ECF  E6 F0                               and 0xF0
+0ED1  F6 07                               or 7
+0ED3  D3 AA                               out (PORT_KEY_ROW),a
+0ED5  DB A9                               in a,(PORT_KEY_IN)
+0ED7  5F                                  ld e,a
+0ED8  7A                                  ld a,d
+0ED9  D3 AA                               out (PORT_KEY_ROW),a
+0EDB  7B                                  ld a,e
+0EDC  CB 57                               bit 2,a
+0EDE  CA 08 0F                            jr z,control_escape
+0EE1  DB AA                               in a,(PORT_KEY_ROW)
+0EE3  57                                  ld d,a
+0EE4  E6 F0                               and 0xF0
+0EE6  F6 08                               or 8
+0EE8  D3 AA                               out (PORT_KEY_ROW),a
+0EEA  DB A9                               in a,(PORT_KEY_IN)
+0EEC  5F                                  ld e,a
+0EED  7A                                  ld a,d
+0EEE  D3 AA                               out (PORT_KEY_ROW),a
+0EF0  7B                                  ld a,e
+0EF1  E6 01                               and 1
+0EF3  47                                  ld b,a
+0EF4  3A BD 12                            ld a,(space_previous)
+0EF7  4F                                  ld c,a
+0EF8  78                                  ld a,b
+0EF9  32 BD 12                            ld (space_previous),a
+0EFC  B7                                  or a
+0EFD  C2 0B 0F                            jr nz,control_none
+0F00  79                                  ld a,c
+0F01  B7                                  or a
+0F02  CA 0B 0F                            jr z,control_none
+0F05  3E 02                               ld a,2
+0F07  C9                                  ret
+0F08  3E 01                               ld a,1
+0F0A  C9                                  ret
+0F0B  AF                                  xor a
+0F0C  C9                                  ret
+0F0D  22 3C 13                            ld (stream_offset_lo),hl
+0F10  32 3E 13                            ld (stream_offset_hi),a
+0F13  60                                  ld h,b
+0F14  69                                  ld l,c
+0F15  22 3F 13                            ld (stream_remaining),hl
+0F18  AF                                  xor a
+0F19  32 41 13                            ld (stream_remaining+2),a
+0F1C  21 00 00                            ld hl,0
+0F1F  22 44 13                            ld (input_count),hl
+0F22  22 42 13                            ld (input_ptr),hl
+0F25  32 4A 13                            ld (zx_bit_mask),a
+0F28  32 4C 13                            ld (zx_backtrack),a
+0F2B  3A B4 12                            ld a,(file_handle)
+0F2E  47                                  ld b,a
+0F2F  AF                                  xor a
+0F30  16 00                               ld d,0
+0F32  3A 3E 13                            ld a,(stream_offset_hi)
+0F35  5F                                  ld e,a
+0F36  2A 3C 13                            ld hl,(stream_offset_lo)
+0F39  0E 4A                               ld c,DOS_SEEK
+0F3B  CD 05 00                            call BDOS
+0F3E  C2 43 0F                            jr nz,stream_begin_bad
+0F41  B7                                  or a
+0F42  C9                                  ret
+0F43  37                                  scf
+0F44  C9                                  ret
+0F45  3A D5 12                            ld a,(mapped_p1)
+0F48  32 D7 12                            ld (saved_map_p1),a
+0F4B  3A D6 12                            ld a,(mapped_p2)
+0F4E  32 D8 12                            ld (saved_map_p2),a
+0F51  CD 0C 04                            call restore_process_pages
+0F54  2A 3F 13                            ld hl,(stream_remaining)
+0F57  3A 41 13                            ld a,(stream_remaining+2)
+0F5A  B4                                  or h
+0F5B  B5                                  or l
+0F5C  CA AE 0F                            jr z,refill_eof
+0F5F  11 00 02                            ld de,IO_BUFFER_SIZE
+0F62  3A 41 13                            ld a,(stream_remaining+2)
+0F65  B7                                  or a
+0F66  C2 73 0F                            jr nz,refill_use_512
+0F69  B7                                  or a
+0F6A  ED 52                               sbc hl,de
+0F6C  D2 73 0F                            jr nc,refill_use_512
+0F6F  19                                  add hl,de
+0F70  C3 76 0F                            jr refill_count_ready
+0F73  21 00 02                            ld hl,IO_BUFFER_SIZE
+0F76  22 46 13                            ld (refill_count),hl
+0F79  3A B4 12                            ld a,(file_handle)
+0F7C  47                                  ld b,a
+0F7D  11 00 1B                            ld de,IO_BUFFER
+0F80  0E 48                               ld c,DOS_READ
+0F82  CD 05 00                            call BDOS
+0F85  C2 AE 0F                            jr nz,refill_error
+0F88  7C                                  ld a,h
+0F89  B5                                  or l
+0F8A  CA AE 0F                            jr z,refill_error
+0F8D  22 44 13                            ld (input_count),hl
+0F90  54                                  ld d,h
+0F91  5D                                  ld e,l
+0F92  2A 3F 13                            ld hl,(stream_remaining)
+0F95  B7                                  or a
+0F96  ED 52                               sbc hl,de
+0F98  22 3F 13                            ld (stream_remaining),hl
+0F9B  3A 41 13                            ld a,(stream_remaining+2)
+0F9E  DE 00                               sbc a,0
+0FA0  32 41 13                            ld (stream_remaining+2),a
+0FA3  21 00 1B                            ld hl,IO_BUFFER
+0FA6  22 42 13                            ld (input_ptr),hl
+0FA9  CD B3 0F                            call restore_saved_maps
+0FAC  B7                                  or a
+0FAD  C9                                  ret
+0FAE  CD B3 0F                            call restore_saved_maps
+0FB1  37                                  scf
+0FB2  C9                                  ret
+0FB3  3A D7 12                            ld a,(saved_map_p1)
+0FB6  CD F8 03                            call map_p1
+0FB9  3A D8 12                            ld a,(saved_map_p2)
+0FBC  CD 02 04                            call map_p2
+0FBF  C9                                  ret
+0FC0  2A 44 13                            ld hl,(input_count)
+0FC3  7C                                  ld a,h
+0FC4  B5                                  or l
+0FC5  C2 D2 0F                            jr nz,zx_read_have
+0FC8  C5                                  push bc
+0FC9  D5                                  push de
+0FCA  E5                                  push hl
+0FCB  CD 45 0F                            call stream_refill
+0FCE  E1                                  pop hl
+0FCF  D1                                  pop de
+0FD0  C1                                  pop bc
+0FD1  D8                                  ret c
+0FD2  2A 42 13                            ld hl,(input_ptr)
+0FD5  7E                                  ld a,(hl)
+0FD6  23                                  inc hl
+0FD7  22 42 13                            ld (input_ptr),hl
+0FDA  2A 44 13                            ld hl,(input_count)
+0FDD  2B                                  dec hl
+0FDE  22 44 13                            ld (input_count),hl
+0FE1  32 4B 13                            ld (zx_last_byte),a
+0FE4  B7                                  or a
+0FE5  C9                                  ret
+0FE6  3A 4C 13                            ld a,(zx_backtrack)
+0FE9  B7                                  or a
+0FEA  CA F7 0F                            jr z,zx_read_bit_normal
+0FED  AF                                  xor a
+0FEE  32 4C 13                            ld (zx_backtrack),a
+0FF1  3A 4B 13                            ld a,(zx_last_byte)
+0FF4  E6 01                               and 1
+0FF6  C9                                  ret
+0FF7  3A 4A 13                            ld a,(zx_bit_mask)
+0FFA  B7                                  or a
+0FFB  C2 0A 10                            jr nz,zx_have_mask
+0FFE  CD C0 0F                            call zx_read_byte
+1001  D8                                  ret c
+1002  32 49 13                            ld (zx_bit_value),a
+1005  3E 80                               ld a,0x80
+1007  32 4A 13                            ld (zx_bit_mask),a
+100A  D5                                  push de
+100B  5F                                  ld e,a
+100C  3A 49 13                            ld a,(zx_bit_value)
+100F  A3                                  and e
+1010  CA 18 10                            jr z,zx_bit_zero
+1013  3E 01                               ld a,1
+1015  C3 19 10                            jr zx_bit_result
+1018  AF                                  xor a
+1019  D1                                  pop de
+101A  F5                                  push af
+101B  3A 4A 13                            ld a,(zx_bit_mask)
+101E  CB 3F                               srl a
+1020  32 4A 13                            ld (zx_bit_mask),a
+1023  F1                                  pop af
+1024  B7                                  or a
+1025  C9                                  ret
+1026  AF                                  xor a
+1027  32 4D 13                            ld (gamma_invert),a
+102A  C3 32 10                            jr zx_gamma
+102D  3E 01                               ld a,1
+102F  32 4D 13                            ld (gamma_invert),a
+1032  01 01 00                            ld bc,1
+1035  CD E6 0F                            call zx_read_bit
+1038  D8                                  ret c
+1039  B7                                  or a
+103A  C0                                  ret nz
+103B  CB 21                               sla c
+103D  CB 10                               rl b
+103F  CD E6 0F                            call zx_read_bit
+1042  D8                                  ret c
+1043  57                                  ld d,a
+1044  3A 4D 13                            ld a,(gamma_invert)
+1047  AA                                  xor d
+1048  B1                                  or c
+1049  4F                                  ld c,a
+104A  C3 35 10                            jr zx_gamma_loop
+104D  22 53 13                            ld (zx_remaining),hl
+1050  32 55 13                            ld (zx_remaining+2),a
+1053  AF                                  xor a
+1054  32 50 13                            ld (zx_output_pos),a
+1057  32 51 13                            ld (zx_output_pos+1),a
+105A  32 52 13                            ld (zx_output_pos+2),a
+105D  C9                                  ret
+105E  2A 53 13                            ld hl,(zx_remaining)
+1061  3A 55 13                            ld a,(zx_remaining+2)
+1064  B4                                  or h
+1065  B5                                  or l
+1066  C9                                  ret
+1067  21 01 00                            ld hl,1
+106A  22 4E 13                            ld (zx_last_offset),hl
+106D  CD 26 10                            call zx_gamma_normal
+1070  D8                                  ret c
+1071  CD F2 10                            call zx_copy_literals
+1074  D8                                  ret c
+1075  CD 5E 10                            call zx_output_finished
+1078  B7                                  or a
+1079  C8                                  ret z
+107A  CD E6 0F                            call zx_read_bit
+107D  D8                                  ret c
+107E  B7                                  or a
+107F  C2 A2 10                            jr nz,zx_new_offset
+1082  CD 26 10                            call zx_gamma_normal
+1085  D8                                  ret c
+1086  CD 01 11                            call zx_copy_match
+1089  D8                                  ret c
+108A  CD 5E 10                            call zx_output_finished
+108D  B7                                  or a
+108E  C8                                  ret z
+108F  CD E6 0F                            call zx_read_bit
+1092  D8                                  ret c
+1093  B7                                  or a
+1094  C2 A2 10                            jr nz,zx_new_offset
+1097  CD 26 10                            call zx_gamma_normal
+109A  D8                                  ret c
+109B  CD F2 10                            call zx_copy_literals
+109E  D8                                  ret c
+109F  C3 75 10                            jr zx_main_loop
+10A2  CD 2D 10                            call zx_gamma_inverted
+10A5  D8                                  ret c
+10A6  60                                  ld h,b
+10A7  69                                  ld l,c
+10A8  11 00 01                            ld de,256
+10AB  B7                                  or a
+10AC  ED 52                               sbc hl,de
+10AE  CA F0 10                            jr z,zx_decode_done
+10B1  19                                  add hl,de
+10B2  3E 07                               ld a,7
+10B4  29                                  add hl,hl
+10B5  3D                                  dec a
+10B6  C2 B4 10                            jr nz,zx_offset_shift
+10B9  E5                                  push hl
+10BA  CD C0 0F                            call zx_read_byte
+10BD  E1                                  pop hl
+10BE  D8                                  ret c
+10BF  5F                                  ld e,a
+10C0  CB 3B                               srl e
+10C2  16 00                               ld d,0
+10C4  B7                                  or a
+10C5  ED 52                               sbc hl,de
+10C7  22 4E 13                            ld (zx_last_offset),hl
+10CA  3E 01                               ld a,1
+10CC  32 4C 13                            ld (zx_backtrack),a
+10CF  CD 26 10                            call zx_gamma_normal
+10D2  D8                                  ret c
+10D3  03                                  inc bc
+10D4  CD 01 11                            call zx_copy_match
+10D7  D8                                  ret c
+10D8  CD 5E 10                            call zx_output_finished
+10DB  B7                                  or a
+10DC  C8                                  ret z
+10DD  CD E6 0F                            call zx_read_bit
+10E0  D8                                  ret c
+10E1  B7                                  or a
+10E2  C2 A2 10                            jr nz,zx_new_offset
+10E5  CD 26 10                            call zx_gamma_normal
+10E8  D8                                  ret c
+10E9  CD F2 10                            call zx_copy_literals
+10EC  D8                                  ret c
+10ED  C3 75 10                            jr zx_main_loop
+10F0  B7                                  or a
+10F1  C9                                  ret
+10F2  78                                  ld a,b
+10F3  B1                                  or c
+10F4  C8                                  ret z
+10F5  CD C0 0F                            call zx_read_byte
+10F8  D8                                  ret c
+10F9  CD 15 11                            call zx_write_output
+10FC  D8                                  ret c
+10FD  0B                                  dec bc
+10FE  C3 F2 10                            jr zx_literal_loop
+1101  78                                  ld a,b
+1102  B1                                  or c
+1103  C8                                  ret z
+1104  C5                                  push bc
+1105  2A 4E 13                            ld hl,(zx_last_offset)
+1108  CD 82 11                            call zx_read_history
+110B  C1                                  pop bc
+110C  D8                                  ret c
+110D  CD 15 11                            call zx_write_output
+1110  D8                                  ret c
+1111  0B                                  dec bc
+1112  C3 01 11                            jr zx_match_loop
+1115  F5                                  push af
+1116  3A 48 13                            ld a,(zx_mode)
+1119  B7                                  or a
+111A  CA 29 11                            jr z,zx_write_linear
+111D  FE 01                               cp 1
+111F  CA 36 11                            jr z,zx_write_warm
+1122  F1                                  pop af
+1123  CD BE 11                            call hot_write_byte
+1126  C3 45 11                            jr zx_write_account
+1129  F1                                  pop af
+112A  2A 56 13                            ld hl,(linear_base)
+112D  ED 5B 50 13                         ld de,(zx_output_pos)
+1131  19                                  add hl,de
+1132  77                                  ld (hl),a
+1133  C3 45 11                            jr zx_write_account
+1136  F1                                  pop af
+1137  F5                                  push af
+1138  2A 50 13                            ld hl,(zx_output_pos)
+113B  7C                                  ld a,h
+113C  E6 7F                               and 0x7F
+113E  F6 40                               or 0x40
+1140  67                                  ld h,a
+1141  F1                                  pop af
+1142  77                                  ld (hl),a
+1143  D3 98                               out (PORT_VDP_DATA),a
+1145  2A 50 13                            ld hl,(zx_output_pos)
+1148  23                                  inc hl
+1149  22 50 13                            ld (zx_output_pos),hl
+114C  7C                                  ld a,h
+114D  B5                                  or l
+114E  C2 58 11                            jr nz,zx_position_done
+1151  3A 52 13                            ld a,(zx_output_pos+2)
+1154  3C                                  inc a
+1155  32 52 13                            ld (zx_output_pos+2),a
+1158  2A 53 13                            ld hl,(zx_remaining)
+115B  3A 55 13                            ld a,(zx_remaining+2)
+115E  B4                                  or h
+115F  B5                                  or l
+1160  CA 80 11                            jr z,zx_write_overflow
+1163  2A 53 13                            ld hl,(zx_remaining)
+1166  7C                                  ld a,h
+1167  B5                                  or l
+1168  C2 7A 11                            jr nz,zx_remaining_low_nonzero
+116B  21 FF FF                            ld hl,0xFFFF
+116E  22 53 13                            ld (zx_remaining),hl
+1171  3A 55 13                            ld a,(zx_remaining+2)
+1174  3D                                  dec a
+1175  32 55 13                            ld (zx_remaining+2),a
+1178  B7                                  or a
+1179  C9                                  ret
+117A  2B                                  dec hl
+117B  22 53 13                            ld (zx_remaining),hl
+117E  B7                                  or a
+117F  C9                                  ret
+1180  37                                  scf
+1181  C9                                  ret
+1182  E5                                  push hl
+1183  ED 5B 50 13                         ld de,(zx_output_pos)
+1187  EB                                  ex de,hl
+1188  D1                                  pop de
+1189  B7                                  or a
+118A  ED 52                               sbc hl,de
+118C  3A 52 13                            ld a,(zx_output_pos+2)
+118F  DE 00                               sbc a,0
+1191  22 58 13                            ld (history_pos_lo),hl
+1194  32 5A 13                            ld (history_pos_hi),a
+1197  3A 48 13                            ld a,(zx_mode)
+119A  B7                                  or a
+119B  CA A7 11                            jr z,zx_read_linear
+119E  FE 01                               cp 1
+11A0  CA B2 11                            jr z,zx_read_warm
+11A3  CD E5 11                            call hot_read_byte
+11A6  C9                                  ret
+11A7  2A 56 13                            ld hl,(linear_base)
+11AA  ED 5B 58 13                         ld de,(history_pos_lo)
+11AE  19                                  add hl,de
+11AF  7E                                  ld a,(hl)
+11B0  B7                                  or a
+11B1  C9                                  ret
+11B2  2A 58 13                            ld hl,(history_pos_lo)
+11B5  7C                                  ld a,h
+11B6  E6 7F                               and 0x7F
+11B8  F6 40                               or 0x40
+11BA  67                                  ld h,a
+11BB  7E                                  ld a,(hl)
+11BC  B7                                  or a
+11BD  C9                                  ret
+11BE  F5                                  push af
+11BF  CD 1E 12                            call hot_output_segment
+11C2  47                                  ld b,a
+11C3  3A DE 12                            ld a,(hot_write_mapped)
+11C6  B8                                  cp b
+11C7  CA D9 11                            jr z,hot_write_seg_ok
+11CA  78                                  ld a,b
+11CB  32 DE 12                            ld (hot_write_mapped),a
+11CE  21 D9 12                            ld hl,hot_segments
+11D1  4F                                  ld c,a
+11D2  06 00                               ld b,0
+11D4  09                                  add hl,bc
+11D5  7E                                  ld a,(hl)
+11D6  CD 02 04                            call map_p2
+11D9  2A 50 13                            ld hl,(zx_output_pos)
+11DC  7C                                  ld a,h
+11DD  E6 3F                               and 0x3F
+11DF  F6 80                               or 0x80
+11E1  67                                  ld h,a
+11E2  F1                                  pop af
+11E3  77                                  ld (hl),a
+11E4  C9                                  ret
+11E5  CD 2D 12                            call hot_history_segment
+11E8  47                                  ld b,a
+11E9  CD 1E 12                            call hot_output_segment
+11EC  B8                                  cp b
+11ED  C2 FC 11                            jr nz,hot_read_other
+11F0  2A 58 13                            ld hl,(history_pos_lo)
+11F3  7C                                  ld a,h
+11F4  E6 3F                               and 0x3F
+11F6  F6 80                               or 0x80
+11F8  67                                  ld h,a
+11F9  7E                                  ld a,(hl)
+11FA  B7                                  or a
+11FB  C9                                  ret
+11FC  3A DF 12                            ld a,(hot_read_mapped)
+11FF  B8                                  cp b
+1200  CA 12 12                            jr z,hot_read_seg_ok
+1203  78                                  ld a,b
+1204  32 DF 12                            ld (hot_read_mapped),a
+1207  21 D9 12                            ld hl,hot_segments
+120A  4F                                  ld c,a
+120B  06 00                               ld b,0
+120D  09                                  add hl,bc
+120E  7E                                  ld a,(hl)
+120F  CD F8 03                            call map_p1
+1212  2A 58 13                            ld hl,(history_pos_lo)
+1215  7C                                  ld a,h
+1216  E6 3F                               and 0x3F
+1218  F6 40                               or 0x40
+121A  67                                  ld h,a
+121B  7E                                  ld a,(hl)
+121C  B7                                  or a
+121D  C9                                  ret
+121E  3A 52 13                            ld a,(zx_output_pos+2)
+1221  87                                  add a,a
+1222  87                                  add a,a
+1223  47                                  ld b,a
+1224  3A 51 13                            ld a,(zx_output_pos+1)
+1227  07                                  rlca
+1228  07                                  rlca
+1229  E6 03                               and 3
+122B  B0                                  or b
+122C  C9                                  ret
+122D  3A 5A 13                            ld a,(history_pos_hi)
+1230  87                                  add a,a
+1231  87                                  add a,a
+1232  47                                  ld b,a
+1233  3A 59 13                            ld a,(history_pos_lo+1)
+1236  07                                  rlca
+1237  07                                  rlca
+1238  E6 03                               and 3
+123A  B0                                  or b
+123B  C9                                  ret
+123C  21 00 80                            ld hl,0x8000
+123F  AF                                  xor a
+1240  CD 44 12                            call vram_set_write_address
+1243  C9                                  ret
+1244  57                                  ld d,a
+1245  7C                                  ld a,h
+1246  07                                  rlca
+1247  07                                  rlca
+1248  E6 03                               and 3
+124A  5F                                  ld e,a
+124B  7A                                  ld a,d
+124C  87                                  add a,a
+124D  87                                  add a,a
+124E  B3                                  or e
+124F  E6 07                               and 7
+1251  D3 99                               out (PORT_VDP_CTRL),a
+1253  3E 8E                               ld a,0x8E
+1255  D3 99                               out (PORT_VDP_CTRL),a
+1257  7D                                  ld a,l
+1258  D3 99                               out (PORT_VDP_CTRL),a
+125A  7C                                  ld a,h
+125B  E6 3F                               and 0x3F
+125D  F6 40                               or 0x40
+125F  D3 99                               out (PORT_VDP_CTRL),a
+1261  C9                                  ret
+1262  57                                  ld d,a
+1263  7C                                  ld a,h
+1264  07                                  rlca
+1265  07                                  rlca
+1266  E6 03                               and 3
+1268  5F                                  ld e,a
+1269  7A                                  ld a,d
+126A  87                                  add a,a
+126B  87                                  add a,a
+126C  B3                                  or e
+126D  E6 07                               and 7
+126F  D3 99                               out (PORT_VDP_CTRL),a
+1271  3E 8E                               ld a,0x8E
+1273  D3 99                               out (PORT_VDP_CTRL),a
+1275  7D                                  ld a,l
+1276  D3 99                               out (PORT_VDP_CTRL),a
+1278  7C                                  ld a,h
+1279  E6 3F                               and 0x3F
+127B  D3 99                               out (PORT_VDP_CTRL),a
+127D  C9                                  ret
+127E  11 61 13                            ld de,decimal_buffer+6
+1281  AF                                  xor a
+1282  12                                  ld (de),a
+1283  D5                                  push de
+1284  CD 9F 12                            call div10_u16
+1287  D1                                  pop de
+1288  C6 30                               add a,'0'
+128A  1B                                  dec de
+128B  12                                  ld (de),a
+128C  7C                                  ld a,h
+128D  B5                                  or l
+128E  C2 83 12                            jr nz,print_u16_loop
+1291  D5                                  push de
+1292  21 61 13                            ld hl,decimal_buffer+6
+1295  B7                                  or a
+1296  ED 52                               sbc hl,de
+1298  44                                  ld b,h
+1299  4D                                  ld c,l
+129A  D1                                  pop de
+129B  CD 52 03                            call write_stdout
+129E  C9                                  ret
+129F  11 0A 00                            ld de,10
+12A2  01 00 00                            ld bc,0
+12A5  B7                                  or a
+12A6  ED 52                               sbc hl,de
+12A8  DA AF 12                            jr c,div10_done
+12AB  03                                  inc bc
+12AC  C3 A5 12                            jr div10_loop
+12AF  19                                  add hl,de
+12B0  7D                                  ld a,l
+12B1  60                                  ld h,b
+12B2  69                                  ld l,c
+12B3  C9                                  ret
+12B4  00                              file_handle:            db 0
+12B5  02                              scc_slot:               db 2
+12B6  00                              cmd_remaining:          db 0
+12B7  00 00                           selected_track:         dw 0
+12B9  00 00                           current_page:           dw 0
+12BB  00 00                           current_song_id:        dw 0
+12BD  01                              space_previous:         db 1
+12BE  00                              mapper_ready:           db 0
+12BF  00                              engine_running:         db 0
+12C0  00                              decode_stage:           db 0
+12C1  00                              hybrid_ready:          db 0
+12C2  00                              template_compression:   db 0
+12C3  00 00                           mapper_base:            dw 0
+12C5  00 00                           mapper_all:             dw 0
+12C7  00 00                           mapper_free:            dw 0
+12C9  00 00                           mapper_put_p1:          dw 0
+12CB  00 00                           mapper_put_p2:          dw 0
+12CD  00 00                           mapper_get_p1:          dw 0
+12CF  00 00                           mapper_get_p2:          dw 0
+12D1  00                              mapper_free_count:      db 0
+12D2  00                              original_p1:            db 0
+12D3  00                              original_p2:            db 0
+12D4  00                              original_a8:            db 0
+12D5  00                              mapped_p1:              db 0
+12D6  00                              mapped_p2:              db 0
+12D7  00                              saved_map_p1:           db 0
+12D8  00                              saved_map_p2:           db 0
+12D9  00 00 00                        hot_segments:           db 0,0,0
+12DC  00                              hot_segment_count:      db 0
+12DD  00                              hot_needed_count:       db 0
+12DE  FF                              hot_write_mapped:       db 0xFF
+12DF  FF                              hot_read_mapped:        db 0xFF
+12E0  00 00                           tmp_offset_lo:          dw 0
+12E2  00 00 00                        mul_multiplicand:       db 0,0,0
+12E5  00 00                           mul_multiplier:         dw 0
+12E7  00 00 00                        mul_result:             db 0,0,0
+12EA  00                              tmp_offset_hi:          db 0
+12EB  00 00                           resource_count:         dw 0
+12ED  00 00                           resource_index:         dw 0
+12EF  00 00                           resource_cursor_lo:     dw 0
+12F1  00                              resource_cursor_hi:     db 0
+12F2  00 00                           hpol_offset_lo:         dw 0
+12F4  00                              hpol_offset_hi:         db 0
+12F5  00 00                           hpol_size_lo:           dw 0
+12F7  00                              hpol_size_hi:           db 0
+12F8  00 00                           abs_offset_lo:          dw 0
+12FA  00                              abs_offset_hi:          db 0
+12FB  00 00                           hpl_block_size:         dw 0
+12FD  00                              hpl_block_shift:        db 0
+12FE  00 00                           hpl_position_count:     dw 0
+1300  00 00                           hpl_hot_count:          dw 0
+1302  00 00                           hpl_warm_count:         dw 0
+1304  00 00                           hpl_cold_count:         dw 0
+1306  00 00                           hpl_slab_count:         dw 0
+1308  00 00 00                        hpl_positions_off:      db 0,0,0
+130B  00 00 00                        hpl_maps_off:           db 0,0,0
+130E  00 00 00                        hpl_maps_packed:        db 0,0,0
+1311  00 00 00                        hpl_maps_raw:           db 0,0,0
+1314  00 00 00                        hpl_hot_off:            db 0,0,0
+1317  00 00 00                        hpl_hot_packed:         db 0,0,0
+131A  00 00 00                        hpl_hot_raw:            db 0,0,0
+131D  00 00 00                        hpl_warm_off:           db 0,0,0
+1320  00 00 00                        hpl_warm_packed:        db 0,0,0
+1323  00 00 00                        hpl_warm_raw:           db 0,0,0
+1326  00 00 00                        hpl_cold_table_off:     db 0,0,0
+1329  FF FF                           cold_cached_slab:       dw 0xFFFF
+132B  00                              cold_div_shift:         db 0
+132C  00 00                           current_map_ptr:        dw 0
+132E  00 00                           current_pos_ptr:        dw 0
+1330  00 00                           overlay_ptr:            dw 0
+1332  00 00                           overlay_remaining:      dw 0
+1334  00 00                           overlay_previous_end:   dw 0
+1336  00 00                           overlay_offset:         dw 0
+1338  00 00                           overlay_length:         dw 0
+133A  00 00                           overlay_end:            dw 0
+133C  00 00                           stream_offset_lo:       dw 0
+133E  00                              stream_offset_hi:       db 0
+133F  00 00 00                        stream_remaining:       db 0,0,0
+1342  00 00                           input_ptr:              dw 0
+1344  00 00                           input_count:            dw 0
+1346  00 00                           refill_count:           dw 0
+1348  00                              zx_mode:                db 0
+1349  00                              zx_bit_value:           db 0
+134A  00                              zx_bit_mask:            db 0
+134B  00                              zx_last_byte:           db 0
+134C  00                              zx_backtrack:           db 0
+134D  00                              gamma_invert:           db 0
+134E  01 00                           zx_last_offset:         dw 1
+1350  00 00 00                        zx_output_pos:          db 0,0,0
+1353  00 00 00                        zx_remaining:           db 0,0,0
+1356  00 00                           linear_base:            dw 0
+1358  00 00                           history_pos_lo:         dw 0
+135A  00                              history_pos_hi:         db 0
+135B  00 00 00 00 00 00 00            decimal_buffer:         ds 7,0
+1362  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  filename:               ds 128,0
+13E2  4B 53 50 31 50 4C 41 59 20 30 2E 36 20 2D 20 4B 53 50 20 31 2E 30 20 70 61 67 65 20 70 6C 61 79 65 72 0D 0A  msg_banner: db 'KSP1PLAY 0.6 - KSP 1.0 page player',13,10
+1406  55 73 61 67 65 3A 20 4B 53 50 31 50 4C 41 59 20 66 69 6C 65 2E 6B 73 70 20 5B 74 72 61 63 6B 5D 20 5B 53 43 43 20 70 72 69 6D 61 72 79 20 73 6C 6F 74 20 30 2D 33 5D 0D 0A  msg_usage: db 'Usage: KSP1PLAY file.ksp [track] [SCC primary slot 0-3]',13,10
+143F  45 72 72 6F 72 3A 20 69 6E 76 61 6C 69 64 20 6F 72 20 75 6E 73 75 70 70 6F 72 74 65 64 20 4B 53 50 20 31 2E 30 20 66 69 6C 65 2E 0D 0A  msg_format: db 'Error: invalid or unsupported KSP 1.0 file.',13,10
+146C  45 72 72 6F 72 3A 20 65 6E 67 69 6E 65 20 6D 75 73 74 20 62 65 20 61 20 34 30 30 30 68 2D 37 46 46 46 68 20 31 36 4B 20 4D 53 58 20 70 61 67 65 2E 0D 0A  msg_profile: db 'Error: engine must be a 4000h-7FFFh 16K MSX page.',13,10
+149F  45 72 72 6F 72 3A 20 4D 53 58 2D 44 4F 53 32 20 6D 61 70 70 65 72 20 41 50 49 20 75 6E 61 76 61 69 6C 61 62 6C 65 2E 0D 0A  msg_mapper: db 'Error: MSX-DOS2 mapper API unavailable.',13,10
+14C8  45 72 72 6F 72 3A 20 69 6E 73 75 66 66 69 63 69 65 6E 74 20 6D 61 70 70 65 72 20 73 65 67 6D 65 6E 74 73 20 66 6F 72 20 68 6F 74 20 70 6F 6F 6C 2E 0D 0A  msg_memory: db 'Error: insufficient mapper segments for hot pool.',13,10
+14FB  45 72 72 6F 72 3A 20 66 69 6C 65 20 61 63 63 65 73 73 20 66 61 69 6C 65 64 2E 0D 0A  msg_file: db 'Error: file access failed.',13,10
+1517  45 72 72 6F 72 3A 20 74 72 61 63 6B 2F 70 61 67 65 20 69 73 20 69 6E 76 61 6C 69 64 2E 0D 0A  msg_track: db 'Error: track/page is invalid.',13,10
+1536  45 72 72 6F 72 3A 20 5A 58 30 20 6F 72 20 70 61 67 65 20 72 65 63 6F 6E 73 74 72 75 63 74 69 6F 6E 20 66 61 69 6C 65 64 2E 0D 0A  msg_decode: db 'Error: ZX0 or page reconstruction failed.',13,10
+1561  45 72 72 6F 72 3A 20 65 6E 67 69 6E 65 20 74 65 6D 70 6C 61 74 65 20 5A 58 30 20 64 65 63 6F 64 69 6E 67 20 66 61 69 6C 65 64 2E 0D 0A  msg_decode_template: db 'Error: engine template ZX0 decoding failed.',13,10
+158E  45 72 72 6F 72 3A 20 73 70 61 72 73 65 20 6F 76 65 72 6C 61 79 20 64 65 63 6F 64 69 6E 67 20 6F 72 20 72 65 63 6F 72 64 73 20 66 61 69 6C 65 64 2E 0D 0A  msg_decode_sparse: db 'Error: sparse overlay decoding or records failed.',13,10
+15C1  45 72 72 6F 72 3A 20 63 6F 6D 70 6C 65 74 65 20 70 61 67 65 20 64 65 63 6F 64 69 6E 67 20 66 61 69 6C 65 64 2E 0D 0A  msg_decode_complete: db 'Error: complete page decoding failed.',13,10
+15E8  45 72 72 6F 72 3A 20 68 79 62 72 69 64 20 70 6F 6F 6C 20 64 65 63 6F 64 69 6E 67 20 6F 72 20 72 65 63 6F 6E 73 74 72 75 63 74 69 6F 6E 20 66 61 69 6C 65 64 2E 0D 0A  msg_decode_hybrid: db 'Error: hybrid pool decoding or reconstruction failed.',13,10
+161F  54 72 61 63 6B 20               msg_track_prefix: db 'Track '
+1625  3A 20                           msg_colon: db ': '
+1627  0D 0A                           msg_newline: db 13,10

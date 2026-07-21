@@ -1,0 +1,45 @@
+[
+  {
+    "file": "SOLIDSNK_KSP1_HYBRID_RAM_VRAM.ksp",
+    "file_size": 48963,
+    "tracks": 43,
+    "pages": 43,
+    "engine_load": 16384,
+    "engine_size": 16384,
+    "hardware_flags": 3,
+    "tick_hz": 60,
+    "block_size": 128,
+    "position_count": 48,
+    "hot_raw": 49152,
+    "warm_raw": 70272,
+    "cold_raw": 0,
+    "cold_slabs": 0,
+    "reconstructed_pages": 43,
+    "unique_pages": 43,
+    "profile_compatible": true,
+    "incompatibilities": []
+  },
+  {
+    "file": "XAK_GAZELL_KSP1_HYBRID_RAM_VRAM.ksp",
+    "file_size": 172471,
+    "tracks": 233,
+    "pages": 232,
+    "engine_load": 45056,
+    "engine_size": 16384,
+    "hardware_flags": 33,
+    "tick_hz": 60,
+    "block_size": 256,
+    "position_count": 13,
+    "hot_raw": 49152,
+    "warm_raw": 98304,
+    "cold_raw": 166656,
+    "cold_slabs": 11,
+    "reconstructed_pages": 232,
+    "unique_pages": 232,
+    "profile_compatible": false,
+    "incompatibilities": [
+      "hardware flags 0x21 are outside PSG/SCC profile",
+      "engine must load at 0x4000 with size 0x4000, got 0xb000/0x4000"
+    ]
+  }
+]
