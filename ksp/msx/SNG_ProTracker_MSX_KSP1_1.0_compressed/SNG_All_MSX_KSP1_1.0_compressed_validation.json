@@ -1,0 +1,36 @@
+{
+  "output": "SNG_All_MSX_KSP1_1.0_compressed.ksp",
+  "bytes": 711685,
+  "sha256": "2cfdc65275321fb7b30ce39cab3463e16feba44c72d7f98a567912f1a96aa050",
+  "source_bytes": 726126,
+  "tracks": 98,
+  "pages": 493,
+  "initial_pages": 98,
+  "dynamic_bank_pages": 395,
+  "unique_banks": 395,
+  "compressed_bank_bytes": 657330,
+  "pblk_bytes": 666842,
+  "template_bytes": 16384,
+  "profile": {
+    "page_load": "0x4000",
+    "page_size": "0x4000",
+    "init": "0x40C0",
+    "play": "0x4030",
+    "gateway": "0x17E0",
+    "replace_start": "0x6000",
+    "tick_hz": 50
+  },
+  "validation": {
+    "all_original_zx0_slabs_decode": true,
+    "all_page_crcs": true,
+    "header_index_crcs": true,
+    "trace": {
+      "ticks_per_track": 600,
+      "tracks_tested": 98,
+      "exact_tracks": 98,
+      "mismatches": [],
+      "min_events": 94,
+      "max_events": 4077
+    }
+  }
+}

@@ -1,0 +1,14 @@
+[
+  {
+    "file": "SOLIDSNK_KSP1_SPARSE_REGRESSION.ksp",
+    "bytes": 90499,
+    "tracks": 43,
+    "pages": 43,
+    "page_encodings": {
+      "sparse overlay": 43
+    },
+    "maximum_page_payload_raw": 5212,
+    "all_page_crcs_valid": true,
+    "profile_compatible": true
+  }
+]

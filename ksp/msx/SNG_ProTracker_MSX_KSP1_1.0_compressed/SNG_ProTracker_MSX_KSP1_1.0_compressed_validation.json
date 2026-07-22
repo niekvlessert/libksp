@@ -1,0 +1,105 @@
+{
+  "format": "standalone KSP 1.0, finalized MSX runtime profile",
+  "outputs": [
+    {
+      "output": "SNG_All_MSX_KSP1_1.0_compressed.ksp",
+      "bytes": 711685,
+      "sha256": "2cfdc65275321fb7b30ce39cab3463e16feba44c72d7f98a567912f1a96aa050",
+      "source_bytes": 726126,
+      "tracks": 98,
+      "pages": 493,
+      "initial_pages": 98,
+      "dynamic_bank_pages": 395,
+      "unique_banks": 395,
+      "compressed_bank_bytes": 657330,
+      "pblk_bytes": 666842,
+      "template_bytes": 16384,
+      "profile": {
+        "page_load": "0x4000",
+        "page_size": "0x4000",
+        "init": "0x40C0",
+        "play": "0x4030",
+        "gateway": "0x17E0",
+        "replace_start": "0x6000",
+        "tick_hz": 50
+      },
+      "validation": {
+        "all_original_zx0_slabs_decode": true,
+        "all_page_crcs": true,
+        "header_index_crcs": true,
+        "trace": {
+          "ticks_per_track": 600,
+          "tracks_tested": 98,
+          "exact_tracks": 98,
+          "mismatches": [],
+          "min_events": 94,
+          "max_events": 4077
+        }
+      }
+    },
+    {
+      "output": "ProTracker_All_MSX_KSP1_1.0_compressed.ksp",
+      "bytes": 137749,
+      "sha256": "d13d18b30f8173b56ab38b5ebd2b51746fe56116e0efd44bfef94a0baabeab79",
+      "source_bytes": 162000,
+      "tracks": 158,
+      "pages": 158,
+      "data_resources": 158,
+      "compressed_data_resources": 157,
+      "compressed_song_bytes": 95624,
+      "special_uncompressed_bytes": 6231,
+      "profile": {
+        "page_load": "0x4000",
+        "page_size": "0x4000",
+        "init": "0x4000",
+        "play": "0x40D7",
+        "stop": "0x4066",
+        "tick_hz": 50,
+        "hardware_flags": "PSG+YM2413"
+      },
+      "engine_changes": {
+        "relocated_from": "0xCA00-0xD9FF",
+        "relocated_to": "0x4000-0x4FFF",
+        "song_data_window": "0x5000-0x7FFF",
+        "page0_and_page3_dependencies_removed": true,
+        "track_152_compatibility_mirror": true
+      },
+      "validation": {
+        "header_crc_valid": true,
+        "index_crc_valid": true,
+        "all_resource_crcs_valid": true,
+        "all_original_zx0_resources_decode": true,
+        "all_pages_materialize_byte_identical": true,
+        "all_page_crcs_valid": true,
+        "titles_tracks_preserved": true
+      },
+      "chip_write_trace": {
+        "all_tracks": {
+          "ticks_per_track": 600,
+          "tracks_tested": 158,
+          "exact_tracks": 158,
+          "mismatches": []
+        },
+        "long_special_window": {
+          "range": "150..157",
+          "ticks_per_track": 3600,
+          "exact_tracks": 8,
+          "mismatches": []
+        }
+      },
+      "audible_or_physical_msx_test": false
+    }
+  ],
+  "summary": {
+    "tracks_total": 256,
+    "sng_bytes": 711685,
+    "protracker_bytes": 137749,
+    "combined_bytes": 849434,
+    "engines_relocated_to_page1": true,
+    "page0_song_dependency_removed": true,
+    "page3_engine_dependency_removed": true,
+    "requires_final_standalone_ksp1_msx_player": true,
+    "compatible_with_legacy_kssx_kcpx_kcpz_kspplay": false,
+    "physical_msx_test": false
+  }
+}

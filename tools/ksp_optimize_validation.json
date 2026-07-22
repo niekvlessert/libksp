@@ -1,0 +1,15 @@
+{
+  "tool": "ksp_optimize.py",
+  "bytes": 93088,
+  "sha256": "038f1c84bbf530b54358a3c45c194809c725ea73c74983225f5488e76eeb55dd",
+  "compile_check": "passed",
+  "built_in_self_test": "Self-test passed: ZX0, sparse overlays, PBK1 and KZB1 round-trip correctly.",
+  "external_end_to_end_tests": {
+    "mixed_sparse_complete_input": "passed",
+    "sparse_output_reparse": "passed",
+    "PBM1_PBK1_output_reparse": "passed",
+    "RMP1_output_reparse": "passed",
+    "HPOL_HPL1_output_reparse": "passed",
+    "all_reconstructed_pages_byte_identical": true
+  }
+}

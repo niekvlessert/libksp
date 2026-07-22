@@ -1,0 +1,52 @@
+{
+  "output": "ProTracker_All_MSX_KSP1_1.0_compressed.ksp",
+  "bytes": 137749,
+  "sha256": "d13d18b30f8173b56ab38b5ebd2b51746fe56116e0efd44bfef94a0baabeab79",
+  "source_bytes": 162000,
+  "tracks": 158,
+  "pages": 158,
+  "data_resources": 158,
+  "compressed_data_resources": 157,
+  "compressed_song_bytes": 95624,
+  "special_uncompressed_bytes": 6231,
+  "profile": {
+    "page_load": "0x4000",
+    "page_size": "0x4000",
+    "init": "0x4000",
+    "play": "0x40D7",
+    "stop": "0x4066",
+    "tick_hz": 50,
+    "hardware_flags": "PSG+YM2413"
+  },
+  "engine_changes": {
+    "relocated_from": "0xCA00-0xD9FF",
+    "relocated_to": "0x4000-0x4FFF",
+    "song_data_window": "0x5000-0x7FFF",
+    "page0_and_page3_dependencies_removed": true,
+    "track_152_compatibility_mirror": true
+  },
+  "validation": {
+    "header_crc_valid": true,
+    "index_crc_valid": true,
+    "all_resource_crcs_valid": true,
+    "all_original_zx0_resources_decode": true,
+    "all_pages_materialize_byte_identical": true,
+    "all_page_crcs_valid": true,
+    "titles_tracks_preserved": true
+  },
+  "chip_write_trace": {
+    "all_tracks": {
+      "ticks_per_track": 600,
+      "tracks_tested": 158,
+      "exact_tracks": 158,
+      "mismatches": []
+    },
+    "long_special_window": {
+      "range": "150..157",
+      "ticks_per_track": 3600,
+      "exact_tracks": 8,
+      "mismatches": []
+    }
+  },
+  "audible_or_physical_msx_test": false
+}

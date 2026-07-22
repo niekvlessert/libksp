@@ -74,9 +74,9 @@ static int decode_bytes(uint8_t compression, const uint8_t *packed, size_t packe
 }
 static int parse_header(KSP1Runtime *r, char *error, size_t error_size) {
     const uint8_t *b=r->data; KSP1Header *h=&r->header; uint8_t tmp[80]; uint32_t crc=0;
-    if(r->size<80 || memcmp(b,"KSP1",4) || rd16(b+4)!=80 || rd16(b+6)!=0){set_error(error,error_size,"not KSP 1.0");return 0;}
+    if(r->size<80 || memcmp(b,"KSP1",4) || rd16(b+4)!=80 || rd16(b+6)>1){set_error(error,error_size,"not supported KSP 1.x");return 0;}
     if(rd32(b+8)!=0 || rd16(b+0x3e)!=0 || !all_zero(b+0x48,8)){set_error(error,error_size,"unsupported header flags/reserved fields");return 0;}
-    h->file_size=rd32(b+0x0c); h->engine_table_offset=rd32(b+0x10); h->engine_count=rd16(b+0x14); h->engine_entry_size=rd16(b+0x16);
+    h->minor_version=rd16(b+6); h->file_size=rd32(b+0x0c); h->engine_table_offset=rd32(b+0x10); h->engine_count=rd16(b+0x14); h->engine_entry_size=rd16(b+0x16);
     h->page_table_offset=rd32(b+0x18); h->page_count=rd16(b+0x1c); h->page_entry_size=rd16(b+0x1e);
     h->track_table_offset=rd32(b+0x20); h->track_count=rd16(b+0x24); h->track_entry_size=rd16(b+0x26);
     h->resource_table_offset=rd32(b+0x28); h->resource_count=rd16(b+0x2c); h->resource_entry_size=rd16(b+0x2e);
@@ -111,7 +111,8 @@ static int parse_tables(KSP1Runtime *r, char *error, size_t error_size) {
     for(i=0;i<h->engine_count;i++){
         const uint8_t *p=r->data+h->engine_table_offset+(size_t)i*h->engine_entry_size; KSP1Engine *e=&r->engines[i];
         e->flags=rd32(p);e->hardware_flags=rd32(p+4);e->abi_version=rd16(p+8);e->tick_hz=rd16(p+0xa);e->load_address=rd16(p+0xc);e->page_size=rd16(p+0xe);e->init_address=rd16(p+0x10);e->play_address=rd16(p+0x12);e->stop_address=rd16(p+0x14);e->gateway_address=rd16(p+0x16);e->replace_start=rd16(p+0x18);e->first_page=rd16(p+0x1a);e->page_count=rd16(p+0x1c);e->default_mwk=rd16(p+0x1e);e->template_compression=p[0x20];e->bank_base=p[0x21];e->bank_count=p[0x22];e->bank_width=p[0x23];e->template_offset=rd32(p+0x24);e->template_packed_size=rd32(p+0x28);e->template_unpacked_size=rd32(p+0x2c);e->template_crc=rd32(p+0x30);e->name_offset=rd32(p+0x34);
-        if(e->abi_version!=1 || !e->page_size || e->template_unpacked_size!=e->page_size || !range_ok(r->size,e->template_offset,e->template_packed_size) || (uint32_t)e->first_page+e->page_count>h->page_count || !all_zero(p+0x38,8)){set_error(error,error_size,"invalid engine %u",i);return 0;}
+        if(e->flags&~0x1fu || (h->minor_version<1 && (e->flags&(KSP1_ENGINE_PAGE2_RUNTIME|KSP1_ENGINE_PAGE3_WORKRAM))) || e->abi_version!=1 || !e->page_size || e->template_unpacked_size!=e->page_size || !range_ok(r->size,e->template_offset,e->template_packed_size) || (uint32_t)e->first_page+e->page_count>h->page_count || !all_zero(p+0x38,8)){set_error(error,error_size,"invalid engine %u",i);return 0;}
+        if((e->flags&KSP1_ENGINE_PAGE2_RUNTIME) && (e->load_address!=0x4000u || e->page_size!=0x4000u || (e->hardware_flags&(KSP1_HW_SCC|KSP1_HW_SCC_PLUS|KSP1_HW_DUAL_SCC)))){set_error(error,error_size,"engine %u has invalid page-2 runtime layout",i);return 0;}
         if((e->flags&KSP1_ENGINE_DYNAMIC_PAGES) && (!e->gateway_address || e->replace_start<e->load_address || e->replace_start>(uint32_t)e->load_address+e->page_size)){set_error(error,error_size,"invalid dynamic engine %u",i);return 0;}
     }
     for(i=0;i<h->page_count;i++){
@@ -211,4 +212,4 @@ static uint8_t kss_device_flags(uint32_t hw, uint16_t tick_hz) {
     if (tick_hz == 50u) flags |= 0x40u;
     return flags;
 }
-int ksp1_build_kscc_image(KSP1Runtime*r,uint16_t ti,uint8_t**image,uint32_t*image_size,char*error,size_t error_size){uint8_t*page,*out;size_t page_size;const KSP1Engine*e;const KSP1Track*t;if(!ksp1_materialize_track(r,ti,&page,&page_size,&e,&t,error,error_size))return 0;if(page_size>65535u){free(page);set_error(error,error_size,"page too large for KSCC bridge");return 0;}out=(uint8_t*)malloc(16+page_size);if(!out){free(page);set_error(error,error_size,"out of memory");return 0;}memset(out,0,16);memcpy(out,"KSCC",4);wr16(out+4,e->load_address);wr16(out+6,(uint16_t)page_size);wr16(out+8,e->init_address);wr16(out+10,e->play_address);out[15]=kss_device_flags(e->hardware_flags,e->tick_hz);memcpy(out+16,page,page_size);free(page);*image=out;*image_size=(uint32_t)(16+page_size);(void)t;return 1;}
+int ksp1_build_kscc_image(KSP1Runtime*r,uint16_t ti,uint8_t**image,uint32_t*image_size,char*error,size_t error_size){uint8_t*page,*out;size_t page_size,bridge_size;int page2_runtime;const KSP1Engine*e;const KSP1Track*t;if(!ksp1_materialize_track(r,ti,&page,&page_size,&e,&t,error,error_size))return 0;if(page_size>65535u){free(page);set_error(error,error_size,"page too large for KSCC bridge");return 0;}page2_runtime=(e->flags&KSP1_ENGINE_PAGE2_RUNTIME)!=0;bridge_size=page_size+(page2_runtime?0x4000u:0u);if(bridge_size>65535u||(uint32_t)e->load_address+bridge_size>0x10000u){free(page);set_error(error,error_size,"page-2 runtime image is too large for KSCC bridge");return 0;}out=(uint8_t*)malloc(16+bridge_size);if(!out){free(page);set_error(error,error_size,"out of memory");return 0;}memset(out,0,16);memcpy(out,"KSCC",4);wr16(out+4,e->load_address);wr16(out+6,(uint16_t)bridge_size);wr16(out+8,e->init_address);wr16(out+10,e->play_address);out[15]=kss_device_flags(e->hardware_flags,e->tick_hz)|(page2_runtime?0x04u:0u);memcpy(out+16,page,page_size);if(page2_runtime)memcpy(out+16+page_size,page,page_size);free(page);*image=out;*image_size=(uint32_t)(16+bridge_size);(void)t;return 1;}

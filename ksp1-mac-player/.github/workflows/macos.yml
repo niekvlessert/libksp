@@ -28,3 +28,5 @@ jobs:
           build/ksp1player --validate samples/SOLIDSNK_KSP1_HYBRID_RAM_VRAM.ksp
           build/ksp1player --validate samples/XAK_GAZELL_KSP1_HYBRID_RAM_VRAM.ksp
           build/ksp1player --validate samples/SOLIDSNK_KSP1_RESOURCE_MAP.ksp
+          build/ksp1player --validate samples/dual-scc/ESCHATOS_N163_Dual_SCC_KSP1_1.0.ksp
+          build/ksp1player --validate samples/dual-scc/Megami_Tensei_II_Dual_SCC_KSP1_1.0.ksp

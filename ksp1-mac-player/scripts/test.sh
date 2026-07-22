@@ -10,3 +10,6 @@ ctest --test-dir "$BUILD" --output-on-failure
 "$BUILD/ksp1tool" --validate "$ROOT/samples/XAK_GAZELL_KSP1_HYBRID_RAM_VRAM.ksp"
 
 "$BUILD/ksp1tool" --validate "$ROOT/samples/SOLIDSNK_KSP1_RESOURCE_MAP.ksp"
+
+"$BUILD/ksp1tool" --validate "$ROOT/samples/dual-scc/ESCHATOS_N163_Dual_SCC_KSP1_1.0.ksp"
+"$BUILD/ksp1tool" --validate "$ROOT/samples/dual-scc/Megami_Tensei_II_Dual_SCC_KSP1_1.0.ksp"

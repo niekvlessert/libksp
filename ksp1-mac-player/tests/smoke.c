@@ -35,15 +35,22 @@ static int check_bridge(KSP1Runtime *runtime, uint16_t track_index) {
         fprintf(stderr, "%s\n", error);
         return 0;
     }
-    if (image_size != 16u + engine->page_size || memcmp(image, "KSCC", 4) ||
+    {
+        uint32_t expected_size = 16u + engine->page_size;
+        int page2_runtime = (engine->flags & KSP1_ENGINE_PAGE2_RUNTIME) != 0;
+        if (page2_runtime)
+            expected_size += 0x4000u;
+    if (image_size != expected_size || memcmp(image, "KSCC", 4) ||
         rd16(image + 4) != engine->load_address ||
-        rd16(image + 6) != engine->page_size ||
+        rd16(image + 6) != expected_size - 16u ||
         rd16(image + 8) != engine->init_address ||
         rd16(image + 10) != engine->play_address ||
-        image[15] != expected_device_flags(engine)) {
+        image[15] != (uint8_t)(expected_device_flags(engine) |
+                               (page2_runtime ? 0x04u : 0u))) {
         fprintf(stderr, "invalid KSCC bridge for track %u\n", track_index);
         free(image);
         return 0;
+    }
     }
     free(image);
     return 1;

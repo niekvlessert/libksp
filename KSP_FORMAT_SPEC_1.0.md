@@ -283,7 +283,40 @@ Compression IDs are shared by templates, page payloads, and normal resources.
    The object is divided into independently compressed sequential ZX0 blocks.
 ```
 
-`ZX0_BLOCKS` is intended for large sequential resources that must be decoded with limited working RAM, especially MWK sample kits.
+`ZX0_BLOCKS` is intended for sequential resources that cannot safely be decoded as one object under the declared target profile, especially large MWK sample kits and page-source resources.
+
+#### 3.3.1 Compression-method selection
+
+Compression is selected per independently decoded object, not from the size of the complete `.KSP` file.
+
+For the baseline MSX2 target with 128 KiB mapper RAM and 128 KiB VRAM, the packer must use one `ZX0` stream when the complete uncompressed object can be decoded safely using its final destination or the available decode buffer while all required player, engine, bank, cache, display, and hardware allocations remain valid.
+
+The packer must use `ZX0_BLOCKS` when a normal sequential resource cannot satisfy that condition. Every independent `KZB1` block must fit the available scratch area after decompression; the baseline MSX-DOS2 limit is 16 KiB per block.
+
+In practical terms:
+
+```text
+Use NONE or one ZX0 stream:
+    the complete object fits its bounded decode buffer; or
+    the decoder writes it directly to its complete final mapper-RAM or VRAM destination.
+
+Use ZX0_BLOCKS:
+    decoding the complete object would exceed the available scratch buffer;
+    retaining the complete decoded object would displace required runtime allocations;
+    only ranges or sequential portions are needed during playback; or
+    bounded loading is required to avoid exhausting the baseline target.
+```
+
+A packer may choose `ZX0_BLOCKS` even when one stream technically fits when blockwise access materially reduces track-change latency, dynamic-page-switch latency, or resident-memory pressure. It must not choose one whole-object `ZX0` stream merely because the total physical RAM and VRAM capacity is numerically larger than the object; the required memory layout and simultaneous allocations must also be feasible.
+
+The following container-specific rules take precedence:
+
+- templates and normal page payloads use `NONE` or `ZX0` and must fit the ordinary decode limit;
+- `PBLK` data is divided into independently decoded slabs;
+- the hybrid cold tier is divided into independently decoded slabs;
+- `HPL1` map, hot, and warm streams may exceed 16 KiB because their decoders explicitly span mapper RAM or write to VRAM;
+- bank resources remain `NONE` or `ZX0` because each defined bank is at most 16 KiB;
+- MWK and page-source resources use `ZX0_BLOCKS` whenever whole-object decoding is not feasible under the target profile.
 
 Templates and normal page payloads use `NONE` or `ZX0`.
 
@@ -976,9 +1009,11 @@ ZX0_BLOCKS
     A range may cross block boundaries.
 ```
 
-For an MSX-targeted package, a page-source resource larger than the available scratch buffer should normally use `ZX0_BLOCKS` with blocks no larger than 16 KiB.
+For an MSX-targeted package, a page-source resource must use `ZX0_BLOCKS` when the complete uncompressed resource cannot fit the available decode buffer or cannot be retained without displacing required runtime allocations. Each block must fit the available scratch buffer and must not exceed 16 KiB under the baseline profile.
 
-The packer should preserve long continuous source ranges where possible. A complete original 8 KiB or 16 KiB music bank should normally be one `ZX0` object, while a larger source stream should normally use 8 KiB or 16 KiB `KZB1` blocks.
+A whole-resource `ZX0` stream is valid only when the complete resource can be decoded safely before the requested range is copied. The total size of the `.KSP` file and the sum of mapper RAM plus VRAM are not sufficient tests by themselves.
+
+The packer should preserve long continuous source ranges where possible. A complete original 8 KiB or 16 KiB music bank should normally be one `ZX0` object. A larger source stream should use 8 KiB or 16 KiB `KZB1` blocks unless it is covered by an explicitly supported direct-to-final-destination decoder.
 
 A page-source resource may also be used as a runtime bank (`BNK8` or `BN16`). The `PAGE_SOURCE` flag does not change its bank semantics.
 
@@ -1455,9 +1490,11 @@ SCREEN 5 image              NONE or ZX0
 Bank resource               NONE or ZX0
 ```
 
-A `ZX0_BLOCKS` block, `PBLK` slab, hybrid cold slab, resource-map payload, page payload, or template stream must fit in the available scratch area after decompression. Under the initial MSX profile, no independently decoded object may exceed 16 KiB.
+A `ZX0_BLOCKS` block, `PBLK` slab, hybrid cold slab, resource-map payload, page payload, or template stream must fit in the available scratch area after decompression. Under the initial MSX profile, no ordinary independently decoded object may exceed 16 KiB.
 
-The only exceptions are the `HPL1` map, hot, and warm whole streams. They are explicitly designed for mapper-spanning or VRAM-output decoding and must never be decoded into one ordinary 16 KiB buffer.
+For the baseline 128 KiB mapper-RAM / 128 KiB VRAM target, one whole-object `ZX0` stream is permitted only when its complete output either fits the available bounded decode buffer or is decoded directly into a fully allocated final destination while all simultaneous player, engine, bank, display, cache, and hardware allocations remain valid. Otherwise the resource must use `ZX0_BLOCKS` or a format-defined slab container.
+
+The only size-limit exceptions are the `HPL1` map, hot, and warm whole streams. They are explicitly designed for mapper-spanning or VRAM-output decoding and must never be decoded into one ordinary 16 KiB buffer. Their feasibility is determined from the complete staged memory layout, not merely from total installed RAM and VRAM.
 
 Recommended runtime memory:
 
@@ -1709,6 +1746,8 @@ When the selected track uses another engine, recreate or reconfigure the synthet
 
 The KSP packer must expose a deterministic optimization pass.
 
+Before selecting a resource compression method, it must construct the declared target memory plan and record whether each normal resource is eligible for whole-object `ZX0` or requires `ZX0_BLOCKS`. The decision must account for simultaneous allocations, final destination, scratch requirements, and playback access pattern. Complete `.KSP` file size is not the deciding factor.
+
 For every engine page, it must consider:
 
 - sparse overlay against the selected engine template;
@@ -1740,6 +1779,8 @@ pool header/table bytes
 pool compressed slab bytes
 all PBM1 map bytes
 resource-map source resources and compression
+whole-object versus block-compression eligibility per resource
+peak simultaneous mapper-RAM, VRAM, and scratch usage for the target profile
 all RMP1 map/inline bytes
 hybrid block size and common destination count
 hot/warm/cold raw and packed bytes
@@ -1999,11 +2040,15 @@ NONE
     Read and process the resource sequentially.
 
 ZX0
-    Decode the complete resource when sufficient mapper RAM is available.
+    Decode the complete resource only when the target memory plan provides a
+    safe complete destination without displacing required runtime allocations.
 
 ZX0_BLOCKS
-    Decode and process one independent KZB1 block at a time.
+    Decode and process one independent KZB1 block at a time when whole-resource
+    decoding is not feasible or when bounded sequential processing is preferred.
 ```
+
+For the baseline 128 KiB mapper-RAM / 128 KiB VRAM target, the packer must emit `ZX0_BLOCKS` for an MWK that cannot be decoded and retained safely as one object. The player must not infer feasibility from total installed memory alone.
 
 Persistent MWK parser state must survive block boundaries.
 
@@ -2051,7 +2096,8 @@ The implementation must not:
 - set the quick-offset flag when the warm stream contains a match offset above 2,176 bytes;
 - read ZX0 history back from VRAM while decoding a warm stream;
 - compress every small logical pool block independently when slab grouping would be smaller;
-- load a complete large page-source resource when `ZX0_BLOCKS` permits bounded range access;
+- load a complete large page-source resource when it cannot fit the declared target memory plan and `ZX0_BLOCKS` permits bounded range access;
+- choose whole-object `ZX0` solely because total mapper RAM plus VRAM exceeds the resource size;
 - assume a particular PBLK block size;
 - assume one PBLK pool per file or one pool per engine;
 - permit more than one HPOL resource in a KSP 1.0 file;
@@ -2139,7 +2185,10 @@ The implementation is complete when these packages work:
 66. corrupt offsets, sizes, overlays, maps, slab descriptors, source ranges, HPOL tiers, blocks, and CRCs rejected;
 67. Escape releases hot mapper segments and restores VRAM, mapper, SCC, OPL4, and DOS state;
 68. next/previous skips hidden tracks;
-69. no code path depends on a game title or variant number.
+69. no code path depends on a game title or variant number;
+70. one sequential resource that fits the baseline target memory plan and is stored as one ZX0 stream;
+71. the same logical resource enlarged beyond the safe memory plan and stored as ZX0_BLOCKS;
+72. packer reports peak simultaneous mapper-RAM, VRAM, and scratch use for both cases.
 
 ---
 

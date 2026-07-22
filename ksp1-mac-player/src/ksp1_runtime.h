@@ -14,10 +14,19 @@
 #define KSP1_COMPRESSION_ZX0 1u
 #define KSP1_COMPRESSION_ZX0_BLOCKS 2u
 #define KSP1_ENGINE_DYNAMIC_PAGES 1u
+#define KSP1_ENGINE_BANKED_DATA (1u << 1)
+#define KSP1_ENGINE_MWK_REQUIRED (1u << 2)
+#define KSP1_ENGINE_PAGE2_RUNTIME (1u << 3)
+#define KSP1_ENGINE_PAGE3_WORKRAM (1u << 4)
+#define KSP1_HW_PSG       (1u << 0)
+#define KSP1_HW_SCC       (1u << 1)
+#define KSP1_HW_SCC_PLUS  (1u << 2)
+#define KSP1_HW_DUAL_SCC  (1u << 3)
 #define KSP1_RESOURCE_REQUIRED 1u
 #define KSP1_RESOURCE_PAGE_SOURCE 4u
 
 typedef struct KSP1Header {
+    uint16_t minor_version;
     uint32_t file_size;
     uint32_t engine_table_offset;
     uint16_t engine_count, engine_entry_size;
