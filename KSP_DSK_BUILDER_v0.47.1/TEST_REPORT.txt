@@ -1,0 +1,15 @@
+KSP1PLAY DSK Builder v0.47.1 test report
+
+Python syntax compile: PASS
+Base DSK size: 737280 bytes
+Base free space: 664576 bytes
+Base mirrored FATs: PASS
+
+One-KSP Fony build: PASS
+  INDEX.TXT: 80 bytes (1 x 80-byte record)
+  FONYSNG.KSP SHA preserved: 6e88e42ccb1b9f0ea0e6e259f33cdded0265edb6f73dbb5b59654f25bee7bfdd
+  mirrored FATs: PASS
+
+Five-KSP Micro Cabin build: PASS
+  INDEX.TXT: 400 bytes (5 x 80-byte records)
+  mirrored FATs: PASS

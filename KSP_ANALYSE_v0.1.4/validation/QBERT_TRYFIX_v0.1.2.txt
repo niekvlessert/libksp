@@ -1,0 +1,27 @@
+Validation case: Q-Bert (MSX)(1986)(Konami).ksp
+ksp_analyse: 0.1.2
+
+Original static verdict: BLOCKER
+Detected:
+- INIT_RETURNS_INTERRUPTS_ENABLED
+- PLAY_RETURNS_INTERRUPTS_ENABLED
+
+Causal source tracing:
+- INIT outer RET $4C59 receives enabled IFF1 from EI $4C58.
+- PLAY outer RET $4D12 can also receive enabled IFF1 from EI $4C58.
+
+--try-fix candidate:
+- physical page 0, offset $0C58
+- $FB EI -> $F3 DI
+- patch is size preserving
+- original KSP is not modified
+- patched page is rebuilt as a COMPLETE/uncompressed page in the in-memory KSP
+- page CRC, index CRC and header CRC are recalculated
+- candidate KSP reparses successfully
+
+Re-analysis verdict: LIKELY SAFE
+Cleared HIGH/BLOCKER codes:
+- INIT_RETURNS_INTERRUPTS_ENABLED
+- PLAY_RETURNS_INTERRUPTS_ENABLED
+
+This is a static compatibility result, not proof of correct playback on real MSX hardware.

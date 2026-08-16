@@ -1,0 +1,53 @@
+KSP ANALYSE v0.1.3
+File: Q-Bert (MSX)(1986)(Konami).ksp
+Title: Q-Bert
+KSP: 1.05 | engines=1 pages=1 tracks=42 resources=1
+Verdict: BLOCKER (confidence: high)
+Metadata: converter=hoot_kss2ksp.py | converter_version=0.10.0-strict-bank8 | native_profile=strict-page1-no-banks-v2-low-vm-gateway | source_format=KSCC | source_hardware=SCC + PSG | target_hardware=SCC + PSG
+
+Engine overview:
+  E0: load=$4000 size=$4000 INIT=$4BFC PLAY=$4CCC tick=60Hz
+      flags: PAGE3_WORKRAM
+      hw:    PSG, SCC
+      mem:   P1=engine:16384B; P3=PAGE3_WORKRAM
+
+Track 001: Play | song=32 | E0 P0
+  Verdict: BLOCKER (confidence: high)
+  Reachable: INIT 135 insns, PLAY 606 insns; unresolved PLAY jumps=0
+  Detected chip I/O: PSG
+    PSG: $6FD4 OUT $A0; $6FD8 OUT $A1
+  Memory pages:
+    P0 $0000-$3FFF: installed=    0  INIT-code=   0  PLAY-code=   0  refs R/W=0/0
+    P1 $4000-$7FFF: installed=16384  INIT-code= 135  PLAY-code= 606  refs R/W=0/0
+    P2 $8000-$BFFF: installed=    0  INIT-code=   0  PLAY-code=   0  refs R/W=0/0
+    P3 $C000-$FFFF: installed=    0  INIT-code=   0  PLAY-code=   0  refs R/W=15/5
+  [BLOCKER] INIT_RETURNS_INTERRUPTS_ENABLED: INIT can return to KSP1PLAY with interrupts enabled. The MSX gateway restores player state only after the engine RET, so a VBlank IRQ may run in the engine mapping before the gateway's DI. Every statically resolved outer return path is interrupt-enabled.
+      - outer RET at $4C59; IFF1 enabled by reachable EI source(s) $4C58
+  [HIGH] PLAY_RETURNS_INTERRUPTS_ENABLED: PLAY can return to KSP1PLAY with interrupts enabled. The MSX gateway restores player state only after the engine RET, so a VBlank IRQ may run in the engine mapping before the gateway's DI.
+      - outer RET at $4D12; IFF1 enabled by reachable EI source(s) $4C58
+  [NOTICE] DECLARED_SCC_NOT_PROVEN: SCC-family hardware is declared, but the reachable code does not prove a valid SCC register window in the reconstructed runtime mapping.
+
+Why this overall verdict:
+  [BLOCKER] INIT_RETURNS_INTERRUPTS_ENABLED: INIT can return to KSP1PLAY with interrupts enabled. The MSX gateway restores player state only after the engine RET, so a VBlank IRQ may run in the engine mapping before the gateway's DI. Every statically resolved outer return path is interrupt-enabled.
+  [HIGH] PLAY_RETURNS_INTERRUPTS_ENABLED: PLAY can return to KSP1PLAY with interrupts enabled. The MSX gateway restores player state only after the engine RET, so a VBlank IRQ may run in the engine mapping before the gateway's DI.
+
+TRY-FIX (experimental; original file is unchanged):
+  Status: IMPROVED | BLOCKER -> LIKELY SAFE | patches=1
+  [PATCH] track 1 page 0 INIT: $4C58 $FB EI -> $F3 DI (INIT_RETURNS_INTERRUPTS_ENABLED)
+  Cleared HIGH/BLOCKER codes: INIT_RETURNS_INTERRUPTS_ENABLED, PLAY_RETURNS_INTERRUPTS_ENABLED
+  Re-analysis found no SUSPICIOUS/HIGH/BLOCKER issue in the selected track set.
+  The original input KSP is never overwritten; --build-disk may write the accepted candidate to ksp/.
+
+BUILD OUTPUT:
+  KSP: /mnt/data/kspa_v013_work/KSP_ANALYSE_v0.1.3/ksp/Q-Bert (MSX)(1986)(Konami).ksp
+  [HW FIX] E0: PSG, SCC -> PSG
+           all referenced physical pages have resolved deep CFG; no SCC/SCC+ register window proven; no D900/D904 SCC-slot ABI reachable
+  META target_hardware -> PSG
+  Final emitted-KSP verdict: LIKELY SAFE (confidence: high)
+  DSK NOT BUILT: latest KSP1PLAY template not found. Need KSP1PLAY_v0.47.1_BASE.DSK (DSK Builder 0.47.1, player core 0.47.0) in /mnt/data/kspa_v013_work/KSP_ANALYSE_v0.1.3/player/KSP1PLAY_v0.47.1_BASE.DSK or pass --player-template <DSK-or-v0.47.1-ZIP>
+
+Interpretation:
+  LIKELY SAFE = no static native-MS​​X blocker found; not a runtime guarantee.
+  SUSPICIOUS  = inspect flagged paths; static coverage is incomplete or unusual.
+  HIGH RISK   = likely KSP1PLAY conflict; runtime tracing strongly recommended.
+  BLOCKER     = violates the strict native KSP1PLAY/MSX memory/runtime contract.

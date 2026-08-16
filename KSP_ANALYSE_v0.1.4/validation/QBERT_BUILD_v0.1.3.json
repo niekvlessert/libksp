@@ -1,0 +1,940 @@
+{
+  "tool": "ksp_analyse",
+  "version": "0.1.3",
+  "summary": {
+    "verdict": "BLOCKER",
+    "severity_score": 4,
+    "confidence": "high",
+    "top_findings": [
+      {
+        "severity": "BLOCKER",
+        "code": "INIT_RETURNS_INTERRUPTS_ENABLED",
+        "message": "INIT can return to KSP1PLAY with interrupts enabled. The MSX gateway restores player state only after the engine RET, so a VBlank IRQ may run in the engine mapping before the gateway's DI. Every statically resolved outer return path is interrupt-enabled.",
+        "evidence": [
+          "outer RET at $4C59; IFF1 enabled by reachable EI source(s) $4C58"
+        ]
+      },
+      {
+        "severity": "HIGH",
+        "code": "PLAY_RETURNS_INTERRUPTS_ENABLED",
+        "message": "PLAY can return to KSP1PLAY with interrupts enabled. The MSX gateway restores player state only after the engine RET, so a VBlank IRQ may run in the engine mapping before the gateway's DI.",
+        "evidence": [
+          "outer RET at $4D12; IFF1 enabled by reachable EI source(s) $4C58"
+        ]
+      }
+    ]
+  },
+  "try_fix": {
+    "mode": "in-memory",
+    "experimental": true,
+    "original_file_modified": false,
+    "status": "IMPROVED",
+    "before": {
+      "verdict": "BLOCKER",
+      "severity_score": 4,
+      "confidence": "high",
+      "top_findings": [
+        {
+          "severity": "BLOCKER",
+          "code": "INIT_RETURNS_INTERRUPTS_ENABLED",
+          "message": "INIT can return to KSP1PLAY with interrupts enabled. The MSX gateway restores player state only after the engine RET, so a VBlank IRQ may run in the engine mapping before the gateway's DI. Every statically resolved outer return path is interrupt-enabled.",
+          "evidence": [
+            "outer RET at $4C59; IFF1 enabled by reachable EI source(s) $4C58"
+          ]
+        },
+        {
+          "severity": "HIGH",
+          "code": "PLAY_RETURNS_INTERRUPTS_ENABLED",
+          "message": "PLAY can return to KSP1PLAY with interrupts enabled. The MSX gateway restores player state only after the engine RET, so a VBlank IRQ may run in the engine mapping before the gateway's DI.",
+          "evidence": [
+            "outer RET at $4D12; IFF1 enabled by reachable EI source(s) $4C58"
+          ]
+        }
+      ]
+    },
+    "after": {
+      "verdict": "LIKELY SAFE",
+      "severity_score": 1,
+      "confidence": "high",
+      "top_findings": []
+    },
+    "fixed_high_or_blocker_codes": [
+      "INIT_RETURNS_INTERRUPTS_ENABLED",
+      "PLAY_RETURNS_INTERRUPTS_ENABLED"
+    ],
+    "applied_patch_count": 1,
+    "applied_patches": [
+      {
+        "kind": "irq_return_ei_to_di",
+        "track": 1,
+        "engine": 0,
+        "page": 0,
+        "callback": "INIT",
+        "pc": "$4C58",
+        "page_offset": "$0C58",
+        "old": "$FB EI",
+        "new": "$F3 DI",
+        "reason": "INIT_RETURNS_INTERRUPTS_ENABLED",
+        "confidence": "high",
+        "status": "APPLIED"
+      }
+    ],
+    "passes": [
+      {
+        "pass": 1,
+        "patches": [
+          {
+            "kind": "irq_return_ei_to_di",
+            "track": 1,
+            "engine": 0,
+            "page": 0,
+            "callback": "INIT",
+            "pc": "$4C58",
+            "page_offset": "$0C58",
+            "old": "$FB EI",
+            "new": "$F3 DI",
+            "reason": "INIT_RETURNS_INTERRUPTS_ENABLED",
+            "confidence": "high",
+            "status": "APPLIED"
+          }
+        ],
+        "before_verdict": "BLOCKER",
+        "after_verdict": "LIKELY SAFE",
+        "after_summary": {
+          "verdict": "LIKELY SAFE",
+          "severity_score": 1,
+          "confidence": "high",
+          "top_findings": []
+        },
+        "result": "ACCEPTED"
+      }
+    ],
+    "tracks_after": [
+      {
+        "file": "/mnt/data/Q-Bert (MSX)(1986)(Konami).ksp",
+        "title": "Q-Bert",
+        "track_index": 0,
+        "track_number": 1,
+        "track_title": "Play",
+        "song_id": 32,
+        "engine": 0,
+        "page": 0,
+        "verdict": "LIKELY SAFE",
+        "severity_score": 1,
+        "confidence": "high",
+        "engine_geometry": {
+          "load": 16384,
+          "page_size": 16384,
+          "init": 19452,
+          "play": 19660,
+          "tick_hz": 60
+        },
+        "declared_memory_pages": [
+          {
+            "page": 0,
+            "range": "$0000-$3FFF",
+            "engine_bytes": 0,
+            "roles": []
+          },
+          {
+            "page": 1,
+            "range": "$4000-$7FFF",
+            "engine_bytes": 16384,
+            "roles": [
+              "engine:16384B"
+            ]
+          },
+          {
+            "page": 2,
+            "range": "$8000-$BFFF",
+            "engine_bytes": 0,
+            "roles": []
+          },
+          {
+            "page": 3,
+            "range": "$C000-$FFFF",
+            "engine_bytes": 0,
+            "roles": [
+              "PAGE3_WORKRAM"
+            ]
+          }
+        ],
+        "engine_flags": [
+          "PAGE3_WORKRAM"
+        ],
+        "engine_flags_raw": 16,
+        "declared_hardware": [
+          "PSG",
+          "SCC"
+        ],
+        "hardware_raw": 3,
+        "page_encoding": 1,
+        "page_compression": 0,
+        "detected_hardware": [
+          "PSG"
+        ],
+        "findings": [
+          {
+            "severity": "NOTICE",
+            "code": "DECLARED_SCC_NOT_PROVEN",
+            "message": "SCC-family hardware is declared, but the reachable code does not prove a valid SCC register window in the reconstructed runtime mapping.",
+            "evidence": []
+          }
+        ],
+        "evidence": {
+          "analysis_mode": "deep",
+          "init_reachable_instructions": 135,
+          "play_reachable_instructions": 606,
+          "unresolved_init_indirect": 0,
+          "unresolved_play_indirect": 0,
+          "init_outer_returns_irq_enabled": [],
+          "init_outer_returns_irq_disabled": [
+            "$4C59"
+          ],
+          "play_outer_returns_irq_enabled": [],
+          "play_outer_returns_irq_disabled": [
+            "$4D12"
+          ],
+          "init_irq_enable_sources": {},
+          "play_irq_enable_sources": {},
+          "fix_candidates": [],
+          "external_init_targets": [],
+          "external_play_targets": [],
+          "scc_slot_abi": false,
+          "scc_abi_targets": [],
+          "ports": [
+            {
+              "pc": "$6FD4",
+              "port": "$A0",
+              "op": "OUT",
+              "class": "PSG"
+            },
+            {
+              "pc": "$6FD8",
+              "port": "$A1",
+              "op": "OUT",
+              "class": "PSG"
+            }
+          ],
+          "memory_refs": [
+            {
+              "pc": "$4C7F",
+              "address": "$E072",
+              "op": "write"
+            },
+            {
+              "pc": "$4C86",
+              "address": "$E052",
+              "op": "read"
+            },
+            {
+              "pc": "$4CCC",
+              "address": "$E0F0",
+              "op": "read"
+            },
+            {
+              "pc": "$4CDA",
+              "address": "$E0F3",
+              "op": "write"
+            },
+            {
+              "pc": "$4CE3",
+              "address": "$E0F1",
+              "op": "read"
+            },
+            {
+              "pc": "$4CF5",
+              "address": "$E0F3",
+              "op": "write"
+            },
+            {
+              "pc": "$4D13",
+              "address": "$E0F3",
+              "op": "read"
+            },
+            {
+              "pc": "$4DA8",
+              "address": "$E0F3",
+              "op": "read"
+            },
+            {
+              "pc": "$4DC3",
+              "address": "$E0F3",
+              "op": "read"
+            },
+            {
+              "pc": "$4DD1",
+              "address": "$E0F3",
+              "op": "read"
+            },
+            {
+              "pc": "$4E07",
+              "address": "$E0F3",
+              "op": "read"
+            },
+            {
+              "pc": "$4ECB",
+              "address": "$E0F3",
+              "op": "read"
+            },
+            {
+              "pc": "$4F24",
+              "address": "$E0F3",
+              "op": "read"
+            },
+            {
+              "pc": "$4F61",
+              "address": "$E0F3",
+              "op": "read"
+            },
+            {
+              "pc": "$4F73",
+              "address": "$E0F3",
+              "op": "read"
+            },
+            {
+              "pc": "$4F80",
+              "address": "$E072",
+              "op": "read"
+            },
+            {
+              "pc": "$4FCF",
+              "address": "$E072",
+              "op": "read"
+            },
+            {
+              "pc": "$500B",
+              "address": "$E0F1",
+              "op": "write"
+            },
+            {
+              "pc": "$506D",
+              "address": "$E0F0",
+              "op": "read"
+            },
+            {
+              "pc": "$5096",
+              "address": "$E0F0",
+              "op": "write"
+            }
+          ],
+          "detected_hardware": [
+            "PSG"
+          ],
+          "chip_usage": {
+            "PSG": [
+              "$6FD4 OUT $A0",
+              "$6FD8 OUT $A1"
+            ]
+          },
+          "page_stats": [
+            {
+              "page": 0,
+              "range": "$0000-$3FFF",
+              "installed_bytes": 0,
+              "init_instructions": 0,
+              "play_instructions": 0,
+              "direct_reads": 0,
+              "direct_writes": 0
+            },
+            {
+              "page": 1,
+              "range": "$4000-$7FFF",
+              "installed_bytes": 16384,
+              "init_instructions": 135,
+              "play_instructions": 606,
+              "direct_reads": 0,
+              "direct_writes": 0
+            },
+            {
+              "page": 2,
+              "range": "$8000-$BFFF",
+              "installed_bytes": 0,
+              "init_instructions": 0,
+              "play_instructions": 0,
+              "direct_reads": 0,
+              "direct_writes": 0
+            },
+            {
+              "page": 3,
+              "range": "$C000-$FFFF",
+              "installed_bytes": 0,
+              "init_instructions": 0,
+              "play_instructions": 0,
+              "direct_reads": 15,
+              "direct_writes": 5
+            }
+          ],
+          "mapping_notes": [],
+          "z80dasm": {
+            "available": true,
+            "path": "/mnt/data/kspa_v013_work/KSP_ANALYSE_v0.1.3/bin/linux-x86_64/z80dasm",
+            "ok": true,
+            "skipped": false,
+            "message": "Warning: Code might not be 8080 compatible!\nWarning: Self modifying code detected!",
+            "asm": "/mnt/data/qbert_v013_report/Q-Bert__MSX__1986__Konami_/try_fix/engine00_track001.asm",
+            "binary": "/mnt/data/qbert_v013_report/Q-Bert__MSX__1986__Konami_/try_fix/engine00_track001.bin"
+          }
+        },
+        "artifacts": [
+          "/mnt/data/qbert_v013_report/Q-Bert__MSX__1986__Konami_/try_fix/engine00_track001.bin",
+          "/mnt/data/qbert_v013_report/Q-Bert__MSX__1986__Konami_/try_fix/engine00_track001.asm"
+        ]
+      }
+    ],
+    "note": "Candidate is reparsed and reanalysed after each accepted pass. Static improvement is not proof of correct audio/runtime behaviour."
+  },
+  "build": {
+    "requested": true,
+    "ksp": "/mnt/data/kspa_v013_work/KSP_ANALYSE_v0.1.3/ksp/Q-Bert (MSX)(1986)(Konami).ksp",
+    "ksp_bytes": 33269,
+    "hardware": {
+      "audit_tracks": [
+        1
+      ],
+      "corrections": [
+        {
+          "engine": 0,
+          "old_mask": 3,
+          "new_mask": 1,
+          "old": [
+            "PSG",
+            "SCC"
+          ],
+          "new": [
+            "PSG"
+          ],
+          "reason": "all referenced physical pages have resolved deep CFG; no SCC/SCC+ register window proven; no D900/D904 SCC-slot ABI reachable"
+        }
+      ],
+      "meta_update": {
+        "resource": 0,
+        "target_hardware": "PSG",
+        "old_bytes": 961,
+        "new_bytes": 955
+      },
+      "final_union_mask": 1,
+      "final_target_hardware": "PSG"
+    },
+    "final_summary": {
+      "verdict": "LIKELY SAFE",
+      "severity_score": 0,
+      "confidence": "high",
+      "top_findings": []
+    },
+    "dsk": null,
+    "dsk_error": "latest KSP1PLAY template not found. Need KSP1PLAY_v0.47.1_BASE.DSK (DSK Builder 0.47.1, player core 0.47.0) in /mnt/data/kspa_v013_work/KSP_ANALYSE_v0.1.3/player/KSP1PLAY_v0.47.1_BASE.DSK or pass --player-template <DSK-or-v0.47.1-ZIP>",
+    "required_player_core": "0.47.0",
+    "required_builder_baseline": "0.47.1"
+  },
+  "package": {
+    "file": "/mnt/data/Q-Bert (MSX)(1986)(Konami).ksp",
+    "header": {
+      "header_size": 80,
+      "minor": 5,
+      "flags": 0,
+      "file_size": 15930,
+      "engine_off": 80,
+      "engine_count": 1,
+      "engine_stride": 64,
+      "page_off": 144,
+      "page_count": 1,
+      "page_stride": 24,
+      "track_off": 168,
+      "track_count": 42,
+      "track_stride": 32,
+      "resource_off": 1512,
+      "resource_count": 1,
+      "resource_stride": 32,
+      "string_off": 1544,
+      "string_size": 284,
+      "default_track": 0,
+      "meta_resource": 0,
+      "cover_resource": 65535,
+      "reserved": 0,
+      "header_crc": 2101943569,
+      "index_crc": 800454241,
+      "header_crc_ok": true,
+      "index_crc_ok": true
+    },
+    "meta": {
+      "metadata_version": "2",
+      "default_language": "en",
+      "title": "Q-Bert",
+      "game": "Q-Bert",
+      "source_platform": "Microsoft MSX",
+      "source_format": "KSCC",
+      "source_hardware": "SCC + PSG",
+      "source_file": "Q-Bert (MSX)(1986)(Konami).kss",
+      "source_sha256": "f9729ae5977be7dc9ea3c720a01179f58594c89c1b8b9d5477ae8a30ebc35d4e",
+      "target_platform": "MSX",
+      "target_hardware": "SCC + PSG",
+      "track_count": "42",
+      "hoot_name": "Q-Bert",
+      "hoot_catalog_file": "corpus:HCS",
+      "hoot_archive": "qbert_msx",
+      "hoot_driver": "msx",
+      "hoot_driver_type": "kss",
+      "converter": "hoot_kss2ksp.py",
+      "converter_version": "0.10.0-strict-bank8",
+      "conversion": "native original KSS Z80 INIT/PLAY engine; reachable page-3 dependencies use private PAGE3_WORKRAM with KSS-zero state; no KSS emulator; no register-event capture",
+      "native_profile": "strict-page1-no-banks-v2-low-vm-gateway",
+      "low_vm_gateway_patches": "8",
+      "kss_load_address": "0x4000",
+      "kss_init_address": "0x4C4C",
+      "kss_play_address": "0x4CCC",
+      "kss_refresh_hz": "60",
+      "page3_zero_wrapper": "0x4BFC",
+      "page3_zero_ranges": "E010-E013,E050-E053,E072-E073,E090-E091,E0F0-E0F4",
+      "release_year": "1986",
+      "vendor": "Konami"
+    },
+    "engines": [
+      {
+        "index": 0,
+        "flags": 16,
+        "hardware": 3,
+        "abi": 1,
+        "tick_hz": 60,
+        "load": 16384,
+        "page_size": 16384,
+        "init": 19452,
+        "play": 19660,
+        "stop": 0,
+        "gateway": 0,
+        "replace_start": 16384,
+        "first_page": 0,
+        "page_count": 1,
+        "default_mwk": 65535,
+        "template_compression": 1,
+        "first_bank": 0,
+        "bank_count": 0,
+        "bank_width": 0,
+        "template_off": 1828,
+        "template_packed": 13136,
+        "template_raw": 16384,
+        "template_crc": 1083880617,
+        "name_off": 0,
+        "template": "<omitted>"
+      }
+    ],
+    "track_count": 42,
+    "page_count": 1,
+    "resource_count": 1
+  },
+  "tracks": [
+    {
+      "file": "/mnt/data/Q-Bert (MSX)(1986)(Konami).ksp",
+      "title": "Q-Bert",
+      "track_index": 0,
+      "track_number": 1,
+      "track_title": "Play",
+      "song_id": 32,
+      "engine": 0,
+      "page": 0,
+      "verdict": "BLOCKER",
+      "severity_score": 4,
+      "confidence": "high",
+      "engine_geometry": {
+        "load": 16384,
+        "page_size": 16384,
+        "init": 19452,
+        "play": 19660,
+        "tick_hz": 60
+      },
+      "declared_memory_pages": [
+        {
+          "page": 0,
+          "range": "$0000-$3FFF",
+          "engine_bytes": 0,
+          "roles": []
+        },
+        {
+          "page": 1,
+          "range": "$4000-$7FFF",
+          "engine_bytes": 16384,
+          "roles": [
+            "engine:16384B"
+          ]
+        },
+        {
+          "page": 2,
+          "range": "$8000-$BFFF",
+          "engine_bytes": 0,
+          "roles": []
+        },
+        {
+          "page": 3,
+          "range": "$C000-$FFFF",
+          "engine_bytes": 0,
+          "roles": [
+            "PAGE3_WORKRAM"
+          ]
+        }
+      ],
+      "engine_flags": [
+        "PAGE3_WORKRAM"
+      ],
+      "engine_flags_raw": 16,
+      "declared_hardware": [
+        "PSG",
+        "SCC"
+      ],
+      "hardware_raw": 3,
+      "page_encoding": 0,
+      "page_compression": 0,
+      "detected_hardware": [
+        "PSG"
+      ],
+      "findings": [
+        {
+          "severity": "BLOCKER",
+          "code": "INIT_RETURNS_INTERRUPTS_ENABLED",
+          "message": "INIT can return to KSP1PLAY with interrupts enabled. The MSX gateway restores player state only after the engine RET, so a VBlank IRQ may run in the engine mapping before the gateway's DI. Every statically resolved outer return path is interrupt-enabled.",
+          "evidence": [
+            "outer RET at $4C59; IFF1 enabled by reachable EI source(s) $4C58"
+          ]
+        },
+        {
+          "severity": "HIGH",
+          "code": "PLAY_RETURNS_INTERRUPTS_ENABLED",
+          "message": "PLAY can return to KSP1PLAY with interrupts enabled. The MSX gateway restores player state only after the engine RET, so a VBlank IRQ may run in the engine mapping before the gateway's DI.",
+          "evidence": [
+            "outer RET at $4D12; IFF1 enabled by reachable EI source(s) $4C58"
+          ]
+        },
+        {
+          "severity": "NOTICE",
+          "code": "DECLARED_SCC_NOT_PROVEN",
+          "message": "SCC-family hardware is declared, but the reachable code does not prove a valid SCC register window in the reconstructed runtime mapping.",
+          "evidence": []
+        }
+      ],
+      "evidence": {
+        "analysis_mode": "deep",
+        "init_reachable_instructions": 135,
+        "play_reachable_instructions": 606,
+        "unresolved_init_indirect": 0,
+        "unresolved_play_indirect": 0,
+        "init_outer_returns_irq_enabled": [
+          "$4C59"
+        ],
+        "init_outer_returns_irq_disabled": [],
+        "play_outer_returns_irq_enabled": [
+          "$4D12"
+        ],
+        "play_outer_returns_irq_disabled": [
+          "$4D12"
+        ],
+        "init_irq_enable_sources": {
+          "$4C59": [
+            "$4C58"
+          ]
+        },
+        "play_irq_enable_sources": {
+          "$4D12": [
+            "$4C58"
+          ]
+        },
+        "fix_candidates": [
+          {
+            "kind": "irq_return_ei_to_di",
+            "callback": "INIT",
+            "pc": 19544,
+            "reason": "INIT_RETURNS_INTERRUPTS_ENABLED",
+            "confidence": "high"
+          },
+          {
+            "kind": "irq_return_ei_to_di",
+            "callback": "PLAY",
+            "pc": 19544,
+            "reason": "PLAY_RETURNS_INTERRUPTS_ENABLED",
+            "confidence": "medium"
+          }
+        ],
+        "external_init_targets": [],
+        "external_play_targets": [],
+        "scc_slot_abi": false,
+        "scc_abi_targets": [],
+        "ports": [
+          {
+            "pc": "$6FD4",
+            "port": "$A0",
+            "op": "OUT",
+            "class": "PSG"
+          },
+          {
+            "pc": "$6FD8",
+            "port": "$A1",
+            "op": "OUT",
+            "class": "PSG"
+          }
+        ],
+        "memory_refs": [
+          {
+            "pc": "$4C7F",
+            "address": "$E072",
+            "op": "write"
+          },
+          {
+            "pc": "$4C86",
+            "address": "$E052",
+            "op": "read"
+          },
+          {
+            "pc": "$4CCC",
+            "address": "$E0F0",
+            "op": "read"
+          },
+          {
+            "pc": "$4CDA",
+            "address": "$E0F3",
+            "op": "write"
+          },
+          {
+            "pc": "$4CE3",
+            "address": "$E0F1",
+            "op": "read"
+          },
+          {
+            "pc": "$4CF5",
+            "address": "$E0F3",
+            "op": "write"
+          },
+          {
+            "pc": "$4D13",
+            "address": "$E0F3",
+            "op": "read"
+          },
+          {
+            "pc": "$4DA8",
+            "address": "$E0F3",
+            "op": "read"
+          },
+          {
+            "pc": "$4DC3",
+            "address": "$E0F3",
+            "op": "read"
+          },
+          {
+            "pc": "$4DD1",
+            "address": "$E0F3",
+            "op": "read"
+          },
+          {
+            "pc": "$4E07",
+            "address": "$E0F3",
+            "op": "read"
+          },
+          {
+            "pc": "$4ECB",
+            "address": "$E0F3",
+            "op": "read"
+          },
+          {
+            "pc": "$4F24",
+            "address": "$E0F3",
+            "op": "read"
+          },
+          {
+            "pc": "$4F61",
+            "address": "$E0F3",
+            "op": "read"
+          },
+          {
+            "pc": "$4F73",
+            "address": "$E0F3",
+            "op": "read"
+          },
+          {
+            "pc": "$4F80",
+            "address": "$E072",
+            "op": "read"
+          },
+          {
+            "pc": "$4FCF",
+            "address": "$E072",
+            "op": "read"
+          },
+          {
+            "pc": "$500B",
+            "address": "$E0F1",
+            "op": "write"
+          },
+          {
+            "pc": "$506D",
+            "address": "$E0F0",
+            "op": "read"
+          },
+          {
+            "pc": "$5096",
+            "address": "$E0F0",
+            "op": "write"
+          }
+        ],
+        "detected_hardware": [
+          "PSG"
+        ],
+        "chip_usage": {
+          "PSG": [
+            "$6FD4 OUT $A0",
+            "$6FD8 OUT $A1"
+          ]
+        },
+        "page_stats": [
+          {
+            "page": 0,
+            "range": "$0000-$3FFF",
+            "installed_bytes": 0,
+            "init_instructions": 0,
+            "play_instructions": 0,
+            "direct_reads": 0,
+            "direct_writes": 0
+          },
+          {
+            "page": 1,
+            "range": "$4000-$7FFF",
+            "installed_bytes": 16384,
+            "init_instructions": 135,
+            "play_instructions": 606,
+            "direct_reads": 0,
+            "direct_writes": 0
+          },
+          {
+            "page": 2,
+            "range": "$8000-$BFFF",
+            "installed_bytes": 0,
+            "init_instructions": 0,
+            "play_instructions": 0,
+            "direct_reads": 0,
+            "direct_writes": 0
+          },
+          {
+            "page": 3,
+            "range": "$C000-$FFFF",
+            "installed_bytes": 0,
+            "init_instructions": 0,
+            "play_instructions": 0,
+            "direct_reads": 15,
+            "direct_writes": 5
+          }
+        ],
+        "mapping_notes": [],
+        "z80dasm": {
+          "available": true,
+          "path": "/mnt/data/kspa_v013_work/KSP_ANALYSE_v0.1.3/bin/linux-x86_64/z80dasm",
+          "ok": true,
+          "skipped": false,
+          "message": "Warning: Code might not be 8080 compatible!\nWarning: Self modifying code detected!",
+          "asm": "/mnt/data/qbert_v013_report/Q-Bert__MSX__1986__Konami_/engine00_track001.asm",
+          "binary": "/mnt/data/qbert_v013_report/Q-Bert__MSX__1986__Konami_/engine00_track001.bin"
+        }
+      },
+      "artifacts": [
+        "/mnt/data/qbert_v013_report/Q-Bert__MSX__1986__Konami_/engine00_track001.bin",
+        "/mnt/data/qbert_v013_report/Q-Bert__MSX__1986__Konami_/engine00_track001.asm"
+      ]
+    }
+  ],
+  "output_package": {
+    "file": "/mnt/data/kspa_v013_work/KSP_ANALYSE_v0.1.3/ksp/Q-Bert (MSX)(1986)(Konami).ksp",
+    "header": {
+      "header_size": 80,
+      "minor": 5,
+      "flags": 0,
+      "file_size": 33269,
+      "engine_off": 80,
+      "engine_count": 1,
+      "engine_stride": 64,
+      "page_off": 144,
+      "page_count": 1,
+      "page_stride": 24,
+      "track_off": 168,
+      "track_count": 42,
+      "track_stride": 32,
+      "resource_off": 1512,
+      "resource_count": 1,
+      "resource_stride": 32,
+      "string_off": 1544,
+      "string_size": 284,
+      "default_track": 0,
+      "meta_resource": 0,
+      "cover_resource": 65535,
+      "reserved": 0,
+      "header_crc": 3026443339,
+      "index_crc": 2207258845,
+      "header_crc_ok": true,
+      "index_crc_ok": true
+    },
+    "meta": {
+      "metadata_version": "2",
+      "default_language": "en",
+      "title": "Q-Bert",
+      "game": "Q-Bert",
+      "source_platform": "Microsoft MSX",
+      "source_format": "KSCC",
+      "source_hardware": "SCC + PSG",
+      "source_file": "Q-Bert (MSX)(1986)(Konami).kss",
+      "source_sha256": "f9729ae5977be7dc9ea3c720a01179f58594c89c1b8b9d5477ae8a30ebc35d4e",
+      "target_platform": "MSX",
+      "target_hardware": "PSG",
+      "track_count": "42",
+      "hoot_name": "Q-Bert",
+      "hoot_catalog_file": "corpus:HCS",
+      "hoot_archive": "qbert_msx",
+      "hoot_driver": "msx",
+      "hoot_driver_type": "kss",
+      "converter": "hoot_kss2ksp.py",
+      "converter_version": "0.10.0-strict-bank8",
+      "conversion": "native original KSS Z80 INIT/PLAY engine; reachable page-3 dependencies use private PAGE3_WORKRAM with KSS-zero state; no KSS emulator; no register-event capture",
+      "native_profile": "strict-page1-no-banks-v2-low-vm-gateway",
+      "low_vm_gateway_patches": "8",
+      "kss_load_address": "0x4000",
+      "kss_init_address": "0x4C4C",
+      "kss_play_address": "0x4CCC",
+      "kss_refresh_hz": "60",
+      "page3_zero_wrapper": "0x4BFC",
+      "page3_zero_ranges": "E010-E013,E050-E053,E072-E073,E090-E091,E0F0-E0F4",
+      "release_year": "1986",
+      "vendor": "Konami"
+    },
+    "engines": [
+      {
+        "index": 0,
+        "flags": 16,
+        "hardware": 1,
+        "abi": 1,
+        "tick_hz": 60,
+        "load": 16384,
+        "page_size": 16384,
+        "init": 19452,
+        "play": 19660,
+        "stop": 0,
+        "gateway": 0,
+        "replace_start": 16384,
+        "first_page": 0,
+        "page_count": 1,
+        "default_mwk": 65535,
+        "template_compression": 1,
+        "first_bank": 0,
+        "bank_count": 0,
+        "bank_width": 0,
+        "template_off": 1828,
+        "template_packed": 13136,
+        "template_raw": 16384,
+        "template_crc": 1083880617,
+        "name_off": 0,
+        "template": "<omitted>"
+      }
+    ],
+    "track_count": 42,
+    "page_count": 1,
+    "resource_count": 1,
+    "summary": {
+      "verdict": "LIKELY SAFE",
+      "severity_score": 0,
+      "confidence": "high",
+      "top_findings": []
+    }
+  }
+}
