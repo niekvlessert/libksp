@@ -1,0 +1,36 @@
+KSP1PLAY v0.47.0 KSPOS CLEAN SOURCE
+Build verification: 2026-08-16
+
+Command:
+  python3 build.py --reference-dsk KSP1PLAY_v0.47.1_BASE.DSK
+
+PASS KSPPLAYER.BIN
+  size   30464
+  sha256 1f86b9a461de240a8e9665a7d8a3a48eda257e00856876af717887fbd654c0f8
+  result byte-for-byte canonical v0.47.0
+
+PASS KSPMENU.BIN
+  size   2048
+  sha256 afaa2f8501830ee24b9b078647c6a9e7c976ef993886b39beb7ff665605e4304
+  result byte-for-byte canonical v0.47.0
+
+PASS KSPBOOT.BIN
+  size   31043
+  sha256 8b75436e579957a6dc8812b8eea4ff7ca9f3ffb72524d730774bcf1fb156ca3c
+  result byte-for-byte canonical v0.47.0
+
+PASS boot-sector executable loader
+  size   215
+  result byte-for-byte match against supplied v0.47.1 base DSK
+
+PASS no-COM source disk
+  file   build/KSP1PLAY_v0.47.0_SOURCE_BASE_NO_COM.DSK
+  size   737280
+  sha256 fa2bf419cb84dd0b0df5cbbbaf0e7cd3656458fe1bdfa12bf84fb6b7e0fdefe1
+  root   KSPBOOT.BIN, KSPMENU.BIN, INDEX.TXT, README.TXT
+
+PASS openMSX 21.0 cold-boot smoke test
+  machine Panasonic FS-A1GT
+  disk    source-built NO_COM DSK
+  result  debugger breakpoint at Z80 $0100 reached from cold boot
+  note    container has no ALSA audio device; this boot smoke test verifies the KSPOS path, not audio playback
