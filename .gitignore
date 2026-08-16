@@ -1,0 +1,6 @@
+.DS_Store
+old
+tests
+kss
+__pycache__
+build

@@ -1,0 +1,6 @@
+[submodule "tinyksp/libvgm-master"]
+	path = tinyksp/libvgm-master
+	url = https://github.com/niekvlessert/libvgm.git
+[submodule "tinyksp/libkss"]
+	path = tinyksp/libkss
+	url = https://github.com/digital-sound-antiques/libkss.git

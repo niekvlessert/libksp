@@ -1,0 +1,111 @@
+name: TinyKSP CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tinyksp-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+            binary: tinyksp/build-ci/tinyksp
+          - name: macOS
+            os: macos-latest
+            binary: tinyksp/build-ci/tinyksp
+          - name: Windows
+            os: windows-latest
+            binary: tinyksp/build-ci/Release/tinyksp.exe
+
+    steps:
+      - name: Check out source and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Ninja on Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes ninja-build
+
+      - name: Install Ninja on macOS
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Configure Unix build
+        if: runner.os != 'Windows'
+        run: cmake -S tinyksp -B tinyksp/build-ci -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Configure Windows build
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: cmake -S tinyksp -B tinyksp/build-ci -G "Visual Studio 17 2022" -A x64
+
+      - name: Build Unix player
+        if: runner.os != 'Windows'
+        run: cmake --build tinyksp/build-ci --parallel 4
+
+      - name: Build Windows player
+        if: runner.os == 'Windows'
+        run: cmake --build tinyksp/build-ci --config Release --parallel 4
+
+      - name: Run portable smoke tests
+        shell: bash
+        run: ctest --test-dir tinyksp/build-ci -C Release --output-on-failure -E yamaha_smoke
+
+      - name: Check player version
+        if: runner.os != 'Windows'
+        run: ./tinyksp/build-ci/tinyksp -v
+
+      - name: Check player version on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\tinyksp\build-ci\Release\tinyksp.exe -v
+
+      - name: Upload desktop player
+        uses: actions/upload-artifact@v4
+        with:
+          name: tinyksp-${{ matrix.name }}
+          path: ${{ matrix.binary }}
+          if-no-files-found: error
+
+  termux:
+    name: Termux x86_64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build and run in Termux userland
+        env:
+          TERMUX_IMAGE: termux/termux-docker:x86_64
+        run: |
+          chmod -R a+rX "$GITHUB_WORKSPACE"
+          mkdir -p "$GITHUB_WORKSPACE/tinyksp/build-termux-ci"
+          chmod -R a+rwx "$GITHUB_WORKSPACE/tinyksp/build-termux-ci"
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/src" \
+            --workdir /src \
+            "$TERMUX_IMAGE" \
+            sh -lc 'apt update && apt install -y clang cmake ninja && cmake -S tinyksp -B tinyksp/build-termux-ci -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build tinyksp/build-termux-ci --parallel 2 && ./tinyksp/build-termux-ci/tinyksp -v'
+
+      - name: Upload Termux player
+        uses: actions/upload-artifact@v4
+        with:
+          name: tinyksp-Termux-x86_64
+          path: tinyksp/build-termux-ci/tinyksp
+          if-no-files-found: error
