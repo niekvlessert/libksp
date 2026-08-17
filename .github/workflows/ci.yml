@@ -27,7 +27,7 @@ jobs:
             os: macos-latest
             binary: tinyksp/build-ci/tinyksp
           - name: Windows
-            os: windows-latest
+            os: windows-2022
             binary: tinyksp/build-ci/Release/tinyksp.exe
 
     steps:
