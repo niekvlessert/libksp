@@ -1,0 +1,18 @@
+; ksp_format.inc - fixed KSP format constants used for validation/documentation
+KSP_FIXED_HEADER_BYTES equ 080h
+KSP_FIXED_ENGINE_ENTRY_BYTES equ 040h
+KSP_FIXED_TRACK_ENTRY_BYTES equ 020h
+KSP_FIXED_PAGE_ENTRY_BYTES equ 020h
+KSP_FIXED_RESOURCE_ENTRY_BYTES equ 020h
+KSP_RESOURCE_TYPE_IMG5 equ 5
+
+; Values enforced by this player profile.
+KSP_DECLARED_HEADER_BYTES    equ 050h
+KSP_MIN_PAGE_ENTRY_BYTES     equ 018h
+KSP_SUPPORTED_MINOR_LIMIT    equ 008h
+KSP_ENGINE_ABI_VERSION       equ 001h
+KSP_ENGINE_TICK_50HZ         equ 032h
+KSP_ENGINE_TICK_60HZ         equ 03Ch
+HPL_BLOCK_64_BYTES           equ 040h
+HPL_BLOCK_128_BYTES          equ 080h
+HPL_BLOCK_256_BYTES          equ 00100h

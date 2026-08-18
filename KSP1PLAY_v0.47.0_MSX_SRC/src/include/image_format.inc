@@ -1,0 +1,16 @@
+; IMG5/LOG5 image header loaded into the 8000h workspace.
+IMAGE_WORK_BUFFER      equ 08000h
+IMAGE_HEADER_MAGIC     equ IMAGE_WORK_BUFFER+0
+IMAGE_HEADER_WIDTH     equ IMAGE_WORK_BUFFER+4
+IMAGE_HEADER_HEIGHT    equ IMAGE_WORK_BUFFER+6
+IMAGE_HEADER_STRIDE    equ IMAGE_WORK_BUFFER+8
+IMAGE_HEADER_AUX       equ IMAGE_WORK_BUFFER+10
+
+; IMG5 gallery state placed beyond the RECON runtime workspace.
+IMG5_RUNTIME_IMAGE_INDEX equ 0DCFEh
+IMG5_RUNTIME_RESERVED    equ 0DCFFh
+
+; Uncompressed IMG5 payload layout used by the gallery loader.
+IMG5_PAYLOAD_BYTES       equ 01AC0h
+IMG5_PALETTE_DATA        equ IMAGE_WORK_BUFFER+01A90h
+IMG5_INDICATOR_VRAM      equ 0789Ah

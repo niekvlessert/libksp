@@ -1,0 +1,33 @@
+; compact_entries.inc - intentional alternate entry points inside compact code blocks
+; These addresses are stable call contracts even though they are not top-level labels.
+PLAYER_TITLE_COPY_ENTRY equ 041A2h
+SERVICE_COMPAT_ENTRY_6CB6 equ 06CB6h
+KSPMENU_JUMP_OPEN_BROWSER equ 08003h
+KSPMENU_JUMP_RESTORE_PLAYER_UI equ 0800Ch
+KSPMENU_SETUP_FROM_R1_OPERAND equ 08018h
+KSPMENU_SETUP_FROM_R2 equ 0801Eh
+KSPMENU_SETUP_FROM_R7 equ 0802Ah
+IMG5_RT_CLEAR_VRAM_PAGE equ 07248h
+IMG5_RT_UPLOAD_PALETTE equ 07263h
+IMG5_RT_COPY_IMAGE equ 07290h
+IMG5_RT_DRAW_INDICATOR equ 072E7h
+
+; Deliberate compact entry into the final bytes of RECON split-backup code.
+; The player uses this as the SHOW IMAGES dispatcher contract.
+UI_IMAGES_DISPATCH_ENTRY equ 0DC64h
+
+; Internal addresses of the stitched IMG5 runtime.
+IMG5_RT_DESCRIPTOR_LOOP       equ 07149h
+IMG5_RT_COPY_NEXT_IMAGE       equ 0721Fh
+IMG5_RT_ADVANCE_DESCRIPTOR    equ 0722Eh
+IMG5_RT_FINISH                equ 07242h
+IMG5_RT_CLEAR_VRAM_LOOP       equ 07256h
+IMG5_RT_COPY_SECOND_HALF      equ 0729Fh
+IMG5_RT_COPY_LAYOUT_READY     equ 072A8h
+IMG5_RT_COPY_SCANLINE_LOOP    equ 072B6h
+IMG5_RT_INDICATOR_COPY_LOOP   equ 072FEh
+ENGINE_INIT_CALL_OPERAND equ 01463h
+UI_LOADING_MESSAGE_ROW_OPERAND equ 03635h
+IMG5_RT_INDICATOR_TEXT_ON  equ 0730Ah
+IMG5_RT_INDICATOR_TEXT_OFF equ 07312h
+MENU_GLYPH_TABLE equ 083F1h
