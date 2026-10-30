@@ -1,0 +1,3135 @@
+--- a/README.md
++++ b/README.md
+@@ -1,37 +1,36 @@
+-# Tracker2KSP v0.4.9 — native Impulse Tracker loader baseline
++# Tracker2KSP v0.5.0 — native IT envelopes + NNA/DCT/DCA
+ 
+-Tracker2KSP now recognises and parses **native `IMPM` / `.it` modules** instead of treating “IT support” as only IT-authored S3M. Native IT has its own physically separate Z80 engine (`compact_engine_it.bin`) and its own parser/runtime profile; S3M, IT-S3M, XM and MOD remain isolated. No KSP 1.05 or KSP1PLAY 0.48 format change is required.
++v0.5.0 builds on the real `IMPM` loader from v0.4.9 and adds the first full native Impulse Tracker **instrument runtime**. Native IT remains physically separate from ST3/S3M, IT-authored S3M, XM and MOD. KSP stays at **1.05** and no KSP1PLAY 0.48 change is required.
+ 
+-## What v0.4.9 adds
++## What v0.5.0 adds
+ 
+-- Native IT header/order/parapointer parsing, including creator/compatible-version flags and 64-channel pan/volume state.
+-- Native **IT packed-pattern masks**, including per-channel previous mask/note/instrument/volume/effect reuse and variable row counts.
+-- Native sample headers with 8/16-bit and mono/stereo PCM conversion to the signed mono OPL4 sample path.
+-- **IT 2.14 and 2.15 compressed samples** with adaptive bit-width decoding; IT 2.15 double-delta integration is handled separately.
+-- Sample-mode playback and a deliberately conservative **simple instrument-mode** path with the 120-entry note/sample keymap. The first instrument-mode implementation accepts NNA=Cut, no DCT/DCA, no active envelopes, no pitch-pan/randomisation and no instrument default pan.
+-- IT note cut/off handling for the supported no-envelope/NNA-Cut profile. In sample mode, Note Fade is correctly ignored; instrument-mode Note Fade remains fail-fast until fadeout/background-voice handling exists.
+-- IT command-memory split: D/K/L share volume-slide memory; E/F share pitch-slide memory; G links to E/F only when the IT compatibility header flag requests it; H/I/R nibble memory and O offset memory are kept independently.
+-- IT `Cxx` row break follows hexadecimal IT semantics (strict S3M remains BCD).
+-- Native-IT realtime corrections are isolated in `compact_engine_it.asm`: Dxy uses IT's Dx0/D0x/DxF/DFx decision order, Hxy and Rxy use new-effects finer depth/every-tick stepping, Ixy uses exact x-on/y-off lengths, and Qx6 uses exact floor(2*volume/3) retrigger volume.
+-- Native Sxx no longer leaks ST3 behavior: S1x/S2x are ignored, invalid S3x/S4x waveform values are ignored rather than masked, and SC0/SD0 use IT-compatible tick-1 behavior.
+-- IT channel panning honours the song panning-separation byte. Saved disabled channels are omitted from the OPL4 voice map.
+-- A fifth engine source/binary/map/list is built by `source/BUILD_ENGINES.py`: `compact_engine_it.*` (**8,926 bytes** in this release).
+-- Added `CONVERT_IT_TO_KSP.py` and `tests/test_it_v049.py`.
++- Native IT **volume, panning and pitch envelopes** with interpolation, normal loops and sustain loops.
++- Correct key-held sustain behaviour: reaching a held sustain endpoint does not incorrectly start instrument fadeout.
++- Native IT **instrument FadeOut** with distinct Note Off, Note Cut and Note Fade runtime states.
++- Native IT **NNA Cut / Continue / Note Off / Note Fade**. Old foreground notes can continue as independent background voices.
++- Native IT **DCT Note / Sample / Instrument** with **DCA Cut / Off / Fade**. DCT Note compares the original pattern note before note-map translation, matching IT compatibility behaviour.
++- Host-side flattening of IT logical channels/background NNAs to the MoonSound's 24 physical OPL4 PCM voices. A sounding voice is never stolen silently: conversion fails if exact playback would need a 25th simultaneous voice.
++- Instrument-only rows now update IT instrument memory. Instrument keymaps remain active for later notes.
++- A compact resident IT profile table stores NNA/DCT/DCA, FadeOut and envelope descriptors. Curves are precomputed on the host; pitch-envelope factors therefore do not require exponential math on the Z80.
++- Native IT persistent state uses the already-reserved final 1 KiB of MoonSound RAM (`$2FFC00-$2FFFFF`). No sample-RAM reservation was added.
++- Native IT semantic pages now use **`$7C00-$7FFF`**. The enlarged native IT engine is **11,776 bytes**. S3M, IT-S3M, MOD and XM retain their previous layouts and sizes.
++- Added `tests/test_it_v050.py`; older native-IT tests are still run as regression coverage.
+ 
+-## Deliberately fail-fast in v0.4.9
++## Deliberately fail-fast / accuracy boundary
+ 
+-The parser refuses native IT features that would otherwise be rendered incorrectly by the current one-voice-per-channel engine. This includes NNA Continue/Note-Off/Note-Fade, DCT/DCA, enabled volume/pan/pitch envelopes, instrument-mode note fade/fadeout paths, instrument-only / instrument+special-note memory cases, empty instrument keymap sample slots, sustain/ping-pong loops, sample auto-vibrato, sample/instrument global-volume multipliers other than the neutral values, non-64 initial channel volume, enabled sample default panning, surround, IT Old Effects mode, linear E/F/G slides, Jxx arpeggio pending exact IT tick semantics, Txx tempo slides below 20h, and M/N/P/U/V/W/Y/Z runtime effects.
++The converter still refuses native IT features that are not implemented accurately: envelope carry, filter envelopes, pitch-pan separation, random volume/pan, non-neutral instrument/sample global-volume/default-pan cases, sustain/ping-pong sample loops, sample auto-vibrato, Old Effects, linear E/F/G slides, exact Jxx arpeggio timing, tempo slides below `20h`, and unsupported M/N/P/U/V/W/Y/Z runtime effects. Delayed notes combined with NNA/DCT also remain fail-fast because they would need tick-time voice allocation.
+ 
+-This is intentional: v0.4.9 is the **real native-IT file/packing/sample foundation**, not a claim that full Impulse Tracker voice allocation and envelope semantics are complete. The next true-IT pass can now be implemented against a real parser and a dedicated engine instead of extending IT-S3M.
++OPL4 has only 24 PCM voices. v0.5.0 therefore refuses a 25th simultaneously tracked NNA voice instead of using OpenMPT-style voice stealing. Background voices are conservatively retained by the conversion-time allocator; natural sample-end/release lifetime prediction is not yet used to recycle them. This can reject some NNA-heavy modules earlier than strictly necessary, but it cannot silently delete an audible voice.
+ 
+-## v0.4.9 validation
++## v0.5.0 validation
+ 
+-- `tests/test_it_v049.py`: **9/9 native-IT groups PASS** (packed-mask reuse, IT214/IT215 compressed zero-delta decode, simple instrument keymap, native IT effect-memory and Sxx isolation rules, sample-mode Note Fade, fail-fast guards, engine-runtime quirks, and end-to-end KSP build through the dedicated IT engine).
++- `tests/test_it_v049.py` + `tests/test_it_v050.py`: **19/19 native-IT tests PASS**.
+ - `tests/test_mod_v048.py`: **8/8 PASS**.
+ - `tests/test_xm_v046.py`: **10/10 PASS**.
+ - `tests/test_xm_v047.py`: **4/4 PASS**.
+ - `tests/test_s3m_v045.py`: **4/4 PASS**.
+-- Native IT engine: **8,926 bytes**; ST3/S3M: 9,054; IT-S3M: 8,926; MOD: 10,674; XM: 6,472.
++- Fresh native instrument-mode `.it -> .ksp` smoke: **18,456 bytes**, no warnings, KSP 1.05, native IT engine 11,776 bytes.
++- Engine sizes: ST3/S3M 9,054; IT-S3M 8,926; native IT 11,776; MOD 10,674; XM 6,472 bytes.
+ 
+ ## Usage
+ 
+--- a/TEST_REPORT.md
++++ b/TEST_REPORT.md
+@@ -1,40 +1,52 @@
+-# Tracker2KSP v0.4.9 test report
++# Tracker2KSP v0.5.0 test report
+ 
+-## Native IT baseline
++## Native IT envelopes / voice allocation
+ 
+-The v0.4.8 tree was used as the regression baseline. v0.4.9 adds a native `IMPM` parser and a physically separate native-IT engine without changing KSP 1.05. Unsupported true-IT runtime semantics are rejected rather than silently downgraded to IT-S3M behaviour.
++v0.5.0 starts from the source-backed v0.4.9 native `IMPM` implementation. It adds IT instrument envelopes, fadeout and NNA/DCT/DCA while retaining a physically separate native-IT Z80 engine and KSP 1.05 framing.
+ 
+ ### Automated regressions
+ 
+ ```text
+-pytest -q tests/test_it_v049.py
+-PYTHONPATH=. python3 tests/test_mod_v048.py
+-python3 tests/test_xm_v046.py
+-python3 tests/test_xm_v047.py
+-python3 tests/test_s3m_v045.py
++PYTHONPATH=source:tests:. python3 -m pytest -q tests/test_it_v049.py tests/test_it_v050.py
++PYTHONPATH=source:tests:. python3 tests/test_s3m_v045.py
++PYTHONPATH=source:tests:. python3 tests/test_xm_v046.py
++PYTHONPATH=source:tests:. python3 tests/test_xm_v047.py
++PYTHONPATH=source:tests:. python3 tests/test_mod_v048.py
++python3 source/BUILD_ENGINES.py
+ ```
+ 
+-Results: **9/9 IT**, **8/8 MOD**, **10/10 + 4/4 XM**, **4/4 S3M** PASS.
++Results: **19/19 native IT**, **4/4 S3M**, **10/10 + 4/4 XM**, **8/8 MOD** PASS.
++
++The native-IT tests cover profile/envelope patching, volume/pan/pitch envelope representation, FadeOut, Note Off/Cut/Fade separation, NNA Continue/Off/Fade, DCT Note/Sample/Instrument, DCA Cut/Off/Fade, original-pattern-note DCT matching, 24-voice exact-limit handling, held sustain endpoint behaviour, and the `$7C00` IT stream layout.
+ 
+ ### Engine build
+ 
+ `python3 source/BUILD_ENGINES.py` builds five independent binaries:
+ 
+-- ST3/S3M: 9,054 bytes
+-- IT-authored/modern S3M: 8,926 bytes
+-- native IT: 8,926 bytes
+-- MOD: 10,674 bytes
+-- XM: 6,472 bytes
++- ST3/S3M: **9,054 bytes**
++- IT-authored/modern S3M: **8,926 bytes**
++- native IT: **11,776 bytes**
++- MOD: **10,674 bytes**
++- XM: **6,472 bytes**
++
++Only the native IT engine grew. Native IT semantic pages use `$7C00-$7FFF`; its profile/state data remains resident below that boundary and in the already-reserved `$2FFC00-$2FFFFF` MoonSound RAM block.
+ 
+ ### End-to-end native IT smoke
+ 
+-`CONVERT_IT_TO_KSP.py tests/native_it_smoke_v049.it` builds a KSP 1.05 file through the dedicated native-IT engine: **17,564 bytes**, **8,926-byte engine**, no converter warnings, SHA-256 `c3507828cdf9e555c857f36f1e9dd5dfe0613fe73b0b726271fd9552bcdeffe6`.
++Fresh conversion of the synthetic instrument-mode envelope/NNA fixture builds a **KSP 1.05** file through the dedicated native-IT engine:
++
++- output: **18,456 bytes**
++- engine: **11,776 bytes**
++- IT profiles: **2**, resident profile payload **120 bytes**
++- semantic stream: **68 bytes**, one page
++- converter warnings: **0**
++- KSP SHA-256: `9e908b9762dd86addba61e18e24a27caa411b0411f51e53fb221b0f96f0102ba`
+ 
+-### Native IT coverage
++### Accuracy boundary
+ 
+-Covered now: IMPM header/tables, IT packed pattern masks and reuse, sparse-to-dense channel mapping, IT 2.14/2.15 compressed sample decoding, uncompressed 8/16-bit mono/stereo PCM, simple NNA-Cut instrument keymaps, sample-mode Note Fade ignore semantics, IT hexadecimal Cxx, effect-memory separation, native Sxx isolation, IT D/H/I/R/Q realtime differences, and a dedicated native-IT engine.
++Exact playback is preferred over silent approximation. The allocator never steals a currently tracked sounding OPL4 voice; if NNA/DCT needs more than 24 simultaneous physical voices it fails explicitly. It currently does not predict natural sample ends or all release-envelope completion at conversion time, so some very NNA-heavy files may hit this conservative limit sooner than the real instantaneous voice count would require.
+ 
+-Still intentionally rejected pending native runtime work: background NNA voices/DCT/DCA, envelopes/fadeout, instrument-only/special-note memory cases, empty instrument keymap slots, channel/sample/instrument volume multipliers, sustain/ping-pong loops, auto-vibrato, sample default pan/surround, linear E/F/G, Old Effects, Jxx exact IT arpeggio timing, tempo slides and M/N/P/U/V/W/Y/Z.
++Still intentionally rejected: envelope carry/filter envelopes, pitch-pan separation, random volume/pan, non-neutral instrument/sample global-volume/default-pan combinations, sustain/ping-pong sample loops, sample auto-vibrato, Old Effects, linear E/F/G, exact Jxx arpeggio timing, tempo slides below `20h`, unsupported M/N/P/U/V/W/Y/Z effects, and delayed-note + NNA/DCT runtime allocation.
+ 
+ ---
+ 
+--- a/VERSION.txt
++++ b/VERSION.txt
+@@ -1 +1 @@
+-0.4.9
++0.5.0
+--- a/compact_engine_it.asm
++++ b/compact_engine_it.asm
+@@ -1,7 +1,7 @@
+ 
+         org 04000h
+ 
+-STREAM_PAGE     equ 06800h
++STREAM_PAGE     equ 07C00h
+ STREAM_DATA     equ 06802h
+ HEADER_SIZE     equ 39
+ DYNAMIC_GATEWAY equ 07FF0h
+@@ -68,10 +68,19 @@
+ TREMTYPE        equ 06460h
+ VIBTYPE         equ 06478h
+ GLISS           equ 06490h
++ITPROF          equ 064A8h      ; 24 bytes, realtime IT instrument profile id
++ITKEYOFF        equ 064C0h      ; 24 bytes, pattern/NNA note-off release state
++ITNOTEFADE      equ 064D8h      ; 24 bytes, IT fadeout active
++ITVOLPOS        equ 064F0h      ; 24 words, volume envelope tick
++ITPANPOS        equ 06520h      ; 24 words, panning envelope tick
++ITPITCHPOS      equ 06550h      ; 24 words, pitch envelope tick
++ITFADEVOL       equ 06580h      ; 24 words, 0..65535
++ITTEMPVOL       equ 065B0h      ; 24 bytes, per-tick tremolo/tremor working volume
++ITBASEPAN       equ 065C8h      ; 24 bytes, exact 0..255 logical-channel base pan
+ PAGE_TOTAL_CFG  equ 063FCh      ; patched by converter
+ STATE_CLEAR     equ 05F00h
+ STATE_CLEAR_END equ 06288h
+-EXT_STATE_END   equ 064A8h
++EXT_STATE_END   equ 065E0h
+ 
+ CMD_A           equ 1
+ CMD_D           equ 4
+@@ -93,6 +102,7 @@
+ CMD_ST3_TREMWAVE equ 37
+ CMD_ST3_FINETUNE equ 38
+ CMD_ST3_TICKDELAY equ 39
++CMD_IT_PROFILE  equ 86
+ 
+ init:
+         xor a
+@@ -298,6 +308,10 @@
+         call read_stream_byte
+         ret c
+         ld (EV_NOTE_KIND),a
++        cp 0FCh
++        ret z
++        cp 0FDh
++        ret z
+         cp 0FEh
+         ret z
+         cp 0FFh
+@@ -466,6 +480,13 @@
+         or a
+         ret
+ fx_not_tickdelay:
++        cp CMD_IT_PROFILE
++        jr nz,fx_not_it_profile
++        ld a,e
++        call it_reset_profile_a
++        or a
++        ret
++fx_not_it_profile:
+         ; H updates nibble memory immediately; its resolved parameter already has both nibbles.
+         cp CMD_H
+         jr nz,fx_store
+@@ -558,18 +579,22 @@
+         or a
+         jr z,finish_no_note
+         ld a,(EV_NOTE_KIND)
++        cp 0FCh
++        jp z,do_note_cut_it
++        cp 0FDh
++        jp z,do_note_fade_it
+         cp 0FEh
+-        jr z,do_note_off
++        jp z,do_note_off
+         cp 0FFh
+-        jr z,queue_delayed_note
++        jp z,queue_delayed_note
+         cp 080h
+-        jr z,do_porta_target
++        jp z,do_porta_target
+         cp 081h
+-        jr z,queue_delayed_note
++        jp z,queue_delayed_note
+         cp 082h
+-        jr z,do_porta_swap
++        jp z,do_porta_swap
+         and 040h
+-        jr nz,queue_delayed_note
++        jp nz,queue_delayed_note
+         jp do_normal_note
+ finish_no_note:
+         ret
+@@ -631,9 +656,23 @@
+         ld (hl),b
+         ret
+ 
+-do_note_off:
++do_note_cut_it:
++        xor a
++        ld hl,ITTEMPVOL
++        call ptr8_cur
++        ld (hl),a
+         jp keycut_current
+ 
++do_note_fade_it:
++        ld a,1
++        ld hl,ITNOTEFADE
++        call ptr8_cur
++        ld (hl),a
++        ret
++
++do_note_off:
++        jp it_note_off
++
+ queue_delayed_note:
+         ld a,(EV_DELAY)
+         ld hl,DELAY_TICK
+@@ -724,6 +763,15 @@
+         ld (CUR_CH),a
+ process_ch_loop:
+         call process_delayed
++        call it_tick_state
++        ; Start every tick from the persistent tracker volume. Tremolo/tremor
++        ; overwrite ITTEMPVOL without corrupting VOLUME itself.
++        ld hl,VOLUME
++        call ptr8_cur
++        ld a,(hl)
++        ld hl,ITTEMPVOL
++        call ptr8_cur
++        ld (hl),a
+         ld hl,PERIOD_Q
+         call ptr16_cur
+         ld e,(hl)
+@@ -747,9 +795,12 @@
+         call ptr8_cur
+         ld e,(hl)
+         call apply_effect_de
++        call it_apply_pitch_env
+         ld a,(PITCH_DIRTY)
+         or a
+         call nz,emit_pitch_approx
++        call it_apply_volume_env
++        call it_apply_pan_env
+         ld a,(CUR_CH)
+         inc a
+         ld (CUR_CH),a
+@@ -1590,33 +1641,26 @@
+ emit_volume_current:
+         ld hl,VOLUME
+         call ptr8_cur
+-        ld e,(hl)
+-        ld d,0
+-        ld hl,VOL_LUT
+-        add hl,de
+-        ld e,(hl)
+-        ld a,(CUR_CH)
+-        add a,050h
+-        ld d,a
+-        jp opl4_write_de
+-
++        ld a,(hl)
++        ; fall through: realtime IT mixer applies envelope/fade once per tick.
+ emit_volume_a_temp:
+         cp 65
+         jr c,emit_temp_ok
+         ld a,64
+ emit_temp_ok:
+-        ld e,a
+-        ld d,0
+-        ld hl,VOL_LUT
+-        add hl,de
+-        ld e,(hl)
+-        ld a,(CUR_CH)
+-        add a,050h
+-        ld d,a
+-        jp opl4_write_de
++        ld hl,ITTEMPVOL
++        call ptr8_cur
++        ld (hl),a
++        ret
+ 
+ set_pan_from_tracker:
+-        ; A=0..255 tracker pan. OPL4: 9..15 left, 1..7 right, 0 centre.
++        ; A=0..255 tracker pan. Preserve the exact IT base for pan envelopes,
++        ; then quantize the hardware/base PAN nibble as before.
++        push af
++        ld hl,ITBASEPAN
++        call ptr8_cur
++        pop af
++        ld (hl),a
+         cp 128
+         jr nc,pan_right
+         rrca
+@@ -1936,7 +1980,7 @@
+ ;
+ ; Dynamic materialization replaces 4000h..7FFFh, including our RAM state.
+ ; Store only state that must survive between rows in reserved MoonSound RAM
+-; 2FFE00h..2FFFFFh. 301 bytes are used; the converter never places MWK sample
++; 2FFC00h..2FFFFFh. Native IT uses up to 760 bytes; the converter never places MWK sample
+ ; payload in this final 512-byte window. CMD/PAR/delay/ARP scratch is row-local
+ ; and deliberately not persisted because page changes only occur between rows.
+ ; ---------------------------------------------------------------------------
+@@ -1946,7 +1990,7 @@
+         ld e,02Fh              ; 2FFE00h high six address bits
+         call opl4_write_de
+         ld d,04h
+-        ld e,0FEh
++        ld e,0FCh
+         call opl4_write_de
+         ld d,05h
+         ld e,000h
+@@ -1978,6 +2022,9 @@
+         ld hl,TREMOR_COUNT
+         ld bc,168
+         call state_write_block
++        ld hl,ITPROF
++        ld bc,EXT_STATE_END-ITPROF
++        call state_write_block
+         ld d,02h
+         ld e,010h              ; leave MoonSound RAM write disabled
+         jp opl4_write_de
+@@ -2019,6 +2066,9 @@
+         ld hl,TREMOR_COUNT
+         ld bc,168
+         call state_read_block
++        ld hl,ITPROF
++        ld bc,EXT_STATE_END-ITPROF
++        call state_read_block
+         ld d,02h
+         ld e,010h              ; return MoonSound to normal wave-table mode
+         jp opl4_write_de
+@@ -2483,3 +2533,628 @@
+         ld d,02h
+         ld e,010h              ; normal wave-table mode / write disabled
+         jp opl4_write_de
++
++; ---------------------------------------------------------------------------
++; Native Impulse Tracker instrument envelopes / fadeout.
++;
++; This code is IT-only and intentionally lives above all ordinary tracker
++; state.  Profiles and interpolated envelope curves are patched by the host
++; into the resident template below the 7C00h semantic-stream window.
++; ---------------------------------------------------------------------------
++        org 06600h
++
++it_profile_ptr_a:
++        ld l,a
++        ld h,0
++        add hl,hl
++        ld de,IT_PROFILE_PTRS
++        add hl,de
++        ld e,(hl)
++        inc hl
++        ld d,(hl)
++        ex de,hl
++        ret
++
++it_profile_current:
++        ld hl,ITPROF
++        call ptr8_cur
++        ld a,(hl)
++        jp it_profile_ptr_a
++
++it_reset_profile_a:
++        push af
++        ld hl,ITPROF
++        call ptr8_cur
++        pop af
++        ld (hl),a
++        ld hl,ITVOLPOS
++        call ptr16_cur
++        ld (hl),0FFh
++        inc hl
++        ld (hl),0FFh
++        ld hl,ITPANPOS
++        call ptr16_cur
++        ld (hl),0FFh
++        inc hl
++        ld (hl),0FFh
++        ld hl,ITPITCHPOS
++        call ptr16_cur
++        ld (hl),0FFh
++        inc hl
++        ld (hl),0FFh
++        xor a
++        ld hl,ITKEYOFF
++        call ptr8_cur
++        ld (hl),a
++        ld hl,ITNOTEFADE
++        call ptr8_cur
++        ld (hl),a
++        ld hl,ITFADEVOL
++        call ptr16_cur
++        ld (hl),0FFh
++        inc hl
++        ld (hl),0FFh
++        ret
++
++it_note_off:
++        ld a,1
++        ld hl,ITKEYOFF
++        call ptr8_cur
++        ld (hl),a
++        ; IT starts fade immediately on Note Off when there is no volume
++        ; envelope, or when the volume envelope is looping. Otherwise the
++        ; released envelope is allowed to run to its end first.
++        call it_profile_current
++        ld a,(hl)
++        bit 0,a
++        jr z,it_note_off_fade
++        bit 1,a
++        ret z
++it_note_off_fade:
++        ld a,1
++        ld hl,ITNOTEFADE
++        call ptr8_cur
++        ld (hl),a
++        ret
++
++; Load a little-endian profile word at HL+A into BC, preserving HL and DE.
++it_load_bc_off:
++        push hl
++        push de
++        ld e,a
++        ld d,0
++        add hl,de
++        ld c,(hl)
++        inc hl
++        ld b,(hl)
++        pop de
++        pop hl
++        ret
++
++; A=flags, HL=12-byte envelope record, BC=per-channel word state base.
++; IT positions start at FFFFh, so the first mixer tick evaluates tick zero.
++it_advance_env:
++        bit 0,a
++        ret z
++        ld (EV_TOKEN),a
++        push hl
++        ld h,b
++        ld l,c
++        call ptr16_cur
++        ld e,(hl)
++        inc hl
++        ld d,(hl)
++        dec hl
++        ld a,d
++        cp 0FFh
++        jr nz,it_env_inc
++        ld a,e
++        cp 0FFh
++        jr nz,it_env_inc
++        ld de,0
++        jr it_env_have_pos
++it_env_inc:
++        inc de
++it_env_have_pos:
++        ex (sp),hl                 ; HL=profile env record, stack=state address
++        ld a,(EV_TOKEN)
++        bit 2,a
++        jr z,it_env_regular_loop
++        push hl
++        ld hl,ITKEYOFF
++        call ptr8_cur
++        ld a,(hl)
++        pop hl
++        or a
++        jr nz,it_env_regular_loop
++        ; Held sustain is a loop from sustain-start through sustain-end.
++        ld a,10
++        call it_load_bc_off
++        ld a,d
++        cp b
++        jr c,it_env_clamp
++        jr nz,it_env_sustain_wrap
++        ld a,e
++        cp c
++        jr c,it_env_clamp
++        jr z,it_env_clamp
++it_env_sustain_wrap:
++        ld a,8
++        call it_load_bc_off
++        ld d,b
++        ld e,c
++        jr it_env_clamp
++it_env_regular_loop:
++        ld a,(EV_TOKEN)
++        bit 1,a
++        jr z,it_env_clamp
++        ld a,6
++        call it_load_bc_off
++        ld a,d
++        cp b
++        jr c,it_env_clamp
++        jr nz,it_env_loop_wrap
++        ld a,e
++        cp c
++        jr c,it_env_clamp
++        jr z,it_env_clamp
++it_env_loop_wrap:
++        ld a,4
++        call it_load_bc_off
++        ld d,b
++        ld e,c
++it_env_clamp:
++        ld a,2
++        call it_load_bc_off          ; BC=max curve tick
++        ld a,d
++        cp b
++        jr c,it_env_store
++        jr nz,it_env_use_max
++        ld a,e
++        cp c
++        jr c,it_env_store
++        jr z,it_env_store
++it_env_use_max:
++        ld d,b
++        ld e,c
++it_env_store:
++        ex (sp),hl                   ; HL=state address
++        ld (hl),e
++        inc hl
++        ld (hl),d
++        pop hl                       ; discard profile-record pointer
++        ret
++
++it_tick_state:
++        call it_profile_current
++        ld a,(hl)                    ; volume flags
++        push hl
++        ld de,8
++        add hl,de
++        ld bc,ITVOLPOS
++        call it_advance_env
++        pop hl
++        inc hl
++        ld a,(hl)                    ; pan flags
++        push hl
++        ld de,19                     ; original profile +20
++        add hl,de
++        ld bc,ITPANPOS
++        call it_advance_env
++        pop hl
++        inc hl
++        ld a,(hl)                    ; pitch flags
++        ld de,30                     ; original profile +32
++        add hl,de
++        ld bc,ITPITCHPOS
++        call it_advance_env
++
++        ; Reaching the non-looping volume-envelope end starts instrument fade.
++        call it_profile_current
++        ld a,(hl)
++        bit 0,a
++        jr z,it_tick_fade
++        bit 1,a
++        jr nz,it_tick_fade
++        ; A held sustain point (including sustain at the final envelope point)
++        ; must not trigger instrument fade until Note Off releases sustain.
++        bit 2,a
++        jr z,it_tick_check_env_end
++        push hl
++        ld hl,ITKEYOFF
++        call ptr8_cur
++        ld a,(hl)
++        pop hl
++        or a
++        jr z,it_tick_fade
++it_tick_check_env_end:
++        push hl
++        ld hl,ITVOLPOS
++        call ptr16_cur
++        ld e,(hl)
++        inc hl
++        ld d,(hl)
++        pop hl
++        push hl
++        ld bc,10                     ; volume record max tick = profile +8+2
++        add hl,bc
++        ld c,(hl)
++        inc hl
++        ld b,(hl)
++        pop hl
++        ld a,d
++        cp b
++        jr nz,it_tick_fade
++        ld a,e
++        cp c
++        jr nz,it_tick_fade
++        ld a,1
++        ld hl,ITNOTEFADE
++        call ptr8_cur
++        ld (hl),a
++it_tick_fade:
++        ld hl,ITNOTEFADE
++        call ptr8_cur
++        ld a,(hl)
++        or a
++        ret z
++        call it_profile_current
++        ld de,6
++        add hl,de
++        ld e,(hl)
++        inc hl
++        ld d,(hl)                    ; DE=IT fadeout
++        ld a,d
++        or e
++        ret z
++        sla e
++        rl d                          ; OpenMPT/IT fade step = FadeOut*2
++        ld hl,ITFADEVOL
++        call ptr16_cur
++        ld c,(hl)
++        inc hl
++        ld b,(hl)
++        ld h,b
++        ld l,c
++        or a
++        sbc hl,de
++        jr nc,it_fade_store
++        ld hl,0
++it_fade_store:
++        ex de,hl
++        ld hl,ITFADEVOL
++        call ptr16_cur
++        ld (hl),e
++        inc hl
++        ld (hl),d
++        ld a,d
++        or e
++        ret nz
++        jp keycut_current
++
++; Return current byte-valued envelope curve entry in A.
++; HL=envelope record, BC=per-channel word position base.
++it_env_byte_value:
++        push hl
++        ld h,b
++        ld l,c
++        call ptr16_cur
++        ld e,(hl)
++        inc hl
++        ld d,(hl)
++        pop hl
++        ld c,(hl)
++        inc hl
++        ld b,(hl)                    ; BC=curve address
++        ld h,b
++        ld l,c
++        add hl,de
++        ld a,(hl)
++        ret
++
++it_apply_volume_env:
++        call it_profile_current
++        ld a,(hl)
++        bit 0,a
++        jr z,it_vol_neutral
++        ld de,8
++        add hl,de
++        ld bc,ITVOLPOS
++        call it_env_byte_value
++        jr it_vol_have_env
++it_vol_neutral:
++        ld a,64
++it_vol_have_env:
++        ld c,a                       ; C=env 0..64
++        ld hl,ITTEMPVOL
++        call ptr8_cur
++        ld b,(hl)                    ; B=base/transient vol 0..64
++        ld e,c
++        ld d,0
++        ld hl,0
++it_vol_mul_env:
++        ld a,b
++        or a
++        jr z,it_vol_mul_env_done
++        add hl,de
++        dec b
++        jr it_vol_mul_env
++it_vol_mul_env_done:
++        ld de,32
++        add hl,de
++        ; rounded /64
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        ld b,l
++        ; effective * fadeHigh /256 (FFFF is effectively unity here).
++        ld hl,ITFADEVOL
++        call ptr16_cur
++        inc hl
++        ld e,(hl)
++        ld d,0
++        ld hl,128
++it_vol_mul_fade:
++        ld a,b
++        or a
++        jr z,it_vol_mul_fade_done
++        add hl,de
++        dec b
++        jr it_vol_mul_fade
++it_vol_mul_fade_done:
++        ld a,h
++        cp 65
++        jr c,it_vol_lut
++        ld a,64
++it_vol_lut:
++        ld e,a
++        ld d,0
++        ld hl,VOL_LUT
++        add hl,de
++        ld e,(hl)
++        ld a,(CUR_CH)
++        add a,050h
++        ld d,a
++        jp opl4_write_de
++
++it_apply_pan_env:
++        call it_profile_current
++        inc hl
++        ld a,(hl)
++        bit 0,a
++        ret z
++        ld de,19                     ; current profile+1 +19 = +20
++        add hl,de
++        ld bc,ITPANPOS
++        call it_env_byte_value       ; 0..64, 32 neutral
++        sub 32
++        ld b,0                       ; B=sign 0 plus, 1 minus
++        jp p,it_pan_abs
++        neg
++        ld b,1
++it_pan_abs:
++        ld c,a                       ; C=abs delta 0..32
++        ld hl,ITBASEPAN
++        call ptr8_cur
++        ld a,(hl)
++        ld e,a                       ; E=base pan
++        cp 128
++        jr nc,it_pan_right_dist
++        ld a,128
++        sub e
++        jr it_pan_dist_ready
++it_pan_right_dist:
++        sub 128
++it_pan_dist_ready:
++        ld d,a                       ; distance from centre
++        ld a,128
++        sub d
++        ld d,0                       ; DE=available movement range
++        ; E currently overwritten: reload range low from A.
++        ld e,a
++        ld hl,0
++it_pan_mul:
++        ld a,c
++        or a
++        jr z,it_pan_mul_done
++        add hl,de
++        dec c
++        jr it_pan_mul
++it_pan_mul_done:
++        ; /32
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        ld c,l                       ; movement magnitude
++        ld hl,ITBASEPAN
++        call ptr8_cur
++        ld e,(hl)
++        ld a,b
++        or a
++        jr nz,it_pan_sub
++        ld a,e
++        add a,c
++        jr nc,it_pan_emit
++        ld a,255
++        jr it_pan_emit
++it_pan_sub:
++        ld a,e
++        cp c
++        jr nc,it_pan_sub_ok
++        xor a
++        jr it_pan_emit
++it_pan_sub_ok:
++        sub c
++it_pan_emit:
++        ; Quantize temporary 0..255 IT pan without changing base PAN memory.
++        cp 128
++        jr nc,it_pan_emit_right
++        rrca
++        rrca
++        rrca
++        rrca
++        and 07h
++        ld b,a
++        ld a,7
++        sub b
++        jr z,it_pan_emit_center
++        add a,8
++        jr it_pan_emit_reg
++it_pan_emit_right:
++        sub 128
++        rrca
++        rrca
++        rrca
++        rrca
++        and 07h
++        jr z,it_pan_emit_center
++        jr it_pan_emit_reg
++it_pan_emit_center:
++        xor a
++it_pan_emit_reg:
++        ld e,a
++        ld hl,KEYSTATE
++        call ptr8_cur
++        ld a,(hl)
++        or a
++        jr z,it_pan_emit_nokey
++        ld a,e
++        or 080h
++        ld e,a
++it_pan_emit_nokey:
++        ld a,(CUR_CH)
++        add a,068h
++        ld d,a
++        jp opl4_write_de
++
++; 8x8 unsigned multiply: A*C -> HL.
++it_mul8x8:
++        ld d,0
++        ld e,a
++        ld hl,0
++        ld b,8
++it_mul8_loop:
++        srl c
++        jr nc,it_mul8_noadd
++        add hl,de
++it_mul8_noadd:
++        sla e
++        rl d
++        djnz it_mul8_loop
++        ret
++
++; (HL * A) >> 8 -> DE. Uses row-parser scratch bytes only between rows.
++it_mul16u8_div256:
++        push af
++        ld a,l
++        ld (EV_PLO),a
++        ld a,h
++        ld (EV_PHI),a
++        pop af
++        ld (EV_DELAY),a
++        ld a,(EV_DELAY)
++        ld c,a
++        ld a,(EV_PHI)
++        call it_mul8x8               ; highByte*mag
++        push hl
++        ld a,(EV_DELAY)
++        ld c,a
++        ld a,(EV_PLO)
++        call it_mul8x8               ; lowByte*mag
++        ld a,h                       ; high byte of low product
++        pop de
++        add a,e
++        ld e,a
++        ret nc
++        inc d
++        ret
++
++it_apply_pitch_env:
++        call it_profile_current
++        inc hl
++        inc hl
++        ld a,(hl)
++        bit 0,a
++        ret z
++        ld de,30                     ; current profile+2 +30 = +32
++        add hl,de
++        push hl
++        ld hl,ITPITCHPOS
++        call ptr16_cur
++        ld e,(hl)
++        inc hl
++        ld d,(hl)
++        ex de,hl                     ; HL=tick
++        add hl,hl                    ; two bytes per pitch tick
++        ex de,hl                     ; DE=tick*2
++        pop hl
++        ld c,(hl)
++        inc hl
++        ld b,(hl)                    ; BC=curve address
++        ld h,b
++        ld l,c
++        add hl,de
++        ld a,(hl)                    ; magnitude
++        ld (EV_DVOL),a
++        inc hl
++        ld a,(hl)                    ; flags: bit0 subtract, bit1 double
++        ld (EV_TOKEN),a
++        ld hl,(OUT_PERIOD)
++        bit 1,a
++        jr z,it_pitch_not_double
++        add hl,hl
++        jr nc,it_pitch_not_double
++        ld hl,0FFFFh
++it_pitch_not_double:
++        ld (EV_PERIOD),hl
++        ld a,(EV_DVOL)
++        or a
++        jr z,it_pitch_store
++        call it_mul16u8_div256       ; DE=delta
++        ld hl,(EV_PERIOD)
++        ld a,(EV_TOKEN)
++        bit 0,a
++        jr nz,it_pitch_sub
++        add hl,de
++        jr nc,it_pitch_store
++        ld hl,0FFFFh
++        jr it_pitch_store
++it_pitch_sub:
++        or a
++        sbc hl,de
++        jr nc,it_pitch_nonzero
++        ld hl,1
++        jr it_pitch_store
++it_pitch_nonzero:
++        ld a,h
++        or l
++        jr nz,it_pitch_store
++        inc hl
++it_pitch_store:
++        ld (OUT_PERIOD),hl
++        ld a,1
++        ld (PITCH_DIRTY),a
++        ret
++
++; Static profile pointer table + converter-patched records/curves.
++        org 06C00h
++IT_PROFILE_PTRS:
++        defs 512,0
++IT_PROFILE_DATA:
++IT_PROFILE_LIMIT equ 07C00h
+--- a/compact_stream.py
++++ b/compact_stream.py
+@@ -20,6 +20,7 @@
+ CMD_XM_VC_VOLDN=66; CMD_XM_VC_VOLUP=67; CMD_XM_ROWINS=68; CMD_XM_ROWDELAY=69; CMD_XM_ROWNOTE=70; CMD_XM_ROWVOL=71
+ CMD_MOD_FILTER=72; CMD_MOD_FINE_UP=73; CMD_MOD_FINE_DOWN=74; CMD_MOD_GLISS=75; CMD_MOD_VIBWAVE=76; CMD_MOD_FINETUNE=77
+ CMD_MOD_PATLOOP=78; CMD_MOD_TREMWAVE=79; CMD_MOD_PAN4=80; CMD_MOD_FINEVOLUP=81; CMD_MOD_FINEVOLDOWN=82; CMD_MOD_PATDELAY=83; CMD_MOD_INVERT=84; CMD_MOD_INSTR=85
++CMD_IT_PROFILE=86
+ MOD_EFX_SPEED=(0,5,6,7,8,10,11,13,16,19,22,26,32,43,64,128)
+ S3M_FMTS=('S3M','IT-S3M','MODERN-S3M','IT')
+ S3M_FINETUNE=(7895,7941,7985,8046,8107,8169,8232,8280,8363,8413,8463,8529,8581,8651,8723,8757)
+@@ -48,6 +49,7 @@
+     it_tremor_off: int = 1
+     it_tremolo_speed: int = 0
+     it_tremolo_depth: int = 0
++    it_pan_tracker: int = 128
+     xm_volslide_mem: int = 0
+     xm_fine_porta_mem: int = 0
+     xm_xfine_porta_mem: int = 0
+@@ -66,7 +68,7 @@
+ @dataclass
+ class Action:
+     ch: int
+-    # note_kind: None, 'normal', 'porta', 'porta_swap', 'sample_swap', 'off', 'delay_normal', 'delay_porta', 'delay_off'
++    # note_kind: None, 'normal', 'porta', 'porta_swap', 'sample_swap', 'off', 'cut', 'fade', 'delay_normal', 'delay_porta', 'delay_off'
+     note_kind: Optional[str]=None
+     tone: int=0
+     period_q: int=0
+@@ -184,6 +186,105 @@
+         self.xm_next_pat_start_row=0
+         self.ended_reason=''; self.warnings=[]
+         self.mod_pending_oor_delay={}
++        self.it_voice_map={}
++        self.it_voices=[None]*24
++        if self.fmt=='IT':
++            pans=list(getattr(self.m,'it_channel_pan_tracker',()))
++            for ch,st in self.states.items():
++                if ch < len(pans): st.it_pan_tracker=int(pans[ch])
++
++    def _it_profile_for_instrument(self,inum:int):
++        inst=getattr(self.m,'it_instruments',{}).get(int(inum))
++        return inst if inst else None
++
++    def _it_note_identity(self,e,st:ResolveState):
++        """Return (instrument, mapped_note, sample, profile) for a real IT note."""
++        if self.fmt!='IT' or not bool(getattr(self.m,'it_instrument_mode',False)):
++            return (0,-1,None,None)
++        if e.note is None or e.note>=254:
++            return (0,-1,None,None)
++        literal=int(getattr(e,'it_instrument_number',0)) if bool(getattr(e,'it_instrument_present',False)) else 0
++        inum=literal or st.it_instrument_num
++        ni=self._note_index(e.note)
++        _mapped,smp=self._it_resolve_instrument(inum,ni)
++        # IT DCT=Note compares the original pattern note, not the note-map
++        # translation. OpenMPT tracks this as kITDCTBehaviour.
++        return (inum,ni,smp,self._it_profile_for_instrument(inum))
++
++    @staticmethod
++    def _it_voice_action(phys:int,kind:str):
++        return Action(int(phys),note_kind=kind)
++
++    def _it_apply_voice_end(self,phys:int,kind:str):
++        meta=self.it_voices[phys]
++        if meta is None:return
++        if kind=='cut':
++            self.it_voices[phys]=None
++            for l,p in list(self.it_voice_map.items()):
++                if p==phys:self.it_voice_map.pop(l,None)
++        else:
++            meta['state']='background' if meta.get('state')!='foreground' else meta.get('state')
++            meta['release']=kind
++
++    def _it_duplicate_actions(self,logical:int,new_inum:int,new_note:int,new_sample:int,new_prof):
++        actions=[]; handled=set()
++        if not new_prof:return actions,handled
++        dct=int(new_prof.get('dct',0))
++        if not dct:return actions,handled
++        for phys,meta in enumerate(self.it_voices):
++            if not meta or meta.get('master')!=logical:continue
++            match=(dct==1 and meta.get('instrument')==new_inum and meta.get('note')==new_note)
++            if dct==2: match=(meta.get('instrument')==new_inum and meta.get('sample')==new_sample)
++            elif dct==3: match=(meta.get('instrument')==new_inum)
++            if not match:continue
++            oldprof=self._it_profile_for_instrument(meta.get('instrument',0)) or {}
++            dca=int(oldprof.get('dca',new_prof.get('dca',0)))
++            kind=('cut','off','fade')[max(0,min(2,dca))]
++            actions.append(self._it_voice_action(phys,kind)); handled.add(phys)
++            if kind=='cut': self._it_apply_voice_end(phys,'cut')
++            else:
++                meta['state']='background'; meta['release']=kind
++                if self.it_voice_map.get(logical)==phys:self.it_voice_map.pop(logical,None)
++        return actions,handled
++
++    def _it_allocate_note_voice(self,e,st:ResolveState):
++        """Map an IT logical channel note to an OPL4 voice and flatten NNA/DCT/DCA.
++
++        We never steal a sounding voice. If exact IT semantics require more than
++        24 simultaneous voices, conversion fails because OPL4 cannot represent it.
++        """
++        logical=e.ch
++        inum,mnote,smp,prof=self._it_note_identity(e,st)
++        oldphys=self.it_voice_map.get(logical)
++        synth,handled=self._it_duplicate_actions(logical,inum,mnote,smp,prof)
++        reusable=None
++        if oldphys is not None and self.it_voices[oldphys] is not None and oldphys not in handled:
++            oldmeta=self.it_voices[oldphys]
++            oldprof=self._it_profile_for_instrument(oldmeta.get('instrument',0)) or {}
++            nna=int(oldprof.get('nna',0))
++            kind=('cut',None,'off','fade')[max(0,min(3,nna))]
++            if kind=='cut':
++                synth.append(self._it_voice_action(oldphys,'cut'))
++                self.it_voices[oldphys]=None; reusable=oldphys
++            else:
++                if kind: synth.append(self._it_voice_action(oldphys,kind)); oldmeta['release']=kind
++                oldmeta['state']='background'
++            self.it_voice_map.pop(logical,None)
++        elif oldphys is not None and self.it_voices[oldphys] is None:
++            reusable=oldphys; self.it_voice_map.pop(logical,None)
++        if reusable is None:
++            preferred=logical if 0<=logical<24 and self.it_voices[logical] is None else None
++            if preferred is not None: reusable=preferred
++            else:
++                reusable=next((i for i,v in enumerate(self.it_voices) if v is None),None)
++        if reusable is None:
++            raise ValueError(f'IT NNA/DCT requires more than 24 simultaneous OPL4 voices at order {self.order} row {self.row}; exact conversion is impossible')
++        self.it_voice_map[logical]=reusable
++        self.it_voices[reusable]={'master':logical,'instrument':inum,'sample':smp,'note':mnote,'state':'foreground','release':None}
++        return reusable,synth,inum,prof
++
++    def _it_target_voice(self,logical:int):
++        return self.it_voice_map.get(logical, logical if 0<=logical<24 else 0)
+ 
+     def _next_255(self,start):
+         for i in range(start,len(self.m.orders)):
+@@ -637,6 +738,7 @@
+         vpan=getattr(e,'volume_pan',None)
+         if vpan is not None and self.fmt in S3M_FMTS:
+             effects.insert(0,(CMD_X,(max(0,min(64,int(vpan)))*255+32)//64,None))
++            if self.fmt=='IT': st.it_pan_tracker=(max(0,min(64,int(vpan)))*255+32)//64
+ 
+         # Extra semantic effects from XM volume column etc.
+         for ex in getattr(e,'extra_effects',[]):
+@@ -662,6 +764,8 @@
+             # FT2: note + tone-portamento + EDx becomes a delayed normal note.
+             row_wants_porta=False
+ 
++        if self.fmt=='IT' and cmd==CMD_X:
++            st.it_pan_tracker=max(0,min(255,int(p)))
+         a=Action(e.ch)
+         a.delay_tick=delay
+         old_ins=st.instrument
+@@ -753,18 +857,20 @@
+ 
+         xm_ft_override=(((p & 15)-8)*16 if self.fmt=='XM' and cmd==CMD_XM_FINETUNE and e.note is not None and e.note<254 else None)
+         mod_ft_override=((p&15) if self.fmt=='MOD' and cmd==CMD_MOD_FINETUNE else None)
+-        if e.note is not None and not k00_suppresses_note and not xm_out_of_range_delay and not xm_note_limit_bad:
++        it_special=(getattr(e,'it_note_special',None) if self.fmt=='IT' else None)
++        if self.fmt=='IT' and it_special in ('off','cut','fade') and not k00_suppresses_note:
++            a.note_kind=it_special
++        elif e.note is not None and not k00_suppresses_note and not xm_out_of_range_delay and not xm_note_limit_bad:
+             if e.note==254:
+                 a.note_kind='delay_off' if delay>=0 else 'off'
+                 # FT2 key-off releases the volume envelope/fadeout; it does not
+-                # force volume to zero when an envelope is active. The XM Z80
+-                # runtime decides this from the current profile.
+-                if self.fmt!='XM' and delay<0:
++                # force volume to zero when an envelope is active.
++                if self.fmt not in ('XM','IT') and delay<0:
+                     a.volume=0
+                 if self.fmt=='XM' and delay>=0 and xm_ins_present and old_ins in self.m.samples:
+                     a.delayed_volume=self.m.samples[old_ins].volume
+                 else:
+-                    a.delayed_volume=(0 if (delay>=0 and self.fmt!='XM') else 0xFF)
++                    a.delayed_volume=(0 if (delay>=0 and self.fmt not in ('XM','IT')) else 0xFF)
+             elif e.note<254 and use_ins in self.m.samples:
+                 ni=(it_note_idx if self.fmt=='IT' else self._note_index(e.note))
+                 if self.fmt=='XM':
+@@ -900,6 +1006,17 @@
+                 self.warnings.append('ProTracker sample swaps are applied at the tracker row boundary; OPL4 exposes no sample-end callback')
+                 self._warned_mod_swap_boundary=True
+ 
++        # Native IT resets the selected instrument envelope/fade state on a
++        # newly triggered note. Profile selection is parser-immediate and does
++        # not consume either realtime effect slot. Tone-portamento keeps the
++        # current voice/profile in this first exact profile.
++        if (self.fmt=='IT' and bool(getattr(self.m,'it_instrument_mode',False))
++                and a.note_kind in ('normal','delay_normal')):
++            inum=(int(getattr(e,'it_instrument_number',0)) if it_ins_present else 0) or st.it_instrument_num
++            inst=getattr(self.m,'it_instruments',{}).get(inum)
++            if inst:
++                effects.insert(0,(CMD_IT_PROFILE,int(inst.get('profile_id',0))&0xFF,None))
++
+         # FT2 resets instrument envelope/fadeout/auto-vibrato state on an
+         # instrument-only row and on instrument+tone-portamento. Normal notes
+         # derive the profile directly from the custom-tone table at trigger time.
+@@ -972,7 +1089,7 @@
+         if a.effects: flags|=0x80
+         out=bytearray(((a.ch&31)|flags,))
+         if a.note_kind is not None:
+-            kinds={'normal':0,'delay_normal':0x40,'porta':0x80,'delay_porta':0x81,'porta_swap':0x82,'sample_swap':0x83,'off':0xFE,'delay_off':0xFF}
++            kinds={'normal':0,'delay_normal':0x40,'porta':0x80,'delay_porta':0x81,'porta_swap':0x82,'sample_swap':0x83,'cut':0xFC,'fade':0xFD,'off':0xFE,'delay_off':0xFF}
+             d=kinds[a.note_kind]
+             if a.note_kind in ('normal','delay_normal'):
+                 # Stream v4: bit 1 marks an XM note without a literal instrument
+@@ -1059,8 +1176,36 @@
+                         and ((e.param or 0)&15)>=self.speed and e.note is not None):
+                     self.mod_pending_oor_delay[e.ch]=core.Event(ch=e.ch,note=e.note,ins=e.ins,vol=e.vol)
+                     event_for_action=core.Event(ch=e.ch,cmd=e.cmd,param=e.param)
+-                a=self._event_action(event_for_action,self.states[e.ch])
+-                if a: actions.append(a)
++                state=self.states[e.ch]
++                phys=self._it_target_voice(e.ch) if self.fmt=='IT' else e.ch
++                synth=[]
++                if (self.fmt=='IT' and bool(getattr(self.m,'it_instrument_mode',False))
++                        and e.note is not None and e.note<254 and e.cmd not in (CMD_G,CMD_L)):
++                    # SDx note delay + NNA would need runtime voice allocation at
++                    # the delayed tick. Keep that rare combination explicit.
++                    if e.cmd==CMD_S and (((e.param or 0)>>4)&15)==0xD and ((e.param or 0)&15)>0:
++                        inum,_,_,prof=self._it_note_identity(e,state)
++                        if prof and (int(prof.get('nna',0)) or int(prof.get('dct',0))):
++                            raise ValueError(f'IT delayed note with NNA/DCT at order {self.order} row {self.row} channel {e.ch+1} is not representable by the current runtime allocator')
++                    phys,synth,_,_=self._it_allocate_note_voice(e,state)
++                a=self._event_action(event_for_action,state)
++                if self.fmt=='IT':
++                    for sa in synth: actions.append(sa)
++                    if a:
++                        a.ch=phys
++                        # A newly allocated background-capable voice must inherit
++                        # the logical channel's current base pan.
++                        if e.note is not None and e.note<254 and e.cmd not in (CMD_G,CMD_L):
++                            a.effects.insert(0,(CMD_X,max(0,min(255,state.it_pan_tracker)),None))
++                        actions.append(a)
++                    sp=getattr(e,'it_note_special',None)
++                    if sp in ('cut','off','fade'):
++                        pv=self.it_voice_map.get(e.ch)
++                        if pv is not None:
++                            if sp=='cut': self._it_apply_voice_end(pv,'cut')
++                            elif self.it_voices[pv] is not None: self.it_voices[pv]['release']=sp
++                elif a:
++                    actions.append(a)
+                 # SBx pattern loop is flattened at conversion time. ST3 uses
+                 # channel 0's loop memory globally; IT/modern S3M keep per-channel state.
+                 if e.cmd==CMD_S and (((getattr(e,'resolved_param',0)>>4)&15)==0xB):
+--- a/module_formats.py
++++ b/module_formats.py
+@@ -346,7 +346,7 @@
+         y=buf[p]; x=int.from_bytes(buf[p+1:p+3],'little'); p+=3
+         if kind!='volume': y=_s8(y)
+         pts.append((x,y))
+-    return {'flags':flg&7,'points':tuple(pts),'loop_start':lpb,'loop_end':lpe,'sustain_start':slb,'sustain_end':sle}
++    return {'flags':flg&0x1F,'points':tuple(pts),'loop_start':lpb,'loop_end':lpe,'sustain_start':slb,'sustain_end':sle}
+ 
+ 
+ def _parse_it_instrument(blob:bytes,cmwt:int):
+@@ -955,10 +955,9 @@
+ def parse_it(path:Path)->core.Module:
+     """Parse a native Impulse Tracker (IMPM) module.
+ 
+-    v0.4.9 deliberately starts with the part of IT that can be represented
+-    exactly by the existing one-voice-per-tracker-channel OPL4 runtime.
+-    Unsupported voice-allocation / envelope features fail loudly instead of
+-    being silently rendered with S3M semantics.
++    Native IMPM parsing is deliberately strict: features which cannot yet be
++    represented accurately by the dedicated IT/OPL4 runtime fail loudly
++    instead of being silently rendered with S3M semantics.
+     """
+     b=path.read_bytes()
+     if len(b)<0xC0 or b[:4]!=b'IMPM': raise ValueError('not an Impulse Tracker module')
+@@ -993,17 +992,23 @@
+             if ptr+554>len(b): raise ValueError(f'IT instrument {ii}: header outside file')
+             inst=_parse_it_instrument(b[ptr:ptr+554],cmwt)
+             bad=[]
+-            if inst['nna']!=0: bad.append(f'NNA={inst["nna"]}')
+-            if inst['dct']!=0: bad.append(f'DCT={inst["dct"]}')
+-            if inst['dca']!=0: bad.append(f'DCA={inst["dca"]}')
++            if inst['nna'] not in (0,1,2,3): bad.append(f'invalid NNA={inst["nna"]}')
++            if inst['dct'] not in (0,1,2,3): bad.append(f'invalid DCT={inst["dct"]}')
++            if inst['dca'] not in (0,1,2): bad.append(f'invalid DCA={inst["dca"]}')
+             if inst['pps']!=0: bad.append(f'pitch-pan separation={inst["pps"]}')
+             if inst['random_volume'] or inst['random_pan']: bad.append('random volume/pan')
+             if not (inst['default_pan']&0x80): bad.append('instrument default pan')
+             if inst['global_volume']!=128: bad.append(f'instrument global volume={inst["global_volume"]}')
+             for ename in ('vol_env','pan_env','pitch_env'):
+-                if inst[ename]['flags']&1: bad.append(ename.replace('_',' ')+' enabled')
++                ef=int(inst[ename]['flags'])
++                if ef & 0x08: bad.append(ename.replace('_',' ')+' carry')
++                if ename=='pitch_env' and ef & 0x10: bad.append('filter envelope')
++                if ef & 1:
++                    pts=inst[ename]['points']
++                    if not pts: bad.append(ename.replace('_',' ')+' enabled without points')
++                    elif pts[-1][0] > 4095: bad.append(ename.replace('_',' ')+f' endpoint {pts[-1][0]} > 4095 ticks')
+             if bad:
+-                raise ValueError(f'IT instrument {ii} ({inst["name"] or "unnamed"}): true-IT runtime feature not implemented yet: '+', '.join(bad))
++                raise ValueError(f'IT instrument {ii} ({inst["name"] or "unnamed"}): unsupported true-IT feature: '+', '.join(bad))
+             instruments[ii]=inst
+ 
+     samples:Dict[int,core.Sample]={}
+@@ -1102,15 +1107,10 @@
+                 elif 128<=volcol<=192: volume_pan=volcol-128
+                 elif volcol!=255:
+                     raise ValueError(f'IT pattern {pi} row {r} channel {och+1}: volume-column command {volcol} is not yet supported')
+-            if special_note=='fade':
+-                if instrument_mode:
+-                    raise ValueError(f'IT pattern {pi} row {r} channel {och+1}: note fade requires the pending NNA/envelope runtime')
+-                # In IT sample mode, Note Fade has no envelope/fade target and
+-                # is intentionally ignored rather than cutting the sample.
++            if special_note=='fade' and not instrument_mode:
++                # In IT sample mode, Note Fade has no instrument fade target.
+                 ev_note=None; special_note='fade_ignored'
+             instrument_present=bool(mask&(2|0x20) and ins)
+-            if instrument_mode and instrument_present and (ev_note is None or special_note is not None):
+-                raise ValueError(f'IT pattern {pi} row {r} channel {och+1}: instrument-only / instrument+special-note memory semantics are not yet supported')
+             if cmd in unsupported_effects:
+                 raise ValueError(f'IT pattern {pi} row {r} channel {och+1}: {unsupported_effects[cmd]} is not yet supported')
+             if cmd==20 and 0<param<0x20:
+@@ -1145,7 +1145,7 @@
+             rows.append(nr)
+         patterns.append(rows)
+ 
+-    pans=[]; chvol=[]
++    pans=[]; chvol=[]; pan_track=[]
+     for old in used:
+         pv=b[0x40+old]; vv=b[0x80+old]
+         if vv>64: raise ValueError(f'IT channel {old+1}: invalid initial channel volume {vv}')
+@@ -1156,7 +1156,7 @@
+         pv=min(64,pv&0x7F)
+         # IT's separation byte scales stereo distance around centre.
+         pv=max(0,min(64,32+int(round((pv-32)*(int(sep)/128.0)))))
+-        pans.append((pv*15+32)//64); chvol.append(vv)
++        pans.append((pv*15+32)//64); pan_track.append((pv*255+32)//64); chvol.append(vv)
+     chset=[0]*len(used)+[255]*(32-len(used))
+     # The existing KSP volume LUT is 0..64. IT global volume is 0..128 and is
+     # static here because V/W effects are rejected above.
+@@ -1165,7 +1165,23 @@
+     m.source_format='IT'; m.offset_quantum=256; m.it_cwtv=cwtv; m.it_cmwt=cmwt; m.it_flags=flags; m.it_special=special
+     m.it_instrument_mode=instrument_mode; m.it_linear_slides=linear_slides; m.it_old_effects=old_effects; m.it_compatible_gxx=compatible_gxx
+     m.it_instruments=instruments; m.it_instrument_keymaps={k:v['keymap'] for k,v in instruments.items()}
+-    m.it_channel_map=tuple(used); m.it_channel_volume=tuple(chvol); m.channel_panning_nibbles=pans; m.s3m_is_stereo=True
++    # Deduplicate realtime instrument profiles. Profile 0 is neutral/sample-mode.
++    def _env_key(env):
++        return (int(env['flags'])&7, tuple((int(x),int(y)) for x,y in env['points']),
++                int(env['loop_start']),int(env['loop_end']),int(env['sustain_start']),int(env['sustain_end']))
++    neutral=(0,0,0,0,_env_key({'flags':0,'points':(), 'loop_start':0,'loop_end':0,'sustain_start':0,'sustain_end':0}),
++             _env_key({'flags':0,'points':(), 'loop_start':0,'loop_end':0,'sustain_start':0,'sustain_end':0}),
++             _env_key({'flags':0,'points':(), 'loop_start':0,'loop_end':0,'sustain_start':0,'sustain_end':0}))
++    profiles=[neutral]; profile_ids={neutral:0}
++    for ii,inst in sorted(instruments.items()):
++        prof=(int(inst['nna']),int(inst['dct']),int(inst['dca']),int(inst['fadeout']),
++              _env_key(inst['vol_env']),_env_key(inst['pan_env']),_env_key(inst['pitch_env']))
++        if prof not in profile_ids:
++            if len(profiles)>=256: raise ValueError('IT needs more than 255 distinct realtime instrument profiles')
++            profile_ids[prof]=len(profiles); profiles.append(prof)
++        inst['profile_id']=profile_ids[prof]
++    m.it_profiles=profiles
++    m.it_channel_map=tuple(used); m.it_channel_volume=tuple(chvol); m.it_channel_pan_tracker=tuple(pan_track); m.channel_panning_nibbles=pans; m.s3m_is_stereo=True
+     m.s3m_sample_swap=False; m.s3m_porta_sample_change=False; m.s3m_short_sample_retrig=True
+     m.it_tracker_name=f'Impulse Tracker compatible (Cwtv {cwtv>>8}.{cwtv&255:02X})'
+     return m
+--- a/tracker2ksp.py
++++ b/tracker2ksp.py
+@@ -20,12 +20,15 @@
+ PAGE_SIZE=0x4000
+ STREAM_BASE=0x6800
+ MOD_STREAM_BASE=0x6A00
++IT_STREAM_BASE=0x7C00
+ STREAM_OFFSET=STREAM_BASE-PAGE_LOAD
+ STREAM_DATA_OFFSET=STREAM_OFFSET+2
+ STREAM_PAGE_CAPACITY=PAGE_SIZE-STREAM_DATA_OFFSET
+ 
+ def stream_base_for(source_format:str)->int:
+-    return MOD_STREAM_BASE if source_format=='MOD' else STREAM_BASE
++    if source_format=='MOD': return MOD_STREAM_BASE
++    if source_format=='IT': return IT_STREAM_BASE
++    return STREAM_BASE
+ 
+ def stream_page_capacity_for(source_format:str)->int:
+     base=stream_base_for(source_format)
+@@ -39,7 +42,7 @@
+ NULL16=0xFFFF; NULL32=0xFFFFFFFF
+ COMP_NONE=0; COMP_ZX0=1; PAGE_SPARSE=0
+ MAX_SUPPORTED_PAGES=48; MAX_PRELOADED_PAGES=32
+-OPL4_STATE_BASE=0x2FFC00  # final 512 bytes of standard 1 MiB MoonSound RAM reserved for page-state handoff
++OPL4_STATE_BASE=0x2FFC00  # final 1 KiB of standard 1 MiB MoonSound RAM reserved for page-state handoff
+ 
+ HERE=Path(__file__).resolve().parent
+ S3M_ENGINE_BIN=(HERE/'compact_engine_s3m.bin').read_bytes()
+@@ -293,6 +296,79 @@
+     return {'tone_addr':tone_addr,'tone_map':bytes(tone_map),'ptr_addr':ptr_addr,'ptrs':bytes(ptrs),
+             'data_addr':data_addr,'blob':blob,'limit':limit,'profiles':len(profiles),'bytes':len(blob)}
+ 
++def _it_env_curve(env,kind:str):
++    """Precompute an IT envelope at tracker-tick resolution.
++
++    Volume is stored as 0..64 bytes, pan as 0..64 (32 neutral), and pitch as
++    a Q8 period multiplier. IT pitch envelope units are half-semitones.
++    """
++    flags,points,ls,le,ss,se=env
++    if not (flags&1) or not points:return b''
++    pts=[(int(x),int(y)) for x,y in points]
++    maxx=pts[-1][0]
++    if maxx>4095: raise ValueError(f'IT {kind} envelope endpoint {maxx} exceeds 4095 ticks')
++    seg=0; out=bytearray()
++    for x in range(maxx+1):
++        while seg+1<len(pts) and x>=pts[seg+1][0]: seg+=1
++        x0,y0=pts[seg]
++        if seg+1<len(pts):
++            x1,y1=pts[seg+1]; dx=x1-x0
++            yf=(float(y0)+(float(y1-y0)*float(x-x0)/float(dx))) if dx>0 else float(y0)
++        else: yf=float(y0)
++        if kind=='volume': out.append(max(0,min(64,int(yf))))
++        elif kind=='pan': out.append(max(0,min(64,int(round(yf+32.0)))))
++        else:
++            # Positive IT pitch-envelope values raise pitch, so period shrinks.
++            # Store a cheap runtime representation: optional octave doubling,
++            # then an 8-bit Q8 delta around unity. This keeps the Z80 to one
++            # 16x8 multiply instead of an exponential/16x16 multiply.
++            factor=2.0**(-yf/24.0); fl=0
++            if factor>=2.0:
++                factor*=0.5; fl|=0x02
++            if factor<1.0:
++                fl|=0x01; mag=int(round((1.0-factor)*256.0))
++            else:
++                mag=int(round((factor-1.0)*256.0))
++            out += bytes((max(0,min(255,mag)),fl))
++    return bytes(out)
++
++def _it_env_x(env,index:int)->int:
++    points=env[1]
++    if not points:return 0
++    index=max(0,min(len(points)-1,int(index)))
++    return int(points[index][0])&0xFFFF
++
++def build_it_profile_patch(module:core.Module,sym:dict):
++    profiles=list(getattr(module,'it_profiles',[]))
++    if not profiles:return None
++    ptr_addr=sym['it_profile_ptrs']; data_addr=sym['it_profile_data']; limit=sym['it_profile_limit']
++    rec_size=44
++    cursor=data_addr+rec_size*len(profiles)
++    records=[]; curves=[]
++    for prof in profiles:
++        nna,dct,dca,fade,ve,pe,pie=prof
++        vcurve=_it_env_curve(ve,'volume'); pcurve=_it_env_curve(pe,'pan'); picurve=_it_env_curve(pie,'pitch')
++        vaddr=cursor if vcurve else 0; cursor+=len(vcurve)
++        paddr=cursor if pcurve else 0; cursor+=len(pcurve)
++        piaddr=cursor if picurve else 0; cursor+=len(picurve)
++        rec=bytearray(rec_size)
++        rec[0]=int(ve[0])&7; rec[1]=int(pe[0])&7; rec[2]=int(pie[0])&7
++        rec[3]=int(nna)&3; rec[4]=int(dct)&3; rec[5]=int(dca)&3
++        struct.pack_into('<H',rec,6,int(fade)&0xFFFF)
++        def put(off,addr,curve,env,scale=1):
++            maxt=(len(curve)//scale-1) if curve else 0
++            struct.pack_into('<HHHHHH',rec,off,addr,maxt,_it_env_x(env,env[2]),_it_env_x(env,env[3]),_it_env_x(env,env[4]),_it_env_x(env,env[5]))
++        put(8,vaddr,vcurve,ve,1); put(20,paddr,pcurve,pe,1); put(32,piaddr,picurve,pie,2)
++        records.append(bytes(rec)); curves.extend((vcurve,pcurve,picurve))
++    if cursor>limit:
++        raise ValueError(f'IT envelope/profile data needs {cursor-data_addr} bytes but resident profile area has {limit-data_addr}')
++    ptrs=bytearray(512)
++    if len(profiles)>256: raise ValueError('IT profile pointer table supports at most 256 profiles')
++    for i in range(len(profiles)): struct.pack_into('<H',ptrs,i*2,data_addr+i*rec_size)
++    blob=b''.join(records)+b''.join(curves)
++    return {'ptr_addr':ptr_addr,'ptrs':bytes(ptrs),'data_addr':data_addr,'blob':blob,'limit':limit,
++            'profiles':len(profiles),'bytes':len(blob)}
++
+ def make_engine_template(module:core.Module,page_count:int,source_format:str,waves:list[dict],stream_base:int|None=None):
+     if source_format=='S3M':
+         engine_bin=S3M_ENGINE_BIN; sym=S3M_ENGINE_SYM
+@@ -307,6 +383,7 @@
+     else:
+         raise ValueError(f'unsupported tracker engine format {source_format}')
+     use_xm_engine=(source_format=='XM')
++    use_it_engine=(source_format=='IT')
+     t=bytearray(PAGE_SIZE)
+     if stream_base is None: stream_base=stream_base_for(source_format)
+     stream_offset=stream_base-PAGE_LOAD
+@@ -324,6 +401,12 @@
+             t[pinfo['ptr_addr']-PAGE_LOAD:pinfo['ptr_addr']-PAGE_LOAD+128]=pinfo['ptrs']
+             off=pinfo['data_addr']-PAGE_LOAD
+             t[off:off+len(pinfo['blob'])]=pinfo['blob']
++    elif use_it_engine:
++        pinfo=build_it_profile_patch(module,sym)
++        if pinfo:
++            t[pinfo['ptr_addr']-PAGE_LOAD:pinfo['ptr_addr']-PAGE_LOAD+512]=pinfo['ptrs']
++            off=pinfo['data_addr']-PAGE_LOAD
++            t[off:off+len(pinfo['blob'])]=pinfo['blob']
+     return t,engine_bin,sym,pinfo
+ 
+ def split_semantic_pages(stream:bytes,rows:list[bytes],source_format:str=None):
+@@ -370,7 +453,7 @@
+         'format=KSP 1.05',f'engine=native Z80 {source_format}-specific multi-page realtime engine',
+         'conversion=compact rows/effects + shared MWK PCM payloads + INIT-time OPL4 header aliases; no rendered PCM and no pre-expanded tick register stream',
+         f'initial_speed={module.speed}',f'initial_tempo={module.tempo}',f'active_channels={len(module.active_channels)}',
+-        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.4.9'
++        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.5.0'
+     ])+'\n'; meta=metadata.encode()
+     mwkp,mcomp=maybe_zx0(mwk,compression)
+     engine_off=80; page_off=engine_off+64; track_off=page_off+page_count*24; resource_off=track_off+32
+@@ -403,10 +486,10 @@
+     assert len(out)==file_size
+     output.parent.mkdir(parents=True,exist_ok=True); output.write_bytes(out)
+     packed_pages=sum(r['stored_bytes'] for r in records); mapper_segments=(packed_pages+PAGE_SIZE-1)//PAGE_SIZE
+-    return {'status':'built','format':'KSP 1.05','converter_version':'0.4.9','input':str(module.path),'output':str(output),
++    return {'status':'built','format':'KSP 1.05','converter_version':'0.5.0','input':str(module.path),'output':str(output),
+             'title':title,'duration_ms':round(semantic_stats['duration_seconds']*1000),'output_bytes':len(out),'output_sha256':sha256(out),
+             'engine':{'init':hex(engine_sym['init']),'play':hex(engine_sym['play']),'stop':hex(engine_sym['stop']),'play_hz':60,'hardware':'OPL4',
+-                      'resident_range':f'0x4000-0x{stream_base-1:04X} (code/state; persistent tracker state handoff via OPL4 RAM 0x2FFC00)','dynamic_window':f'0x{stream_base:04X}-0x7FFF','binary_bytes':len(engine_bin),'xm_ft2_profiles':profile_info['profiles'] if profile_info else 0,'xm_profile_bytes':profile_info['bytes'] if profile_info else 0},
++                      'resident_range':f'0x4000-0x{stream_base-1:04X} (code/state; persistent tracker state handoff via OPL4 RAM 0x2FFC00)','dynamic_window':f'0x{stream_base:04X}-0x7FFF','binary_bytes':len(engine_bin),'xm_ft2_profiles':profile_info['profiles'] if (profile_info and source_format=='XM') else 0,'xm_profile_bytes':profile_info['bytes'] if (profile_info and source_format=='XM') else 0,'it_profiles':profile_info['profiles'] if (profile_info and source_format=='IT') else 0,'it_profile_bytes':profile_info['bytes'] if (profile_info and source_format=='IT') else 0},
+             'semantic_stream':{**semantic_stats,'raw_bytes':len(stream),'page_count':page_count,'page_capacity':page_capacity,
+                                'packed_page_bytes':packed_pages,'mapper_segments_for_preload':mapper_segments,
+                                'ksp1play_preload_eligible':page_count<=MAX_PRELOADED_PAGES and mapper_segments<=12,
+--- a/source/compact_engine_it.asm
++++ b/source/compact_engine_it.asm
+@@ -1,7 +1,7 @@
+ 
+         org 04000h
+ 
+-STREAM_PAGE     equ 06800h
++STREAM_PAGE     equ 07C00h
+ STREAM_DATA     equ 06802h
+ HEADER_SIZE     equ 39
+ DYNAMIC_GATEWAY equ 07FF0h
+@@ -68,10 +68,19 @@
+ TREMTYPE        equ 06460h
+ VIBTYPE         equ 06478h
+ GLISS           equ 06490h
++ITPROF          equ 064A8h      ; 24 bytes, realtime IT instrument profile id
++ITKEYOFF        equ 064C0h      ; 24 bytes, pattern/NNA note-off release state
++ITNOTEFADE      equ 064D8h      ; 24 bytes, IT fadeout active
++ITVOLPOS        equ 064F0h      ; 24 words, volume envelope tick
++ITPANPOS        equ 06520h      ; 24 words, panning envelope tick
++ITPITCHPOS      equ 06550h      ; 24 words, pitch envelope tick
++ITFADEVOL       equ 06580h      ; 24 words, 0..65535
++ITTEMPVOL       equ 065B0h      ; 24 bytes, per-tick tremolo/tremor working volume
++ITBASEPAN       equ 065C8h      ; 24 bytes, exact 0..255 logical-channel base pan
+ PAGE_TOTAL_CFG  equ 063FCh      ; patched by converter
+ STATE_CLEAR     equ 05F00h
+ STATE_CLEAR_END equ 06288h
+-EXT_STATE_END   equ 064A8h
++EXT_STATE_END   equ 065E0h
+ 
+ CMD_A           equ 1
+ CMD_D           equ 4
+@@ -93,6 +102,7 @@
+ CMD_ST3_TREMWAVE equ 37
+ CMD_ST3_FINETUNE equ 38
+ CMD_ST3_TICKDELAY equ 39
++CMD_IT_PROFILE  equ 86
+ 
+ init:
+         xor a
+@@ -298,6 +308,10 @@
+         call read_stream_byte
+         ret c
+         ld (EV_NOTE_KIND),a
++        cp 0FCh
++        ret z
++        cp 0FDh
++        ret z
+         cp 0FEh
+         ret z
+         cp 0FFh
+@@ -466,6 +480,13 @@
+         or a
+         ret
+ fx_not_tickdelay:
++        cp CMD_IT_PROFILE
++        jr nz,fx_not_it_profile
++        ld a,e
++        call it_reset_profile_a
++        or a
++        ret
++fx_not_it_profile:
+         ; H updates nibble memory immediately; its resolved parameter already has both nibbles.
+         cp CMD_H
+         jr nz,fx_store
+@@ -558,18 +579,22 @@
+         or a
+         jr z,finish_no_note
+         ld a,(EV_NOTE_KIND)
++        cp 0FCh
++        jp z,do_note_cut_it
++        cp 0FDh
++        jp z,do_note_fade_it
+         cp 0FEh
+-        jr z,do_note_off
++        jp z,do_note_off
+         cp 0FFh
+-        jr z,queue_delayed_note
++        jp z,queue_delayed_note
+         cp 080h
+-        jr z,do_porta_target
++        jp z,do_porta_target
+         cp 081h
+-        jr z,queue_delayed_note
++        jp z,queue_delayed_note
+         cp 082h
+-        jr z,do_porta_swap
++        jp z,do_porta_swap
+         and 040h
+-        jr nz,queue_delayed_note
++        jp nz,queue_delayed_note
+         jp do_normal_note
+ finish_no_note:
+         ret
+@@ -631,9 +656,23 @@
+         ld (hl),b
+         ret
+ 
+-do_note_off:
++do_note_cut_it:
++        xor a
++        ld hl,ITTEMPVOL
++        call ptr8_cur
++        ld (hl),a
+         jp keycut_current
+ 
++do_note_fade_it:
++        ld a,1
++        ld hl,ITNOTEFADE
++        call ptr8_cur
++        ld (hl),a
++        ret
++
++do_note_off:
++        jp it_note_off
++
+ queue_delayed_note:
+         ld a,(EV_DELAY)
+         ld hl,DELAY_TICK
+@@ -724,6 +763,15 @@
+         ld (CUR_CH),a
+ process_ch_loop:
+         call process_delayed
++        call it_tick_state
++        ; Start every tick from the persistent tracker volume. Tremolo/tremor
++        ; overwrite ITTEMPVOL without corrupting VOLUME itself.
++        ld hl,VOLUME
++        call ptr8_cur
++        ld a,(hl)
++        ld hl,ITTEMPVOL
++        call ptr8_cur
++        ld (hl),a
+         ld hl,PERIOD_Q
+         call ptr16_cur
+         ld e,(hl)
+@@ -747,9 +795,12 @@
+         call ptr8_cur
+         ld e,(hl)
+         call apply_effect_de
++        call it_apply_pitch_env
+         ld a,(PITCH_DIRTY)
+         or a
+         call nz,emit_pitch_approx
++        call it_apply_volume_env
++        call it_apply_pan_env
+         ld a,(CUR_CH)
+         inc a
+         ld (CUR_CH),a
+@@ -1590,33 +1641,26 @@
+ emit_volume_current:
+         ld hl,VOLUME
+         call ptr8_cur
+-        ld e,(hl)
+-        ld d,0
+-        ld hl,VOL_LUT
+-        add hl,de
+-        ld e,(hl)
+-        ld a,(CUR_CH)
+-        add a,050h
+-        ld d,a
+-        jp opl4_write_de
+-
++        ld a,(hl)
++        ; fall through: realtime IT mixer applies envelope/fade once per tick.
+ emit_volume_a_temp:
+         cp 65
+         jr c,emit_temp_ok
+         ld a,64
+ emit_temp_ok:
+-        ld e,a
+-        ld d,0
+-        ld hl,VOL_LUT
+-        add hl,de
+-        ld e,(hl)
+-        ld a,(CUR_CH)
+-        add a,050h
+-        ld d,a
+-        jp opl4_write_de
++        ld hl,ITTEMPVOL
++        call ptr8_cur
++        ld (hl),a
++        ret
+ 
+ set_pan_from_tracker:
+-        ; A=0..255 tracker pan. OPL4: 9..15 left, 1..7 right, 0 centre.
++        ; A=0..255 tracker pan. Preserve the exact IT base for pan envelopes,
++        ; then quantize the hardware/base PAN nibble as before.
++        push af
++        ld hl,ITBASEPAN
++        call ptr8_cur
++        pop af
++        ld (hl),a
+         cp 128
+         jr nc,pan_right
+         rrca
+@@ -1936,7 +1980,7 @@
+ ;
+ ; Dynamic materialization replaces 4000h..7FFFh, including our RAM state.
+ ; Store only state that must survive between rows in reserved MoonSound RAM
+-; 2FFE00h..2FFFFFh. 301 bytes are used; the converter never places MWK sample
++; 2FFC00h..2FFFFFh. Native IT uses up to 760 bytes; the converter never places MWK sample
+ ; payload in this final 512-byte window. CMD/PAR/delay/ARP scratch is row-local
+ ; and deliberately not persisted because page changes only occur between rows.
+ ; ---------------------------------------------------------------------------
+@@ -1946,7 +1990,7 @@
+         ld e,02Fh              ; 2FFE00h high six address bits
+         call opl4_write_de
+         ld d,04h
+-        ld e,0FEh
++        ld e,0FCh
+         call opl4_write_de
+         ld d,05h
+         ld e,000h
+@@ -1978,6 +2022,9 @@
+         ld hl,TREMOR_COUNT
+         ld bc,168
+         call state_write_block
++        ld hl,ITPROF
++        ld bc,EXT_STATE_END-ITPROF
++        call state_write_block
+         ld d,02h
+         ld e,010h              ; leave MoonSound RAM write disabled
+         jp opl4_write_de
+@@ -2019,6 +2066,9 @@
+         ld hl,TREMOR_COUNT
+         ld bc,168
+         call state_read_block
++        ld hl,ITPROF
++        ld bc,EXT_STATE_END-ITPROF
++        call state_read_block
+         ld d,02h
+         ld e,010h              ; return MoonSound to normal wave-table mode
+         jp opl4_write_de
+@@ -2483,3 +2533,628 @@
+         ld d,02h
+         ld e,010h              ; normal wave-table mode / write disabled
+         jp opl4_write_de
++
++; ---------------------------------------------------------------------------
++; Native Impulse Tracker instrument envelopes / fadeout.
++;
++; This code is IT-only and intentionally lives above all ordinary tracker
++; state.  Profiles and interpolated envelope curves are patched by the host
++; into the resident template below the 7C00h semantic-stream window.
++; ---------------------------------------------------------------------------
++        org 06600h
++
++it_profile_ptr_a:
++        ld l,a
++        ld h,0
++        add hl,hl
++        ld de,IT_PROFILE_PTRS
++        add hl,de
++        ld e,(hl)
++        inc hl
++        ld d,(hl)
++        ex de,hl
++        ret
++
++it_profile_current:
++        ld hl,ITPROF
++        call ptr8_cur
++        ld a,(hl)
++        jp it_profile_ptr_a
++
++it_reset_profile_a:
++        push af
++        ld hl,ITPROF
++        call ptr8_cur
++        pop af
++        ld (hl),a
++        ld hl,ITVOLPOS
++        call ptr16_cur
++        ld (hl),0FFh
++        inc hl
++        ld (hl),0FFh
++        ld hl,ITPANPOS
++        call ptr16_cur
++        ld (hl),0FFh
++        inc hl
++        ld (hl),0FFh
++        ld hl,ITPITCHPOS
++        call ptr16_cur
++        ld (hl),0FFh
++        inc hl
++        ld (hl),0FFh
++        xor a
++        ld hl,ITKEYOFF
++        call ptr8_cur
++        ld (hl),a
++        ld hl,ITNOTEFADE
++        call ptr8_cur
++        ld (hl),a
++        ld hl,ITFADEVOL
++        call ptr16_cur
++        ld (hl),0FFh
++        inc hl
++        ld (hl),0FFh
++        ret
++
++it_note_off:
++        ld a,1
++        ld hl,ITKEYOFF
++        call ptr8_cur
++        ld (hl),a
++        ; IT starts fade immediately on Note Off when there is no volume
++        ; envelope, or when the volume envelope is looping. Otherwise the
++        ; released envelope is allowed to run to its end first.
++        call it_profile_current
++        ld a,(hl)
++        bit 0,a
++        jr z,it_note_off_fade
++        bit 1,a
++        ret z
++it_note_off_fade:
++        ld a,1
++        ld hl,ITNOTEFADE
++        call ptr8_cur
++        ld (hl),a
++        ret
++
++; Load a little-endian profile word at HL+A into BC, preserving HL and DE.
++it_load_bc_off:
++        push hl
++        push de
++        ld e,a
++        ld d,0
++        add hl,de
++        ld c,(hl)
++        inc hl
++        ld b,(hl)
++        pop de
++        pop hl
++        ret
++
++; A=flags, HL=12-byte envelope record, BC=per-channel word state base.
++; IT positions start at FFFFh, so the first mixer tick evaluates tick zero.
++it_advance_env:
++        bit 0,a
++        ret z
++        ld (EV_TOKEN),a
++        push hl
++        ld h,b
++        ld l,c
++        call ptr16_cur
++        ld e,(hl)
++        inc hl
++        ld d,(hl)
++        dec hl
++        ld a,d
++        cp 0FFh
++        jr nz,it_env_inc
++        ld a,e
++        cp 0FFh
++        jr nz,it_env_inc
++        ld de,0
++        jr it_env_have_pos
++it_env_inc:
++        inc de
++it_env_have_pos:
++        ex (sp),hl                 ; HL=profile env record, stack=state address
++        ld a,(EV_TOKEN)
++        bit 2,a
++        jr z,it_env_regular_loop
++        push hl
++        ld hl,ITKEYOFF
++        call ptr8_cur
++        ld a,(hl)
++        pop hl
++        or a
++        jr nz,it_env_regular_loop
++        ; Held sustain is a loop from sustain-start through sustain-end.
++        ld a,10
++        call it_load_bc_off
++        ld a,d
++        cp b
++        jr c,it_env_clamp
++        jr nz,it_env_sustain_wrap
++        ld a,e
++        cp c
++        jr c,it_env_clamp
++        jr z,it_env_clamp
++it_env_sustain_wrap:
++        ld a,8
++        call it_load_bc_off
++        ld d,b
++        ld e,c
++        jr it_env_clamp
++it_env_regular_loop:
++        ld a,(EV_TOKEN)
++        bit 1,a
++        jr z,it_env_clamp
++        ld a,6
++        call it_load_bc_off
++        ld a,d
++        cp b
++        jr c,it_env_clamp
++        jr nz,it_env_loop_wrap
++        ld a,e
++        cp c
++        jr c,it_env_clamp
++        jr z,it_env_clamp
++it_env_loop_wrap:
++        ld a,4
++        call it_load_bc_off
++        ld d,b
++        ld e,c
++it_env_clamp:
++        ld a,2
++        call it_load_bc_off          ; BC=max curve tick
++        ld a,d
++        cp b
++        jr c,it_env_store
++        jr nz,it_env_use_max
++        ld a,e
++        cp c
++        jr c,it_env_store
++        jr z,it_env_store
++it_env_use_max:
++        ld d,b
++        ld e,c
++it_env_store:
++        ex (sp),hl                   ; HL=state address
++        ld (hl),e
++        inc hl
++        ld (hl),d
++        pop hl                       ; discard profile-record pointer
++        ret
++
++it_tick_state:
++        call it_profile_current
++        ld a,(hl)                    ; volume flags
++        push hl
++        ld de,8
++        add hl,de
++        ld bc,ITVOLPOS
++        call it_advance_env
++        pop hl
++        inc hl
++        ld a,(hl)                    ; pan flags
++        push hl
++        ld de,19                     ; original profile +20
++        add hl,de
++        ld bc,ITPANPOS
++        call it_advance_env
++        pop hl
++        inc hl
++        ld a,(hl)                    ; pitch flags
++        ld de,30                     ; original profile +32
++        add hl,de
++        ld bc,ITPITCHPOS
++        call it_advance_env
++
++        ; Reaching the non-looping volume-envelope end starts instrument fade.
++        call it_profile_current
++        ld a,(hl)
++        bit 0,a
++        jr z,it_tick_fade
++        bit 1,a
++        jr nz,it_tick_fade
++        ; A held sustain point (including sustain at the final envelope point)
++        ; must not trigger instrument fade until Note Off releases sustain.
++        bit 2,a
++        jr z,it_tick_check_env_end
++        push hl
++        ld hl,ITKEYOFF
++        call ptr8_cur
++        ld a,(hl)
++        pop hl
++        or a
++        jr z,it_tick_fade
++it_tick_check_env_end:
++        push hl
++        ld hl,ITVOLPOS
++        call ptr16_cur
++        ld e,(hl)
++        inc hl
++        ld d,(hl)
++        pop hl
++        push hl
++        ld bc,10                     ; volume record max tick = profile +8+2
++        add hl,bc
++        ld c,(hl)
++        inc hl
++        ld b,(hl)
++        pop hl
++        ld a,d
++        cp b
++        jr nz,it_tick_fade
++        ld a,e
++        cp c
++        jr nz,it_tick_fade
++        ld a,1
++        ld hl,ITNOTEFADE
++        call ptr8_cur
++        ld (hl),a
++it_tick_fade:
++        ld hl,ITNOTEFADE
++        call ptr8_cur
++        ld a,(hl)
++        or a
++        ret z
++        call it_profile_current
++        ld de,6
++        add hl,de
++        ld e,(hl)
++        inc hl
++        ld d,(hl)                    ; DE=IT fadeout
++        ld a,d
++        or e
++        ret z
++        sla e
++        rl d                          ; OpenMPT/IT fade step = FadeOut*2
++        ld hl,ITFADEVOL
++        call ptr16_cur
++        ld c,(hl)
++        inc hl
++        ld b,(hl)
++        ld h,b
++        ld l,c
++        or a
++        sbc hl,de
++        jr nc,it_fade_store
++        ld hl,0
++it_fade_store:
++        ex de,hl
++        ld hl,ITFADEVOL
++        call ptr16_cur
++        ld (hl),e
++        inc hl
++        ld (hl),d
++        ld a,d
++        or e
++        ret nz
++        jp keycut_current
++
++; Return current byte-valued envelope curve entry in A.
++; HL=envelope record, BC=per-channel word position base.
++it_env_byte_value:
++        push hl
++        ld h,b
++        ld l,c
++        call ptr16_cur
++        ld e,(hl)
++        inc hl
++        ld d,(hl)
++        pop hl
++        ld c,(hl)
++        inc hl
++        ld b,(hl)                    ; BC=curve address
++        ld h,b
++        ld l,c
++        add hl,de
++        ld a,(hl)
++        ret
++
++it_apply_volume_env:
++        call it_profile_current
++        ld a,(hl)
++        bit 0,a
++        jr z,it_vol_neutral
++        ld de,8
++        add hl,de
++        ld bc,ITVOLPOS
++        call it_env_byte_value
++        jr it_vol_have_env
++it_vol_neutral:
++        ld a,64
++it_vol_have_env:
++        ld c,a                       ; C=env 0..64
++        ld hl,ITTEMPVOL
++        call ptr8_cur
++        ld b,(hl)                    ; B=base/transient vol 0..64
++        ld e,c
++        ld d,0
++        ld hl,0
++it_vol_mul_env:
++        ld a,b
++        or a
++        jr z,it_vol_mul_env_done
++        add hl,de
++        dec b
++        jr it_vol_mul_env
++it_vol_mul_env_done:
++        ld de,32
++        add hl,de
++        ; rounded /64
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        ld b,l
++        ; effective * fadeHigh /256 (FFFF is effectively unity here).
++        ld hl,ITFADEVOL
++        call ptr16_cur
++        inc hl
++        ld e,(hl)
++        ld d,0
++        ld hl,128
++it_vol_mul_fade:
++        ld a,b
++        or a
++        jr z,it_vol_mul_fade_done
++        add hl,de
++        dec b
++        jr it_vol_mul_fade
++it_vol_mul_fade_done:
++        ld a,h
++        cp 65
++        jr c,it_vol_lut
++        ld a,64
++it_vol_lut:
++        ld e,a
++        ld d,0
++        ld hl,VOL_LUT
++        add hl,de
++        ld e,(hl)
++        ld a,(CUR_CH)
++        add a,050h
++        ld d,a
++        jp opl4_write_de
++
++it_apply_pan_env:
++        call it_profile_current
++        inc hl
++        ld a,(hl)
++        bit 0,a
++        ret z
++        ld de,19                     ; current profile+1 +19 = +20
++        add hl,de
++        ld bc,ITPANPOS
++        call it_env_byte_value       ; 0..64, 32 neutral
++        sub 32
++        ld b,0                       ; B=sign 0 plus, 1 minus
++        jp p,it_pan_abs
++        neg
++        ld b,1
++it_pan_abs:
++        ld c,a                       ; C=abs delta 0..32
++        ld hl,ITBASEPAN
++        call ptr8_cur
++        ld a,(hl)
++        ld e,a                       ; E=base pan
++        cp 128
++        jr nc,it_pan_right_dist
++        ld a,128
++        sub e
++        jr it_pan_dist_ready
++it_pan_right_dist:
++        sub 128
++it_pan_dist_ready:
++        ld d,a                       ; distance from centre
++        ld a,128
++        sub d
++        ld d,0                       ; DE=available movement range
++        ; E currently overwritten: reload range low from A.
++        ld e,a
++        ld hl,0
++it_pan_mul:
++        ld a,c
++        or a
++        jr z,it_pan_mul_done
++        add hl,de
++        dec c
++        jr it_pan_mul
++it_pan_mul_done:
++        ; /32
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        ld c,l                       ; movement magnitude
++        ld hl,ITBASEPAN
++        call ptr8_cur
++        ld e,(hl)
++        ld a,b
++        or a
++        jr nz,it_pan_sub
++        ld a,e
++        add a,c
++        jr nc,it_pan_emit
++        ld a,255
++        jr it_pan_emit
++it_pan_sub:
++        ld a,e
++        cp c
++        jr nc,it_pan_sub_ok
++        xor a
++        jr it_pan_emit
++it_pan_sub_ok:
++        sub c
++it_pan_emit:
++        ; Quantize temporary 0..255 IT pan without changing base PAN memory.
++        cp 128
++        jr nc,it_pan_emit_right
++        rrca
++        rrca
++        rrca
++        rrca
++        and 07h
++        ld b,a
++        ld a,7
++        sub b
++        jr z,it_pan_emit_center
++        add a,8
++        jr it_pan_emit_reg
++it_pan_emit_right:
++        sub 128
++        rrca
++        rrca
++        rrca
++        rrca
++        and 07h
++        jr z,it_pan_emit_center
++        jr it_pan_emit_reg
++it_pan_emit_center:
++        xor a
++it_pan_emit_reg:
++        ld e,a
++        ld hl,KEYSTATE
++        call ptr8_cur
++        ld a,(hl)
++        or a
++        jr z,it_pan_emit_nokey
++        ld a,e
++        or 080h
++        ld e,a
++it_pan_emit_nokey:
++        ld a,(CUR_CH)
++        add a,068h
++        ld d,a
++        jp opl4_write_de
++
++; 8x8 unsigned multiply: A*C -> HL.
++it_mul8x8:
++        ld d,0
++        ld e,a
++        ld hl,0
++        ld b,8
++it_mul8_loop:
++        srl c
++        jr nc,it_mul8_noadd
++        add hl,de
++it_mul8_noadd:
++        sla e
++        rl d
++        djnz it_mul8_loop
++        ret
++
++; (HL * A) >> 8 -> DE. Uses row-parser scratch bytes only between rows.
++it_mul16u8_div256:
++        push af
++        ld a,l
++        ld (EV_PLO),a
++        ld a,h
++        ld (EV_PHI),a
++        pop af
++        ld (EV_DELAY),a
++        ld a,(EV_DELAY)
++        ld c,a
++        ld a,(EV_PHI)
++        call it_mul8x8               ; highByte*mag
++        push hl
++        ld a,(EV_DELAY)
++        ld c,a
++        ld a,(EV_PLO)
++        call it_mul8x8               ; lowByte*mag
++        ld a,h                       ; high byte of low product
++        pop de
++        add a,e
++        ld e,a
++        ret nc
++        inc d
++        ret
++
++it_apply_pitch_env:
++        call it_profile_current
++        inc hl
++        inc hl
++        ld a,(hl)
++        bit 0,a
++        ret z
++        ld de,30                     ; current profile+2 +30 = +32
++        add hl,de
++        push hl
++        ld hl,ITPITCHPOS
++        call ptr16_cur
++        ld e,(hl)
++        inc hl
++        ld d,(hl)
++        ex de,hl                     ; HL=tick
++        add hl,hl                    ; two bytes per pitch tick
++        ex de,hl                     ; DE=tick*2
++        pop hl
++        ld c,(hl)
++        inc hl
++        ld b,(hl)                    ; BC=curve address
++        ld h,b
++        ld l,c
++        add hl,de
++        ld a,(hl)                    ; magnitude
++        ld (EV_DVOL),a
++        inc hl
++        ld a,(hl)                    ; flags: bit0 subtract, bit1 double
++        ld (EV_TOKEN),a
++        ld hl,(OUT_PERIOD)
++        bit 1,a
++        jr z,it_pitch_not_double
++        add hl,hl
++        jr nc,it_pitch_not_double
++        ld hl,0FFFFh
++it_pitch_not_double:
++        ld (EV_PERIOD),hl
++        ld a,(EV_DVOL)
++        or a
++        jr z,it_pitch_store
++        call it_mul16u8_div256       ; DE=delta
++        ld hl,(EV_PERIOD)
++        ld a,(EV_TOKEN)
++        bit 0,a
++        jr nz,it_pitch_sub
++        add hl,de
++        jr nc,it_pitch_store
++        ld hl,0FFFFh
++        jr it_pitch_store
++it_pitch_sub:
++        or a
++        sbc hl,de
++        jr nc,it_pitch_nonzero
++        ld hl,1
++        jr it_pitch_store
++it_pitch_nonzero:
++        ld a,h
++        or l
++        jr nz,it_pitch_store
++        inc hl
++it_pitch_store:
++        ld (OUT_PERIOD),hl
++        ld a,1
++        ld (PITCH_DIRTY),a
++        ret
++
++; Static profile pointer table + converter-patched records/curves.
++        org 06C00h
++IT_PROFILE_PTRS:
++        defs 512,0
++IT_PROFILE_DATA:
++IT_PROFILE_LIMIT equ 07C00h
+--- a/source/compact_stream.py
++++ b/source/compact_stream.py
+@@ -20,6 +20,7 @@
+ CMD_XM_VC_VOLDN=66; CMD_XM_VC_VOLUP=67; CMD_XM_ROWINS=68; CMD_XM_ROWDELAY=69; CMD_XM_ROWNOTE=70; CMD_XM_ROWVOL=71
+ CMD_MOD_FILTER=72; CMD_MOD_FINE_UP=73; CMD_MOD_FINE_DOWN=74; CMD_MOD_GLISS=75; CMD_MOD_VIBWAVE=76; CMD_MOD_FINETUNE=77
+ CMD_MOD_PATLOOP=78; CMD_MOD_TREMWAVE=79; CMD_MOD_PAN4=80; CMD_MOD_FINEVOLUP=81; CMD_MOD_FINEVOLDOWN=82; CMD_MOD_PATDELAY=83; CMD_MOD_INVERT=84; CMD_MOD_INSTR=85
++CMD_IT_PROFILE=86
+ MOD_EFX_SPEED=(0,5,6,7,8,10,11,13,16,19,22,26,32,43,64,128)
+ S3M_FMTS=('S3M','IT-S3M','MODERN-S3M','IT')
+ S3M_FINETUNE=(7895,7941,7985,8046,8107,8169,8232,8280,8363,8413,8463,8529,8581,8651,8723,8757)
+@@ -48,6 +49,7 @@
+     it_tremor_off: int = 1
+     it_tremolo_speed: int = 0
+     it_tremolo_depth: int = 0
++    it_pan_tracker: int = 128
+     xm_volslide_mem: int = 0
+     xm_fine_porta_mem: int = 0
+     xm_xfine_porta_mem: int = 0
+@@ -66,7 +68,7 @@
+ @dataclass
+ class Action:
+     ch: int
+-    # note_kind: None, 'normal', 'porta', 'porta_swap', 'sample_swap', 'off', 'delay_normal', 'delay_porta', 'delay_off'
++    # note_kind: None, 'normal', 'porta', 'porta_swap', 'sample_swap', 'off', 'cut', 'fade', 'delay_normal', 'delay_porta', 'delay_off'
+     note_kind: Optional[str]=None
+     tone: int=0
+     period_q: int=0
+@@ -184,6 +186,105 @@
+         self.xm_next_pat_start_row=0
+         self.ended_reason=''; self.warnings=[]
+         self.mod_pending_oor_delay={}
++        self.it_voice_map={}
++        self.it_voices=[None]*24
++        if self.fmt=='IT':
++            pans=list(getattr(self.m,'it_channel_pan_tracker',()))
++            for ch,st in self.states.items():
++                if ch < len(pans): st.it_pan_tracker=int(pans[ch])
++
++    def _it_profile_for_instrument(self,inum:int):
++        inst=getattr(self.m,'it_instruments',{}).get(int(inum))
++        return inst if inst else None
++
++    def _it_note_identity(self,e,st:ResolveState):
++        """Return (instrument, mapped_note, sample, profile) for a real IT note."""
++        if self.fmt!='IT' or not bool(getattr(self.m,'it_instrument_mode',False)):
++            return (0,-1,None,None)
++        if e.note is None or e.note>=254:
++            return (0,-1,None,None)
++        literal=int(getattr(e,'it_instrument_number',0)) if bool(getattr(e,'it_instrument_present',False)) else 0
++        inum=literal or st.it_instrument_num
++        ni=self._note_index(e.note)
++        _mapped,smp=self._it_resolve_instrument(inum,ni)
++        # IT DCT=Note compares the original pattern note, not the note-map
++        # translation. OpenMPT tracks this as kITDCTBehaviour.
++        return (inum,ni,smp,self._it_profile_for_instrument(inum))
++
++    @staticmethod
++    def _it_voice_action(phys:int,kind:str):
++        return Action(int(phys),note_kind=kind)
++
++    def _it_apply_voice_end(self,phys:int,kind:str):
++        meta=self.it_voices[phys]
++        if meta is None:return
++        if kind=='cut':
++            self.it_voices[phys]=None
++            for l,p in list(self.it_voice_map.items()):
++                if p==phys:self.it_voice_map.pop(l,None)
++        else:
++            meta['state']='background' if meta.get('state')!='foreground' else meta.get('state')
++            meta['release']=kind
++
++    def _it_duplicate_actions(self,logical:int,new_inum:int,new_note:int,new_sample:int,new_prof):
++        actions=[]; handled=set()
++        if not new_prof:return actions,handled
++        dct=int(new_prof.get('dct',0))
++        if not dct:return actions,handled
++        for phys,meta in enumerate(self.it_voices):
++            if not meta or meta.get('master')!=logical:continue
++            match=(dct==1 and meta.get('instrument')==new_inum and meta.get('note')==new_note)
++            if dct==2: match=(meta.get('instrument')==new_inum and meta.get('sample')==new_sample)
++            elif dct==3: match=(meta.get('instrument')==new_inum)
++            if not match:continue
++            oldprof=self._it_profile_for_instrument(meta.get('instrument',0)) or {}
++            dca=int(oldprof.get('dca',new_prof.get('dca',0)))
++            kind=('cut','off','fade')[max(0,min(2,dca))]
++            actions.append(self._it_voice_action(phys,kind)); handled.add(phys)
++            if kind=='cut': self._it_apply_voice_end(phys,'cut')
++            else:
++                meta['state']='background'; meta['release']=kind
++                if self.it_voice_map.get(logical)==phys:self.it_voice_map.pop(logical,None)
++        return actions,handled
++
++    def _it_allocate_note_voice(self,e,st:ResolveState):
++        """Map an IT logical channel note to an OPL4 voice and flatten NNA/DCT/DCA.
++
++        We never steal a sounding voice. If exact IT semantics require more than
++        24 simultaneous voices, conversion fails because OPL4 cannot represent it.
++        """
++        logical=e.ch
++        inum,mnote,smp,prof=self._it_note_identity(e,st)
++        oldphys=self.it_voice_map.get(logical)
++        synth,handled=self._it_duplicate_actions(logical,inum,mnote,smp,prof)
++        reusable=None
++        if oldphys is not None and self.it_voices[oldphys] is not None and oldphys not in handled:
++            oldmeta=self.it_voices[oldphys]
++            oldprof=self._it_profile_for_instrument(oldmeta.get('instrument',0)) or {}
++            nna=int(oldprof.get('nna',0))
++            kind=('cut',None,'off','fade')[max(0,min(3,nna))]
++            if kind=='cut':
++                synth.append(self._it_voice_action(oldphys,'cut'))
++                self.it_voices[oldphys]=None; reusable=oldphys
++            else:
++                if kind: synth.append(self._it_voice_action(oldphys,kind)); oldmeta['release']=kind
++                oldmeta['state']='background'
++            self.it_voice_map.pop(logical,None)
++        elif oldphys is not None and self.it_voices[oldphys] is None:
++            reusable=oldphys; self.it_voice_map.pop(logical,None)
++        if reusable is None:
++            preferred=logical if 0<=logical<24 and self.it_voices[logical] is None else None
++            if preferred is not None: reusable=preferred
++            else:
++                reusable=next((i for i,v in enumerate(self.it_voices) if v is None),None)
++        if reusable is None:
++            raise ValueError(f'IT NNA/DCT requires more than 24 simultaneous OPL4 voices at order {self.order} row {self.row}; exact conversion is impossible')
++        self.it_voice_map[logical]=reusable
++        self.it_voices[reusable]={'master':logical,'instrument':inum,'sample':smp,'note':mnote,'state':'foreground','release':None}
++        return reusable,synth,inum,prof
++
++    def _it_target_voice(self,logical:int):
++        return self.it_voice_map.get(logical, logical if 0<=logical<24 else 0)
+ 
+     def _next_255(self,start):
+         for i in range(start,len(self.m.orders)):
+@@ -637,6 +738,7 @@
+         vpan=getattr(e,'volume_pan',None)
+         if vpan is not None and self.fmt in S3M_FMTS:
+             effects.insert(0,(CMD_X,(max(0,min(64,int(vpan)))*255+32)//64,None))
++            if self.fmt=='IT': st.it_pan_tracker=(max(0,min(64,int(vpan)))*255+32)//64
+ 
+         # Extra semantic effects from XM volume column etc.
+         for ex in getattr(e,'extra_effects',[]):
+@@ -662,6 +764,8 @@
+             # FT2: note + tone-portamento + EDx becomes a delayed normal note.
+             row_wants_porta=False
+ 
++        if self.fmt=='IT' and cmd==CMD_X:
++            st.it_pan_tracker=max(0,min(255,int(p)))
+         a=Action(e.ch)
+         a.delay_tick=delay
+         old_ins=st.instrument
+@@ -753,18 +857,20 @@
+ 
+         xm_ft_override=(((p & 15)-8)*16 if self.fmt=='XM' and cmd==CMD_XM_FINETUNE and e.note is not None and e.note<254 else None)
+         mod_ft_override=((p&15) if self.fmt=='MOD' and cmd==CMD_MOD_FINETUNE else None)
+-        if e.note is not None and not k00_suppresses_note and not xm_out_of_range_delay and not xm_note_limit_bad:
++        it_special=(getattr(e,'it_note_special',None) if self.fmt=='IT' else None)
++        if self.fmt=='IT' and it_special in ('off','cut','fade') and not k00_suppresses_note:
++            a.note_kind=it_special
++        elif e.note is not None and not k00_suppresses_note and not xm_out_of_range_delay and not xm_note_limit_bad:
+             if e.note==254:
+                 a.note_kind='delay_off' if delay>=0 else 'off'
+                 # FT2 key-off releases the volume envelope/fadeout; it does not
+-                # force volume to zero when an envelope is active. The XM Z80
+-                # runtime decides this from the current profile.
+-                if self.fmt!='XM' and delay<0:
++                # force volume to zero when an envelope is active.
++                if self.fmt not in ('XM','IT') and delay<0:
+                     a.volume=0
+                 if self.fmt=='XM' and delay>=0 and xm_ins_present and old_ins in self.m.samples:
+                     a.delayed_volume=self.m.samples[old_ins].volume
+                 else:
+-                    a.delayed_volume=(0 if (delay>=0 and self.fmt!='XM') else 0xFF)
++                    a.delayed_volume=(0 if (delay>=0 and self.fmt not in ('XM','IT')) else 0xFF)
+             elif e.note<254 and use_ins in self.m.samples:
+                 ni=(it_note_idx if self.fmt=='IT' else self._note_index(e.note))
+                 if self.fmt=='XM':
+@@ -900,6 +1006,17 @@
+                 self.warnings.append('ProTracker sample swaps are applied at the tracker row boundary; OPL4 exposes no sample-end callback')
+                 self._warned_mod_swap_boundary=True
+ 
++        # Native IT resets the selected instrument envelope/fade state on a
++        # newly triggered note. Profile selection is parser-immediate and does
++        # not consume either realtime effect slot. Tone-portamento keeps the
++        # current voice/profile in this first exact profile.
++        if (self.fmt=='IT' and bool(getattr(self.m,'it_instrument_mode',False))
++                and a.note_kind in ('normal','delay_normal')):
++            inum=(int(getattr(e,'it_instrument_number',0)) if it_ins_present else 0) or st.it_instrument_num
++            inst=getattr(self.m,'it_instruments',{}).get(inum)
++            if inst:
++                effects.insert(0,(CMD_IT_PROFILE,int(inst.get('profile_id',0))&0xFF,None))
++
+         # FT2 resets instrument envelope/fadeout/auto-vibrato state on an
+         # instrument-only row and on instrument+tone-portamento. Normal notes
+         # derive the profile directly from the custom-tone table at trigger time.
+@@ -972,7 +1089,7 @@
+         if a.effects: flags|=0x80
+         out=bytearray(((a.ch&31)|flags,))
+         if a.note_kind is not None:
+-            kinds={'normal':0,'delay_normal':0x40,'porta':0x80,'delay_porta':0x81,'porta_swap':0x82,'sample_swap':0x83,'off':0xFE,'delay_off':0xFF}
++            kinds={'normal':0,'delay_normal':0x40,'porta':0x80,'delay_porta':0x81,'porta_swap':0x82,'sample_swap':0x83,'cut':0xFC,'fade':0xFD,'off':0xFE,'delay_off':0xFF}
+             d=kinds[a.note_kind]
+             if a.note_kind in ('normal','delay_normal'):
+                 # Stream v4: bit 1 marks an XM note without a literal instrument
+@@ -1059,8 +1176,36 @@
+                         and ((e.param or 0)&15)>=self.speed and e.note is not None):
+                     self.mod_pending_oor_delay[e.ch]=core.Event(ch=e.ch,note=e.note,ins=e.ins,vol=e.vol)
+                     event_for_action=core.Event(ch=e.ch,cmd=e.cmd,param=e.param)
+-                a=self._event_action(event_for_action,self.states[e.ch])
+-                if a: actions.append(a)
++                state=self.states[e.ch]
++                phys=self._it_target_voice(e.ch) if self.fmt=='IT' else e.ch
++                synth=[]
++                if (self.fmt=='IT' and bool(getattr(self.m,'it_instrument_mode',False))
++                        and e.note is not None and e.note<254 and e.cmd not in (CMD_G,CMD_L)):
++                    # SDx note delay + NNA would need runtime voice allocation at
++                    # the delayed tick. Keep that rare combination explicit.
++                    if e.cmd==CMD_S and (((e.param or 0)>>4)&15)==0xD and ((e.param or 0)&15)>0:
++                        inum,_,_,prof=self._it_note_identity(e,state)
++                        if prof and (int(prof.get('nna',0)) or int(prof.get('dct',0))):
++                            raise ValueError(f'IT delayed note with NNA/DCT at order {self.order} row {self.row} channel {e.ch+1} is not representable by the current runtime allocator')
++                    phys,synth,_,_=self._it_allocate_note_voice(e,state)
++                a=self._event_action(event_for_action,state)
++                if self.fmt=='IT':
++                    for sa in synth: actions.append(sa)
++                    if a:
++                        a.ch=phys
++                        # A newly allocated background-capable voice must inherit
++                        # the logical channel's current base pan.
++                        if e.note is not None and e.note<254 and e.cmd not in (CMD_G,CMD_L):
++                            a.effects.insert(0,(CMD_X,max(0,min(255,state.it_pan_tracker)),None))
++                        actions.append(a)
++                    sp=getattr(e,'it_note_special',None)
++                    if sp in ('cut','off','fade'):
++                        pv=self.it_voice_map.get(e.ch)
++                        if pv is not None:
++                            if sp=='cut': self._it_apply_voice_end(pv,'cut')
++                            elif self.it_voices[pv] is not None: self.it_voices[pv]['release']=sp
++                elif a:
++                    actions.append(a)
+                 # SBx pattern loop is flattened at conversion time. ST3 uses
+                 # channel 0's loop memory globally; IT/modern S3M keep per-channel state.
+                 if e.cmd==CMD_S and (((getattr(e,'resolved_param',0)>>4)&15)==0xB):
+--- a/source/module_formats.py
++++ b/source/module_formats.py
+@@ -346,7 +346,7 @@
+         y=buf[p]; x=int.from_bytes(buf[p+1:p+3],'little'); p+=3
+         if kind!='volume': y=_s8(y)
+         pts.append((x,y))
+-    return {'flags':flg&7,'points':tuple(pts),'loop_start':lpb,'loop_end':lpe,'sustain_start':slb,'sustain_end':sle}
++    return {'flags':flg&0x1F,'points':tuple(pts),'loop_start':lpb,'loop_end':lpe,'sustain_start':slb,'sustain_end':sle}
+ 
+ 
+ def _parse_it_instrument(blob:bytes,cmwt:int):
+@@ -955,10 +955,9 @@
+ def parse_it(path:Path)->core.Module:
+     """Parse a native Impulse Tracker (IMPM) module.
+ 
+-    v0.4.9 deliberately starts with the part of IT that can be represented
+-    exactly by the existing one-voice-per-tracker-channel OPL4 runtime.
+-    Unsupported voice-allocation / envelope features fail loudly instead of
+-    being silently rendered with S3M semantics.
++    Native IMPM parsing is deliberately strict: features which cannot yet be
++    represented accurately by the dedicated IT/OPL4 runtime fail loudly
++    instead of being silently rendered with S3M semantics.
+     """
+     b=path.read_bytes()
+     if len(b)<0xC0 or b[:4]!=b'IMPM': raise ValueError('not an Impulse Tracker module')
+@@ -993,17 +992,23 @@
+             if ptr+554>len(b): raise ValueError(f'IT instrument {ii}: header outside file')
+             inst=_parse_it_instrument(b[ptr:ptr+554],cmwt)
+             bad=[]
+-            if inst['nna']!=0: bad.append(f'NNA={inst["nna"]}')
+-            if inst['dct']!=0: bad.append(f'DCT={inst["dct"]}')
+-            if inst['dca']!=0: bad.append(f'DCA={inst["dca"]}')
++            if inst['nna'] not in (0,1,2,3): bad.append(f'invalid NNA={inst["nna"]}')
++            if inst['dct'] not in (0,1,2,3): bad.append(f'invalid DCT={inst["dct"]}')
++            if inst['dca'] not in (0,1,2): bad.append(f'invalid DCA={inst["dca"]}')
+             if inst['pps']!=0: bad.append(f'pitch-pan separation={inst["pps"]}')
+             if inst['random_volume'] or inst['random_pan']: bad.append('random volume/pan')
+             if not (inst['default_pan']&0x80): bad.append('instrument default pan')
+             if inst['global_volume']!=128: bad.append(f'instrument global volume={inst["global_volume"]}')
+             for ename in ('vol_env','pan_env','pitch_env'):
+-                if inst[ename]['flags']&1: bad.append(ename.replace('_',' ')+' enabled')
++                ef=int(inst[ename]['flags'])
++                if ef & 0x08: bad.append(ename.replace('_',' ')+' carry')
++                if ename=='pitch_env' and ef & 0x10: bad.append('filter envelope')
++                if ef & 1:
++                    pts=inst[ename]['points']
++                    if not pts: bad.append(ename.replace('_',' ')+' enabled without points')
++                    elif pts[-1][0] > 4095: bad.append(ename.replace('_',' ')+f' endpoint {pts[-1][0]} > 4095 ticks')
+             if bad:
+-                raise ValueError(f'IT instrument {ii} ({inst["name"] or "unnamed"}): true-IT runtime feature not implemented yet: '+', '.join(bad))
++                raise ValueError(f'IT instrument {ii} ({inst["name"] or "unnamed"}): unsupported true-IT feature: '+', '.join(bad))
+             instruments[ii]=inst
+ 
+     samples:Dict[int,core.Sample]={}
+@@ -1102,15 +1107,10 @@
+                 elif 128<=volcol<=192: volume_pan=volcol-128
+                 elif volcol!=255:
+                     raise ValueError(f'IT pattern {pi} row {r} channel {och+1}: volume-column command {volcol} is not yet supported')
+-            if special_note=='fade':
+-                if instrument_mode:
+-                    raise ValueError(f'IT pattern {pi} row {r} channel {och+1}: note fade requires the pending NNA/envelope runtime')
+-                # In IT sample mode, Note Fade has no envelope/fade target and
+-                # is intentionally ignored rather than cutting the sample.
++            if special_note=='fade' and not instrument_mode:
++                # In IT sample mode, Note Fade has no instrument fade target.
+                 ev_note=None; special_note='fade_ignored'
+             instrument_present=bool(mask&(2|0x20) and ins)
+-            if instrument_mode and instrument_present and (ev_note is None or special_note is not None):
+-                raise ValueError(f'IT pattern {pi} row {r} channel {och+1}: instrument-only / instrument+special-note memory semantics are not yet supported')
+             if cmd in unsupported_effects:
+                 raise ValueError(f'IT pattern {pi} row {r} channel {och+1}: {unsupported_effects[cmd]} is not yet supported')
+             if cmd==20 and 0<param<0x20:
+@@ -1145,7 +1145,7 @@
+             rows.append(nr)
+         patterns.append(rows)
+ 
+-    pans=[]; chvol=[]
++    pans=[]; chvol=[]; pan_track=[]
+     for old in used:
+         pv=b[0x40+old]; vv=b[0x80+old]
+         if vv>64: raise ValueError(f'IT channel {old+1}: invalid initial channel volume {vv}')
+@@ -1156,7 +1156,7 @@
+         pv=min(64,pv&0x7F)
+         # IT's separation byte scales stereo distance around centre.
+         pv=max(0,min(64,32+int(round((pv-32)*(int(sep)/128.0)))))
+-        pans.append((pv*15+32)//64); chvol.append(vv)
++        pans.append((pv*15+32)//64); pan_track.append((pv*255+32)//64); chvol.append(vv)
+     chset=[0]*len(used)+[255]*(32-len(used))
+     # The existing KSP volume LUT is 0..64. IT global volume is 0..128 and is
+     # static here because V/W effects are rejected above.
+@@ -1165,7 +1165,23 @@
+     m.source_format='IT'; m.offset_quantum=256; m.it_cwtv=cwtv; m.it_cmwt=cmwt; m.it_flags=flags; m.it_special=special
+     m.it_instrument_mode=instrument_mode; m.it_linear_slides=linear_slides; m.it_old_effects=old_effects; m.it_compatible_gxx=compatible_gxx
+     m.it_instruments=instruments; m.it_instrument_keymaps={k:v['keymap'] for k,v in instruments.items()}
+-    m.it_channel_map=tuple(used); m.it_channel_volume=tuple(chvol); m.channel_panning_nibbles=pans; m.s3m_is_stereo=True
++    # Deduplicate realtime instrument profiles. Profile 0 is neutral/sample-mode.
++    def _env_key(env):
++        return (int(env['flags'])&7, tuple((int(x),int(y)) for x,y in env['points']),
++                int(env['loop_start']),int(env['loop_end']),int(env['sustain_start']),int(env['sustain_end']))
++    neutral=(0,0,0,0,_env_key({'flags':0,'points':(), 'loop_start':0,'loop_end':0,'sustain_start':0,'sustain_end':0}),
++             _env_key({'flags':0,'points':(), 'loop_start':0,'loop_end':0,'sustain_start':0,'sustain_end':0}),
++             _env_key({'flags':0,'points':(), 'loop_start':0,'loop_end':0,'sustain_start':0,'sustain_end':0}))
++    profiles=[neutral]; profile_ids={neutral:0}
++    for ii,inst in sorted(instruments.items()):
++        prof=(int(inst['nna']),int(inst['dct']),int(inst['dca']),int(inst['fadeout']),
++              _env_key(inst['vol_env']),_env_key(inst['pan_env']),_env_key(inst['pitch_env']))
++        if prof not in profile_ids:
++            if len(profiles)>=256: raise ValueError('IT needs more than 255 distinct realtime instrument profiles')
++            profile_ids[prof]=len(profiles); profiles.append(prof)
++        inst['profile_id']=profile_ids[prof]
++    m.it_profiles=profiles
++    m.it_channel_map=tuple(used); m.it_channel_volume=tuple(chvol); m.it_channel_pan_tracker=tuple(pan_track); m.channel_panning_nibbles=pans; m.s3m_is_stereo=True
+     m.s3m_sample_swap=False; m.s3m_porta_sample_change=False; m.s3m_short_sample_retrig=True
+     m.it_tracker_name=f'Impulse Tracker compatible (Cwtv {cwtv>>8}.{cwtv&255:02X})'
+     return m
+--- a/source/tracker2ksp.py
++++ b/source/tracker2ksp.py
+@@ -20,12 +20,15 @@
+ PAGE_SIZE=0x4000
+ STREAM_BASE=0x6800
+ MOD_STREAM_BASE=0x6A00
++IT_STREAM_BASE=0x7C00
+ STREAM_OFFSET=STREAM_BASE-PAGE_LOAD
+ STREAM_DATA_OFFSET=STREAM_OFFSET+2
+ STREAM_PAGE_CAPACITY=PAGE_SIZE-STREAM_DATA_OFFSET
+ 
+ def stream_base_for(source_format:str)->int:
+-    return MOD_STREAM_BASE if source_format=='MOD' else STREAM_BASE
++    if source_format=='MOD': return MOD_STREAM_BASE
++    if source_format=='IT': return IT_STREAM_BASE
++    return STREAM_BASE
+ 
+ def stream_page_capacity_for(source_format:str)->int:
+     base=stream_base_for(source_format)
+@@ -39,7 +42,7 @@
+ NULL16=0xFFFF; NULL32=0xFFFFFFFF
+ COMP_NONE=0; COMP_ZX0=1; PAGE_SPARSE=0
+ MAX_SUPPORTED_PAGES=48; MAX_PRELOADED_PAGES=32
+-OPL4_STATE_BASE=0x2FFC00  # final 512 bytes of standard 1 MiB MoonSound RAM reserved for page-state handoff
++OPL4_STATE_BASE=0x2FFC00  # final 1 KiB of standard 1 MiB MoonSound RAM reserved for page-state handoff
+ 
+ HERE=Path(__file__).resolve().parent
+ S3M_ENGINE_BIN=(HERE/'compact_engine_s3m.bin').read_bytes()
+@@ -293,6 +296,79 @@
+     return {'tone_addr':tone_addr,'tone_map':bytes(tone_map),'ptr_addr':ptr_addr,'ptrs':bytes(ptrs),
+             'data_addr':data_addr,'blob':blob,'limit':limit,'profiles':len(profiles),'bytes':len(blob)}
+ 
++def _it_env_curve(env,kind:str):
++    """Precompute an IT envelope at tracker-tick resolution.
++
++    Volume is stored as 0..64 bytes, pan as 0..64 (32 neutral), and pitch as
++    a Q8 period multiplier. IT pitch envelope units are half-semitones.
++    """
++    flags,points,ls,le,ss,se=env
++    if not (flags&1) or not points:return b''
++    pts=[(int(x),int(y)) for x,y in points]
++    maxx=pts[-1][0]
++    if maxx>4095: raise ValueError(f'IT {kind} envelope endpoint {maxx} exceeds 4095 ticks')
++    seg=0; out=bytearray()
++    for x in range(maxx+1):
++        while seg+1<len(pts) and x>=pts[seg+1][0]: seg+=1
++        x0,y0=pts[seg]
++        if seg+1<len(pts):
++            x1,y1=pts[seg+1]; dx=x1-x0
++            yf=(float(y0)+(float(y1-y0)*float(x-x0)/float(dx))) if dx>0 else float(y0)
++        else: yf=float(y0)
++        if kind=='volume': out.append(max(0,min(64,int(yf))))
++        elif kind=='pan': out.append(max(0,min(64,int(round(yf+32.0)))))
++        else:
++            # Positive IT pitch-envelope values raise pitch, so period shrinks.
++            # Store a cheap runtime representation: optional octave doubling,
++            # then an 8-bit Q8 delta around unity. This keeps the Z80 to one
++            # 16x8 multiply instead of an exponential/16x16 multiply.
++            factor=2.0**(-yf/24.0); fl=0
++            if factor>=2.0:
++                factor*=0.5; fl|=0x02
++            if factor<1.0:
++                fl|=0x01; mag=int(round((1.0-factor)*256.0))
++            else:
++                mag=int(round((factor-1.0)*256.0))
++            out += bytes((max(0,min(255,mag)),fl))
++    return bytes(out)
++
++def _it_env_x(env,index:int)->int:
++    points=env[1]
++    if not points:return 0
++    index=max(0,min(len(points)-1,int(index)))
++    return int(points[index][0])&0xFFFF
++
++def build_it_profile_patch(module:core.Module,sym:dict):
++    profiles=list(getattr(module,'it_profiles',[]))
++    if not profiles:return None
++    ptr_addr=sym['it_profile_ptrs']; data_addr=sym['it_profile_data']; limit=sym['it_profile_limit']
++    rec_size=44
++    cursor=data_addr+rec_size*len(profiles)
++    records=[]; curves=[]
++    for prof in profiles:
++        nna,dct,dca,fade,ve,pe,pie=prof
++        vcurve=_it_env_curve(ve,'volume'); pcurve=_it_env_curve(pe,'pan'); picurve=_it_env_curve(pie,'pitch')
++        vaddr=cursor if vcurve else 0; cursor+=len(vcurve)
++        paddr=cursor if pcurve else 0; cursor+=len(pcurve)
++        piaddr=cursor if picurve else 0; cursor+=len(picurve)
++        rec=bytearray(rec_size)
++        rec[0]=int(ve[0])&7; rec[1]=int(pe[0])&7; rec[2]=int(pie[0])&7
++        rec[3]=int(nna)&3; rec[4]=int(dct)&3; rec[5]=int(dca)&3
++        struct.pack_into('<H',rec,6,int(fade)&0xFFFF)
++        def put(off,addr,curve,env,scale=1):
++            maxt=(len(curve)//scale-1) if curve else 0
++            struct.pack_into('<HHHHHH',rec,off,addr,maxt,_it_env_x(env,env[2]),_it_env_x(env,env[3]),_it_env_x(env,env[4]),_it_env_x(env,env[5]))
++        put(8,vaddr,vcurve,ve,1); put(20,paddr,pcurve,pe,1); put(32,piaddr,picurve,pie,2)
++        records.append(bytes(rec)); curves.extend((vcurve,pcurve,picurve))
++    if cursor>limit:
++        raise ValueError(f'IT envelope/profile data needs {cursor-data_addr} bytes but resident profile area has {limit-data_addr}')
++    ptrs=bytearray(512)
++    if len(profiles)>256: raise ValueError('IT profile pointer table supports at most 256 profiles')
++    for i in range(len(profiles)): struct.pack_into('<H',ptrs,i*2,data_addr+i*rec_size)
++    blob=b''.join(records)+b''.join(curves)
++    return {'ptr_addr':ptr_addr,'ptrs':bytes(ptrs),'data_addr':data_addr,'blob':blob,'limit':limit,
++            'profiles':len(profiles),'bytes':len(blob)}
++
+ def make_engine_template(module:core.Module,page_count:int,source_format:str,waves:list[dict],stream_base:int|None=None):
+     if source_format=='S3M':
+         engine_bin=S3M_ENGINE_BIN; sym=S3M_ENGINE_SYM
+@@ -307,6 +383,7 @@
+     else:
+         raise ValueError(f'unsupported tracker engine format {source_format}')
+     use_xm_engine=(source_format=='XM')
++    use_it_engine=(source_format=='IT')
+     t=bytearray(PAGE_SIZE)
+     if stream_base is None: stream_base=stream_base_for(source_format)
+     stream_offset=stream_base-PAGE_LOAD
+@@ -324,6 +401,12 @@
+             t[pinfo['ptr_addr']-PAGE_LOAD:pinfo['ptr_addr']-PAGE_LOAD+128]=pinfo['ptrs']
+             off=pinfo['data_addr']-PAGE_LOAD
+             t[off:off+len(pinfo['blob'])]=pinfo['blob']
++    elif use_it_engine:
++        pinfo=build_it_profile_patch(module,sym)
++        if pinfo:
++            t[pinfo['ptr_addr']-PAGE_LOAD:pinfo['ptr_addr']-PAGE_LOAD+512]=pinfo['ptrs']
++            off=pinfo['data_addr']-PAGE_LOAD
++            t[off:off+len(pinfo['blob'])]=pinfo['blob']
+     return t,engine_bin,sym,pinfo
+ 
+ def split_semantic_pages(stream:bytes,rows:list[bytes],source_format:str=None):
+@@ -370,7 +453,7 @@
+         'format=KSP 1.05',f'engine=native Z80 {source_format}-specific multi-page realtime engine',
+         'conversion=compact rows/effects + shared MWK PCM payloads + INIT-time OPL4 header aliases; no rendered PCM and no pre-expanded tick register stream',
+         f'initial_speed={module.speed}',f'initial_tempo={module.tempo}',f'active_channels={len(module.active_channels)}',
+-        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.4.9'
++        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.5.0'
+     ])+'\n'; meta=metadata.encode()
+     mwkp,mcomp=maybe_zx0(mwk,compression)
+     engine_off=80; page_off=engine_off+64; track_off=page_off+page_count*24; resource_off=track_off+32
+@@ -403,10 +486,10 @@
+     assert len(out)==file_size
+     output.parent.mkdir(parents=True,exist_ok=True); output.write_bytes(out)
+     packed_pages=sum(r['stored_bytes'] for r in records); mapper_segments=(packed_pages+PAGE_SIZE-1)//PAGE_SIZE
+-    return {'status':'built','format':'KSP 1.05','converter_version':'0.4.9','input':str(module.path),'output':str(output),
++    return {'status':'built','format':'KSP 1.05','converter_version':'0.5.0','input':str(module.path),'output':str(output),
+             'title':title,'duration_ms':round(semantic_stats['duration_seconds']*1000),'output_bytes':len(out),'output_sha256':sha256(out),
+             'engine':{'init':hex(engine_sym['init']),'play':hex(engine_sym['play']),'stop':hex(engine_sym['stop']),'play_hz':60,'hardware':'OPL4',
+-                      'resident_range':f'0x4000-0x{stream_base-1:04X} (code/state; persistent tracker state handoff via OPL4 RAM 0x2FFC00)','dynamic_window':f'0x{stream_base:04X}-0x7FFF','binary_bytes':len(engine_bin),'xm_ft2_profiles':profile_info['profiles'] if profile_info else 0,'xm_profile_bytes':profile_info['bytes'] if profile_info else 0},
++                      'resident_range':f'0x4000-0x{stream_base-1:04X} (code/state; persistent tracker state handoff via OPL4 RAM 0x2FFC00)','dynamic_window':f'0x{stream_base:04X}-0x7FFF','binary_bytes':len(engine_bin),'xm_ft2_profiles':profile_info['profiles'] if (profile_info and source_format=='XM') else 0,'xm_profile_bytes':profile_info['bytes'] if (profile_info and source_format=='XM') else 0,'it_profiles':profile_info['profiles'] if (profile_info and source_format=='IT') else 0,'it_profile_bytes':profile_info['bytes'] if (profile_info and source_format=='IT') else 0},
+             'semantic_stream':{**semantic_stats,'raw_bytes':len(stream),'page_count':page_count,'page_capacity':page_capacity,
+                                'packed_page_bytes':packed_pages,'mapper_segments_for_preload':mapper_segments,
+                                'ksp1play_preload_eligible':page_count<=MAX_PRELOADED_PAGES and mapper_segments<=12,
+--- a/tests/test_it_v049.py
++++ b/tests/test_it_v049.py
+@@ -146,19 +146,18 @@
+     assert fmt=='IT' and e.note is None and e.it_note_special=='fade_ignored'
+ 
+ 
+-def test_instrument_only_and_jxx_fail_fast(tmp_path):
++def test_instrument_only_memory_and_jxx_fail_fast(tmp_path):
+     p=tmp_path/'instrument_only.it'; make_it_instrumentmode(p)
+     b=bytearray(p.read_bytes())
+-    # Replace the pattern with one instrument-only event followed by row ends.
++    # Instrument-only cells are valid IT instrument-memory updates in v0.5.0.
+     pdata=bytes((0x81,0x02,1,0,0,0,0))
+     b[0x380:0x380+8+len(pdata)]=struct.pack('<HHI',len(pdata),4,0)+pdata
+     p.write_bytes(b)
+-    try:
+-        mf.parse_module(p)
+-    except ValueError as exc:
+-        assert 'instrument-only' in str(exc)
+-    else:
+-        raise AssertionError('instrument-only IT event must fail fast')
++    m,fmt=mf.parse_module(p)
++    assert fmt=='IT' and m.patterns[0][0][0].it_instrument_number==1
++    cc=cs.CompactCompiler(m,fmt,max_seconds=1)
++    cc.compile()
++    assert cc.states[0].it_instrument_num==1
+ 
+     q=tmp_path/'jxx.it'; make_it_samplemode(q)
+     b=bytearray(q.read_bytes())
+@@ -170,7 +169,7 @@
+     except ValueError as exc:
+         assert 'Jxx arpeggio' in str(exc)
+     else:
+-        raise AssertionError('native IT Jxx must fail fast in v0.4.9')
++        raise AssertionError('native IT Jxx remains fail-fast in v0.5.0')
+ 
+ 
+ def test_native_it_builds_with_dedicated_engine(tmp_path):
+@@ -181,7 +180,7 @@
+     out=tmp_path/'build.ksp'
+     rep=t2k.build_ksp(m,fmt,stream,rows,stats,mwk,waves,m.title,p.name,out,'none')
+     assert out.read_bytes()[:4]==b'KSP1'
+-    assert rep['converter_version']=='0.4.9'
++    assert rep['converter_version']=='0.5.0'
+     assert rep['engine']['binary_bytes']==len(t2k.IT_ENGINE_BIN)
+ 
+ 
+--- /dev/null
++++ b/tests/test_it_v050.py
+@@ -0,0 +1,206 @@
++#!/usr/bin/env python3
++from pathlib import Path
++import struct, sys, tempfile
++sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
++sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'source'))
++import module_formats as mf
++import compact_stream as cs
++import tracker2ksp as t2k
++from test_it_v049 import make_it_instrumentmode
++
++INS_PTR=0xD8
++PAT_PTR=0x380
++
++
++def _write_env(buf:bytearray, off:int, flags:int, points, loop=(0,0), sustain=(0,0)):
++    rec=bytearray(82)
++    rec[:6]=bytes((flags&0x1F,len(points)&0xFF,loop[0]&0xFF,loop[1]&0xFF,sustain[0]&0xFF,sustain[1]&0xFF))
++    p=6
++    for x,y in points:
++        rec[p]=y&0xFF
++        struct.pack_into('<H',rec,p+1,x)
++        p+=3
++    buf[off:off+82]=rec
++
++
++def make_it_profile(path:Path, *, nna=0,dct=0,dca=0,fade=0,
++                    vol_env=None,pan_env=None,pitch_env=None, pattern=None):
++    make_it_instrumentmode(path)
++    b=bytearray(path.read_bytes())
++    b[INS_PTR+0x11:INS_PTR+0x14]=bytes((nna,dct,dca))
++    struct.pack_into('<H',b,INS_PTR+0x14,fade)
++    if vol_env:
++        _write_env(b,INS_PTR+0x130,*vol_env)
++    if pan_env:
++        _write_env(b,INS_PTR+0x182,*pan_env)
++    if pitch_env:
++        _write_env(b,INS_PTR+0x1D4,*pitch_env)
++    if pattern is not None:
++        need=PAT_PTR+8+len(pattern)
++        if len(b)<need:b.extend(b'\0'*(need-len(b)))
++        b[PAT_PTR:PAT_PTR+8+len(pattern)]=struct.pack('<HHI',len(pattern),4,0)+pattern
++    path.write_bytes(b)
++
++
++def _event(note=0x40, instrument=1, ch=0):
++    e=mf.core.Event(ch=ch,note=note)
++    e.it_instrument_present=bool(instrument)
++    e.it_instrument_number=instrument
++    e.it_note_special=None
++    return e
++
++
++def test_it_profile_patch_envelopes_and_fadeout(tmp_path):
++    p=tmp_path/'env.it'
++    make_it_profile(
++        p,nna=3,dct=2,dca=1,fade=256,
++        vol_env=(0x07,[(0,64),(2,32),(4,0)],(0,1),(1,2)),
++        pan_env=(0x03,[(0,-32),(2,0),(4,32)],(0,2),(0,0)),
++        pitch_env=(0x01,[(0,24),(1,0),(2,-24)],(0,0),(0,0)),
++    )
++    m,fmt=mf.parse_module(p)
++    assert fmt=='IT' and len(m.it_profiles)==2
++    inst=m.it_instruments[1]
++    assert (inst['nna'],inst['dct'],inst['dca'],inst['fadeout'])==(3,2,1,256)
++    assert inst['vol_env']['flags']==0x07
++    info=t2k.build_it_profile_patch(m,t2k.IT_ENGINE_SYM)
++    assert info and info['profiles']==2 and info['data_addr']+len(info['blob'])<=info['limit']
++    rec=info['blob'][44:88]
++    assert tuple(rec[:6])==(7,3,1,3,2,1)
++    assert struct.unpack_from('<H',rec,6)[0]==256
++    # Pitch curve for +24 half-semitone units is period * 0.5.
++    pitch_ptr=struct.unpack_from('<H',rec,32)[0]
++    pitch_off=pitch_ptr-info['data_addr']
++    assert info['blob'][pitch_off:pitch_off+2]==bytes((128,1))
++    # -24 is one octave down: exactly double period.
++    assert info['blob'][pitch_off+4:pitch_off+6]==bytes((0,2))
++
++
++def test_it_note_off_cut_fade_are_distinct(tmp_path):
++    p=tmp_path/'special.it'
++    pdata=bytes((
++        0x81,0x03,48,1,0,
++        0x81,0x01,255,0,
++        0x81,0x01,254,0,
++        0x81,0x01,253,0,
++    ))
++    make_it_profile(p,fade=64,pattern=pdata)
++    m,fmt=mf.parse_module(p)
++    specials=[m.patterns[0][r][0].it_note_special for r in range(4)]
++    assert specials==[None,'off','cut','fade']
++    cc=cs.CompactCompiler(m,fmt,max_seconds=1)
++    acts=[]
++    for r in range(4):
++        e=m.patterns[0][r][0]
++        a=cc._event_action(e,cc.states[0])
++        if a: acts.append(a)
++    assert [a.note_kind for a in acts]==['normal','off','cut','fade']
++    enc=[cc._encode_action(a) for a in acts[1:]]
++    assert any(0xFE in x for x in enc)
++    assert any(0xFC in x for x in enc)
++    assert any(0xFD in x for x in enc)
++
++
++def test_it_nna_continue_allocates_background_voice(tmp_path):
++    p=tmp_path/'nna.it'; make_it_profile(p,nna=1)
++    m,fmt=mf.parse_module(p); cc=cs.CompactCompiler(m,fmt)
++    st=cc.states[0]; e=_event()
++    p0,s0,_,_=cc._it_allocate_note_voice(e,st)
++    p1,s1,_,_=cc._it_allocate_note_voice(e,st)
++    assert p0==0 and p1==1 and not s0 and not s1
++    assert cc.it_voices[0]['state']=='background'
++    assert cc.it_voices[1]['state']=='foreground'
++    assert cc.it_voice_map[0]==1
++
++
++def test_it_nna_off_and_fade_emit_release_actions(tmp_path):
++    for nna,kind in ((2,'off'),(3,'fade')):
++        p=tmp_path/f'nna{nna}.it'; make_it_profile(p,nna=nna,fade=64)
++        m,fmt=mf.parse_module(p); cc=cs.CompactCompiler(m,fmt)
++        st=cc.states[0]; e=_event()
++        old,_,_,_=cc._it_allocate_note_voice(e,st)
++        new,synth,_,_=cc._it_allocate_note_voice(e,st)
++        assert new!=old and [x.note_kind for x in synth]==[kind]
++        assert synth[0].ch==old and cc.it_voices[old]['state']=='background'
++
++
++def test_it_dct_dca_cut_reuses_voice(tmp_path):
++    p=tmp_path/'dct.it'; make_it_profile(p,nna=1,dct=1,dca=0)
++    m,fmt=mf.parse_module(p); cc=cs.CompactCompiler(m,fmt)
++    st=cc.states[0]; e=_event()
++    old,_,_,_=cc._it_allocate_note_voice(e,st)
++    new,synth,_,_=cc._it_allocate_note_voice(e,st)
++    assert old==new==0
++    assert [(x.ch,x.note_kind) for x in synth]==[(0,'cut')]
++    assert cc.it_voices[0]['state']=='foreground'
++
++
++def test_it_nna_exact_24_voice_limit_fails(tmp_path):
++    p=tmp_path/'limit.it'; make_it_profile(p,nna=1)
++    m,fmt=mf.parse_module(p); cc=cs.CompactCompiler(m,fmt)
++    st=cc.states[0]; e=_event()
++    for _ in range(24): cc._it_allocate_note_voice(e,st)
++    try:
++        cc._it_allocate_note_voice(e,st)
++    except ValueError as exc:
++        assert 'more than 24 simultaneous OPL4 voices' in str(exc)
++    else:
++        raise AssertionError('25th exact NNA voice must fail rather than steal')
++
++
++
++def test_it_dct_note_uses_pattern_note_not_keymap_note(tmp_path):
++    p=tmp_path/'dct_pattern_note.it'; make_it_profile(p,nna=1,dct=1,dca=0)
++    b=bytearray(p.read_bytes())
++    # Map two distinct pattern notes to the same translated note/sample. DCT=Note
++    # must still treat them as different notes (OpenMPT kITDCTBehaviour).
++    for ni in (48,49):
++        b[INS_PTR+0x40+ni*2]=60
++        b[INS_PTR+0x41+ni*2]=1
++    p.write_bytes(b)
++    m,fmt=mf.parse_module(p); cc=cs.CompactCompiler(m,fmt)
++    st=cc.states[0]
++    e0=_event(0x40); e1=_event(0x41)
++    old,_,_,_=cc._it_allocate_note_voice(e0,st)
++    new,synth,_,_=cc._it_allocate_note_voice(e1,st)
++    assert old==0 and new==1 and synth==[]
++    assert cc.it_voices[0]['note']==48 and cc.it_voices[1]['note']==49
++
++
++def test_it_dct_sample_and_instrument_dca_release(tmp_path):
++    for dct,dca,kind in ((2,1,'off'),(3,2,'fade')):
++        p=tmp_path/f'dct{dct}_dca{dca}.it'; make_it_profile(p,nna=1,dct=dct,dca=dca,fade=64)
++        m,fmt=mf.parse_module(p); cc=cs.CompactCompiler(m,fmt)
++        st=cc.states[0]
++        old,_,_,_=cc._it_allocate_note_voice(_event(0x40),st)
++        new,synth,_,_=cc._it_allocate_note_voice(_event(0x41),st)
++        assert old==0 and new==1
++        assert [(x.ch,x.note_kind) for x in synth]==[(old,kind)]
++        assert cc.it_voices[old]['state']=='background'
++
++
++def test_it_volume_sustain_endpoint_does_not_autofade_while_held():
++    root=Path(__file__).resolve().parents[1]
++    asm=(root/'source'/'compact_engine_it.asm').read_text()
++    blk=asm.split('; Reaching the non-looping volume-envelope end starts instrument fade.',1)[1].split('it_tick_fade:',1)[0]
++    assert 'held sustain point' in blk.lower()
++    assert 'ld hl,ITKEYOFF' in blk and 'jr z,it_tick_fade' in blk
++
++def test_it_dynamic_stream_window_and_engine_layout(tmp_path):
++    p=tmp_path/'layout.it'; make_it_profile(p,fade=64,vol_env=(1,[(0,64),(8,0)],(0,0),(0,0)))
++    m,fmt=mf.parse_module(p)
++    assert t2k.stream_base_for(fmt)==0x7C00
++    template,engine,sym,pinfo=t2k.make_engine_template(m,1,fmt,[],stream_base=0x7C00)
++    assert len(engine)<=0x7C00-t2k.PAGE_LOAD
++    assert pinfo and sym['it_profile_data']>=0x6E00 and sym['it_profile_limit']==0x7C00
++    assert len(template)==t2k.PAGE_SIZE
++
++
++if __name__=='__main__':
++    import tempfile
++    tests=[v for k,v in sorted(globals().items()) if k.startswith('test_') and callable(v)]
++    for test in tests:
++        with tempfile.TemporaryDirectory() as td:
++            test(Path(td))
++        print('PASS',test.__name__)
++    print('PASS',len(tests))

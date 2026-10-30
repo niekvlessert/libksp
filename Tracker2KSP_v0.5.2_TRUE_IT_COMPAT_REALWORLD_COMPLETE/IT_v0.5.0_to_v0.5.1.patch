@@ -1,0 +1,2355 @@
+diff -ruN '--exclude=*.bin' '--exclude=*.map' '--exclude=*.lst' '--exclude=SHA256SUMS.txt' '--exclude=*.patch' a/README.md b/README.md
+--- a/README.md	2026-08-22 22:31:00.000000000 +0000
++++ b/README.md	2026-08-22 22:53:34.110940684 +0000
+@@ -1,3 +1,48 @@
++# Tracker2KSP v0.5.1 — native IT extended effects
++
++v0.5.1 continues the physically separate native Impulse Tracker runtime introduced in v0.4.9/v0.5.0. It adds the high-value remaining IT realtime effect layer without changing KSP 1.05 or KSP1PLAY. ST3/S3M, IT-authored S3M, XM and MOD keep their existing engines and layouts.
++
++## What v0.5.1 adds
++
++- **Jxy arpeggio** is enabled for native IT, using the native IT row/tick counter rather than borrowing ST3 semantics.
++- **Mxx / Nxy channel volume**: immediate channel-volume set plus native IT regular/fine channel-volume slides with separate Nxx effect memory.
++- **Pxy panning slide**: native IT direction, fine-slide priority and separate effect memory. Logical panning state follows the tracker channel and is inherited when NNA moves the foreground note to another physical OPL4 voice.
++- **Uxy fine vibrato**: shares H/U speed/depth memory as IT does, while applying U's finer depth scale.
++- **Vxx / Wxy global volume**: dynamic runtime global-volume set/slide. Wxx keeps its own memory and IT fine-slide ordering.
++- **Txx tempo**: `T00` recalls T memory, values `>=20h` set tempo immediately, and `T0x/T1x` perform down/up slides on non-first ticks with IT clamping.
++- **Yxy panbrello**: persistent speed/depth memory and a held panning offset. A real new note or direct panning command clears the held offset. The runtime keeps an 8-bit phase and uses the resident sine curve; final output is necessarily quantized to the OPL4's hardware panning positions.
++- **Global-effect pre-pass**: Txx and Wxx are evaluated before per-voice mixing, so tempo/global-volume changes do not depend on which tracker channel contains the command and are never applied twice.
++- Native IT channel/global volume is now fully dynamic. The OPL4 volume LUT remains neutral and M/N/V/W are applied in the IT runtime, avoiding double application of header global volume.
++- NNA foreground reallocation preserves the logical IT channel's current channel volume and panning state.
++- Native IT persistent state after the new effect variables is **905 bytes**, still inside the already-reserved final 1 KiB of MoonSound RAM (`$2FFC00-$2FFFFF`).
++- Native IT engine size is now **12,288 bytes**. Its profile pointer table is at `$6E00`, profile payload begins at `$7000`, and semantic pages remain `$7C00-$7FFF`.
++
++## Deliberately fail-fast / remaining IT boundary
++
++`Zxx` is **not faked**: in IT it represents MIDI/filter macro execution, which needs a real macro/filter implementation rather than a PCM approximation. Native IT therefore still rejects Zxx explicitly. `S5x` alternate panbrello waveform selection also remains fail-fast; Yxy currently uses the default sine waveform. Other previously documented boundaries remain, including Old Effects mode, linear E/F/G slides, envelope carry/filter envelopes, pitch-pan separation/random volume/pan, several non-neutral instrument/sample global-volume/default-pan combinations, sustain/ping-pong sample-loop edge cases, sample auto-vibrato, and delayed-note + NNA/DCT runtime allocation.
++
++OPL4 still provides 24 PCM voices. The exact allocator refuses a 25th simultaneously tracked NNA voice rather than silently stealing a sounding voice.
++
++## v0.5.1 validation
++
++- `tests/test_it_v049.py` + `tests/test_it_v050.py` + `tests/test_it_v051.py`: **25/25 native-IT tests PASS**.
++- `tests/test_s3m_v045.py`: **4/4 PASS**.
++- `tests/test_xm_v046.py`: **10/10 PASS**.
++- `tests/test_xm_v047.py`: **4/4 PASS**.
++- `tests/test_mod_v048.py`: **8/8 PASS**.
++- Fresh instrument-mode native `.it -> .ksp` smoke with J/N/P/T plus envelopes/NNA: **18,464 bytes**, KSP 1.05, one semantic page, **0 warnings**, dedicated native-IT engine **12,288 bytes**.
++- Smoke KSP SHA-256: `03b458c3a2ebe152a7b36de634654e5f9ebbebb322d276bf65913f309a141b77`.
++- Engine sizes: ST3/S3M **9,054**; IT-S3M **8,926**; native IT **12,288**; MOD **10,674**; XM **6,472** bytes. Only native IT changed.
++
++## Usage
++
++```text
++python3 CONVERT_TRACKER_TO_KSP.py song.it
++python3 CONVERT_IT_TO_KSP.py song.it
++```
++
++---
++
+ # Tracker2KSP v0.5.0 — native IT envelopes + NNA/DCT/DCA
+ 
+ v0.5.0 builds on the real `IMPM` loader from v0.4.9 and adds the first full native Impulse Tracker **instrument runtime**. Native IT remains physically separate from ST3/S3M, IT-authored S3M, XM and MOD. KSP stays at **1.05** and no KSP1PLAY 0.48 change is required.
+diff -ruN '--exclude=*.bin' '--exclude=*.map' '--exclude=*.lst' '--exclude=SHA256SUMS.txt' '--exclude=*.patch' a/TEST_REPORT.md b/TEST_REPORT.md
+--- a/TEST_REPORT.md	2026-08-22 22:31:00.000000000 +0000
++++ b/TEST_REPORT.md	2026-08-22 22:53:34.111072150 +0000
+@@ -1,3 +1,56 @@
++# Tracker2KSP v0.5.1 test report
++
++## Native IT extended effect runtime
++
++v0.5.1 extends only the dedicated native-IT engine. KSP remains 1.05; the ST3/S3M, IT-S3M, MOD and XM engines remain byte-size unchanged.
++
++### Automated regressions
++
++```text
++PYTHONPATH=source python3 -m pytest -q tests/test_it_v049.py tests/test_it_v050.py tests/test_it_v051.py
++PYTHONPATH=source python3 tests/test_s3m_v045.py
++PYTHONPATH=source python3 tests/test_xm_v046.py
++PYTHONPATH=source python3 tests/test_xm_v047.py
++PYTHONPATH=source python3 tests/test_mod_v048.py
++python3 source/BUILD_ENGINES.py
++```
++
++Results: **25/25 native IT**, **4/4 S3M**, **10/10 + 4/4 XM**, **8/8 MOD** PASS.
++
++The v0.5.1 native tests cover J/M/N/P/T/U/V/W/Y parser acceptance, Zxx fail-fast behaviour, IT-local effect memories, shared H/U memory, N/P/W fine-slide tick-zero ordering, T slide semantics, dynamic header/channel/global volume, NNA logical-state inheritance, the T/W global pre-pass, physical engine separation, and the complete dynamic-page persistent-state footprint. The persisted state totals **905 bytes**, below the 1,024-byte MoonSound reserve.
++
++### Engine build
++
++Fresh `python3 source/BUILD_ENGINES.py` output:
++
++- ST3/S3M: **9,054 bytes**
++- IT-authored/modern S3M: **8,926 bytes**
++- native IT: **12,288 bytes**
++- MOD: **10,674 bytes**
++- XM: **6,472 bytes**
++
++Native IT uses profile pointers at `$6E00`, profile data from `$7000`, and semantic pages at `$7C00-$7FFF`. The other four engine sizes are unchanged from v0.5.0.
++
++### End-to-end native IT effect smoke
++
++A fresh synthetic instrument-mode IT fixture combines instrument envelopes/NNA with J37, N20, P03 and T11 and is converted through the actual v0.5.1 CLI:
++
++- format: **KSP 1.05**
++- converter: **0.5.1**
++- output: **18,464 bytes**
++- engine: **12,288 bytes**
++- IT profiles: **2**, resident profile payload **116 bytes**
++- semantic rows/events: **4 / 5**
++- semantic stream: **76 bytes**, one page
++- warnings: **0**
++- KSP SHA-256: `03b458c3a2ebe152a7b36de634654e5f9ebbebb322d276bf65913f309a141b77`
++
++### Accuracy boundary
++
++`Zxx` remains deliberately rejected because IT's Z command is MIDI/filter-macro execution, not a generic PCM effect. `S5x` non-default panbrello waveform selection is also still rejected, so Yxy currently uses the default sine path. Panbrello uses an 8-bit phase but is ultimately quantized to OPL4 hardware pan positions. The converter continues to fail rather than steal a 25th simultaneous OPL4 PCM voice.
++
++---
++
+ # Tracker2KSP v0.5.0 test report
+ 
+ ## Native IT envelopes / voice allocation
+diff -ruN '--exclude=*.bin' '--exclude=*.map' '--exclude=*.lst' '--exclude=SHA256SUMS.txt' '--exclude=*.patch' a/VERSION.txt b/VERSION.txt
+--- a/VERSION.txt	2026-08-22 22:31:00.000000000 +0000
++++ b/VERSION.txt	2026-08-22 22:51:40.854002834 +0000
+@@ -1 +1 @@
+-0.5.0
++0.5.1
+diff -ruN '--exclude=*.bin' '--exclude=*.map' '--exclude=*.lst' '--exclude=SHA256SUMS.txt' '--exclude=*.patch' a/compact_engine_it.asm b/compact_engine_it.asm
+--- a/compact_engine_it.asm	2026-08-22 22:31:57.000000000 +0000
++++ b/compact_engine_it.asm	2026-08-22 22:54:56.653398517 +0000
+@@ -77,10 +77,16 @@
+ ITFADEVOL       equ 06580h      ; 24 words, 0..65535
+ ITTEMPVOL       equ 065B0h      ; 24 bytes, per-tick tremolo/tremor working volume
+ ITBASEPAN       equ 065C8h      ; 24 bytes, exact 0..255 logical-channel base pan
++ITCHVOL         equ 065E0h      ; 24 bytes, IT channel volume 0..64
++ITGLOBALVOL     equ 065F8h      ; global IT volume 0..128
++PANBRSPD        equ 065F9h      ; 24 bytes
++PANBRDEP        equ 06611h      ; 24 bytes
++PANBRPH         equ 06629h      ; 24 bytes, 8-bit phase
++PANBROFF        equ 06641h      ; 24 bytes, signed held offset
+ PAGE_TOTAL_CFG  equ 063FCh      ; patched by converter
+ STATE_CLEAR     equ 05F00h
+ STATE_CLEAR_END equ 06288h
+-EXT_STATE_END   equ 065E0h
++EXT_STATE_END   equ 06659h
+ 
+ CMD_A           equ 1
+ CMD_D           equ 4
+@@ -90,11 +96,18 @@
+ CMD_H           equ 8
+ CMD_I           equ 9
+ CMD_J           equ 10
++CMD_M           equ 13
++CMD_N           equ 14
+ CMD_O           equ 15
++CMD_P           equ 16
+ CMD_Q           equ 17
+ CMD_R           equ 18
+ CMD_T           equ 20
++CMD_U           equ 21
++CMD_V           equ 22
++CMD_W           equ 23
+ CMD_X           equ 24
++CMD_Y           equ 25
+ CMD_CUT         equ 27
+ CMD_GLISS       equ 30
+ CMD_ST3_PATDELAY equ 35
+@@ -124,6 +137,15 @@
+         ld (hl),a
+         inc hl
+         djnz init_delay_ff
++        ld hl,ITCHVOL
++        ld b,24
++        ld a,64
++init_itchvol_64:
++        ld (hl),a
++        inc hl
++        djnz init_itchvol_64
++        ld a,128
++        ld (ITGLOBALVOL),a
+         ld hl,0000h
+         ld (PAGE_INDEX),hl
+         ld hl,STREAM_DATA+HEADER_SIZE
+@@ -430,6 +452,24 @@
+         or a
+         ret
+ fx_not_tempo:
++        cp CMD_M
++        jr nz,fx_not_m
++        ld a,e
++        cp 65
++        ret nc
++        ld hl,ITCHVOL
++        call ptr8_cur
++        ld (hl),a
++        ret
++fx_not_m:
++        cp CMD_V
++        jr nz,fx_not_v
++        ld a,e
++        cp 129
++        ret nc
++        ld (ITGLOBALVOL),a
++        ret
++fx_not_v:
+         cp CMD_X
+         jr nz,fx_not_pan
+         ld a,e
+@@ -487,9 +527,12 @@
+         or a
+         ret
+ fx_not_it_profile:
+-        ; H updates nibble memory immediately; its resolved parameter already has both nibbles.
++        ; Native IT H/U share the same vibrato nibble memory.
+         cp CMD_H
++        jr z,fx_vibmem
++        cp CMD_U
+         jr nz,fx_store
++fx_vibmem:
+         ld a,e
+         and 0F0h
+         rrca
+@@ -580,6 +623,11 @@
+         jr z,finish_no_note
+         ld a,(EV_NOTE_KIND)
+         cp 0FCh
++        jr nc,finish_note_no_panreset
++        call clear_panbrello_offset
++finish_note_no_panreset:
++        ld a,(EV_NOTE_KIND)
++        cp 0FCh
+         jp z,do_note_cut_it
+         cp 0FDh
+         jp z,do_note_fade_it
+@@ -759,6 +807,7 @@
+         jp keyon_current
+ 
+ process_all_channels:
++        call process_it_global_tick_effects
+         xor a
+         ld (CUR_CH),a
+ process_ch_loop:
+@@ -906,10 +955,18 @@
+         jp z,effect_tremor
+         cp CMD_J
+         jp z,effect_arpeggio
++        cp CMD_N
++        jp z,effect_channel_volume_slide
++        cp CMD_P
++        jp z,effect_pan_slide
+         cp CMD_Q
+         jp z,effect_retrig
+         cp CMD_R
+         jp z,effect_tremolo
++        cp CMD_U
++        jp z,effect_fine_vibrato
++        cp CMD_Y
++        jp z,effect_panbrello
+         cp CMD_ST3_FINETUNE
+         jp z,effect_finetune
+         cp CMD_CUT
+@@ -1654,6 +1711,9 @@
+         ret
+ 
+ set_pan_from_tracker:
++        push af
++        call clear_panbrello_offset
++        pop af
+         ; A=0..255 tracker pan. Preserve the exact IT base for pan envelopes,
+         ; then quantize the hardware/base PAN nibble as before.
+         push af
+@@ -1980,14 +2040,14 @@
+ ;
+ ; Dynamic materialization replaces 4000h..7FFFh, including our RAM state.
+ ; Store only state that must survive between rows in reserved MoonSound RAM
+-; 2FFC00h..2FFFFFh. Native IT uses up to 760 bytes; the converter never places MWK sample
+-; payload in this final 512-byte window. CMD/PAR/delay/ARP scratch is row-local
++; 2FFC00h..2FFFFFh. Native IT remains below the converter-reserved final 1 KiB
++; of MoonSound RAM. CMD/PAR/delay/ARP scratch is row-local
+ ; and deliberately not persisted because page changes only occur between rows.
+ ; ---------------------------------------------------------------------------
+ 
+ state_mem_address:
+         ld d,03h
+-        ld e,02Fh              ; 2FFE00h high six address bits
++        ld e,02Fh              ; state reserve begins at 2FFC00h
+         call opl4_write_de
+         ld d,04h
+         ld e,0FCh
+@@ -2541,7 +2601,7 @@
+ ; state.  Profiles and interpolated envelope curves are patched by the host
+ ; into the resident template below the 7C00h semantic-stream window.
+ ; ---------------------------------------------------------------------------
+-        org 06600h
++        org 06660h
+ 
+ it_profile_ptr_a:
+         ld l,a
+@@ -2913,6 +2973,36 @@
+ it_vol_mul_fade_done:
+         ld a,h
+         cp 65
++        jr c,it_vol_have_fade
++        ld a,64
++it_vol_have_fade:
++        ; effective = env/sample * channelVol/64 * globalVol/128
++        ld b,a
++        ld hl,ITCHVOL
++        call ptr8_cur
++        ld c,(hl)
++        ld a,b
++        call it_mul8x8
++        ld de,32
++        add hl,de
++        ld b,6
++it_vol_div64:
++        srl h
++        rr l
++        djnz it_vol_div64
++        ld a,(ITGLOBALVOL)
++        ld c,a
++        ld a,l
++        call it_mul8x8
++        ld de,64
++        add hl,de
++        ld b,7
++it_vol_div128:
++        srl h
++        rr l
++        djnz it_vol_div128
++        ld a,l
++        cp 65
+         jr c,it_vol_lut
+         ld a,64
+ it_vol_lut:
+@@ -2931,22 +3021,22 @@
+         inc hl
+         ld a,(hl)
+         bit 0,a
+-        ret z
+-        ld de,19                     ; current profile+1 +19 = +20
++        jr z,it_pan_base
++        ld de,19
+         add hl,de
+         ld bc,ITPANPOS
+-        call it_env_byte_value       ; 0..64, 32 neutral
++        call it_env_byte_value
+         sub 32
+-        ld b,0                       ; B=sign 0 plus, 1 minus
++        ld b,0
+         jp p,it_pan_abs
+         neg
+         ld b,1
+ it_pan_abs:
+-        ld c,a                       ; C=abs delta 0..32
++        ld c,a
+         ld hl,ITBASEPAN
+         call ptr8_cur
+         ld a,(hl)
+-        ld e,a                       ; E=base pan
++        ld e,a
+         cp 128
+         jr nc,it_pan_right_dist
+         ld a,128
+@@ -2955,11 +3045,10 @@
+ it_pan_right_dist:
+         sub 128
+ it_pan_dist_ready:
+-        ld d,a                       ; distance from centre
++        ld d,a
+         ld a,128
+         sub d
+-        ld d,0                       ; DE=available movement range
+-        ; E currently overwritten: reload range low from A.
++        ld d,0
+         ld e,a
+         ld hl,0
+ it_pan_mul:
+@@ -2970,18 +3059,13 @@
+         dec c
+         jr it_pan_mul
+ it_pan_mul_done:
+-        ; /32
+-        srl h
+-        rr l
+-        srl h
+-        rr l
++        ld c,5
++it_pan_div32:
+         srl h
+         rr l
+-        srl h
+-        rr l
+-        srl h
+-        rr l
+-        ld c,l                       ; movement magnitude
++        dec c
++        jr nz,it_pan_div32
++        ld c,l
+         ld hl,ITBASEPAN
+         call ptr8_cur
+         ld e,(hl)
+@@ -2990,19 +3074,51 @@
+         jr nz,it_pan_sub
+         ld a,e
+         add a,c
+-        jr nc,it_pan_emit
++        jr nc,it_pan_env_done
+         ld a,255
+-        jr it_pan_emit
++        jr it_pan_env_done
+ it_pan_sub:
+         ld a,e
+         cp c
+         jr nc,it_pan_sub_ok
+         xor a
+-        jr it_pan_emit
++        jr it_pan_env_done
+ it_pan_sub_ok:
+         sub c
++        jr it_pan_env_done
++it_pan_base:
++        ld hl,ITBASEPAN
++        call ptr8_cur
++        ld a,(hl)
++it_pan_env_done:
++        ; IT Yxx offset is signed and persists until note/direct panning.
++        ld b,a
++        ld hl,PANBROFF
++        call ptr8_cur
++        ld c,(hl)
++        ld a,c
++        or a
++        ld a,b
++        jr z,it_pan_emit
++        bit 7,c
++        jr nz,it_pan_brell_neg
++        add a,c
++        jr nc,it_pan_emit
++        ld a,255
++        jr it_pan_emit
++it_pan_brell_neg:
++        ld b,a
++        ld a,c
++        neg
++        ld c,a
++        ld a,b
++        cp c
++        jr nc,it_pan_brell_sub
++        xor a
++        jr it_pan_emit
++it_pan_brell_sub:
++        sub c
+ it_pan_emit:
+-        ; Quantize temporary 0..255 IT pan without changing base PAN memory.
+         cp 128
+         jr nc,it_pan_emit_right
+         rrca
+@@ -3152,8 +3268,402 @@
+         ld (PITCH_DIRTY),a
+         ret
+ 
++; ---------------------------------------------------------------------------
++; Remaining native-IT realtime effects (v0.5.1). Kept in the IT-only resident
++; region so the long-standing generic tracker tables below 6288h do not move.
++; ---------------------------------------------------------------------------
++process_it_global_tick_effects:
++        xor a
++        ld (CUR_CH),a
++it_global_fx_loop:
++        ld hl,CMD1
++        call ptr8_cur
++        ld d,(hl)
++        ld hl,PAR1
++        call ptr8_cur
++        ld e,(hl)
++        call it_apply_global_de
++        ld hl,CMD2
++        call ptr8_cur
++        ld d,(hl)
++        ld hl,PAR2
++        call ptr8_cur
++        ld e,(hl)
++        call it_apply_global_de
++        ld a,(CUR_CH)
++        inc a
++        ld (CUR_CH),a
++        cp 24
++        jr c,it_global_fx_loop
++        ret
++
++it_apply_global_de:
++        ld a,d
++        cp CMD_T
++        jp z,effect_tempo_slide
++        cp CMD_W
++        jp z,effect_global_volume_slide
++        ret
++
++clear_panbrello_offset:
++        xor a
++        ld hl,PANBROFF
++        call ptr8_cur
++        ld (hl),a
++        ret
++
++; Decode E into B=high nibble, C=low nibble.
++it_slide_nibbles:
++        ld a,e
++        and 0Fh
++        ld c,a
++        ld a,e
++        and 0F0h
++        rrca
++        rrca
++        rrca
++        rrca
++        and 0Fh
++        ld b,a
++        ret
++
++effect_channel_volume_slide:
++        call it_slide_nibbles
++        ld a,(TICK_NOW)
++        or a
++        jr nz,it_n_reg
++        ld a,c
++        cp 15
++        jr z,it_n_add_b
++        ld a,b
++        cp 15
++        ret nz
++        ld a,c
++        or a
++        ret z
++        jr it_n_sub_a
++it_n_reg:
++        ld a,c
++        or a
++        jr z,it_n_add_b
++        ld a,b
++        or a
++        ret nz
++        ld a,c
++it_n_sub_a:
++        ld b,a
++        ld hl,ITCHVOL
++        call ptr8_cur
++        ld a,(hl)
++        cp b
++        jr nc,it_n_sub_ok
++        xor a
++        jr it_n_store
++it_n_sub_ok:
++        sub b
++        jr it_n_store
++it_n_add_b:
++        ld a,b
++        or a
++        ret z
++        ld b,a
++        ld hl,ITCHVOL
++        call ptr8_cur
++        ld a,(hl)
++        add a,b
++        cp 65
++        jr c,it_n_store
++        ld a,64
++it_n_store:
++        ld (hl),a
++        ret
++
++effect_global_volume_slide:
++        call it_slide_nibbles
++        ld a,(TICK_NOW)
++        or a
++        jr nz,it_w_reg
++        ld a,c
++        cp 15
++        jr z,it_w_add_b
++        ld a,b
++        cp 15
++        ret nz
++        ld a,c
++        or a
++        ret z
++        jr it_w_sub_a
++it_w_reg:
++        ld a,c
++        or a
++        jr z,it_w_add_b
++        ld a,b
++        or a
++        ret nz
++        ld a,c
++it_w_sub_a:
++        ld b,a
++        ld a,(ITGLOBALVOL)
++        cp b
++        jr nc,it_w_sub_ok
++        xor a
++        jr it_w_store
++it_w_sub_ok:
++        sub b
++        jr it_w_store
++it_w_add_b:
++        ld a,b
++        or a
++        ret z
++        ld b,a
++        ld a,(ITGLOBALVOL)
++        add a,b
++        cp 129
++        jr c,it_w_store
++        ld a,128
++it_w_store:
++        ld (ITGLOBALVOL),a
++        ret
++
++effect_pan_slide:
++        call it_slide_nibbles
++        ld a,(TICK_NOW)
++        or a
++        jr nz,it_p_reg
++        ld a,c
++        cp 15
++        jr z,it_p_left_b
++        ld a,b
++        cp 15
++        ret nz
++        ld a,c
++        or a
++        ret z
++        jr it_p_right_a
++it_p_reg:
++        ld a,c
++        or a
++        jr z,it_p_left_b
++        ld a,b
++        or a
++        ret nz
++        ld a,c
++it_p_right_a:
++        add a,a
++        add a,a
++        ld b,a
++        ld hl,ITBASEPAN
++        call ptr8_cur
++        ld a,(hl)
++        add a,b
++        jr nc,it_p_store
++        ld a,255
++        jr it_p_store
++it_p_left_b:
++        ld a,b
++        or a
++        ret z
++        add a,a
++        add a,a
++        ld b,a
++        ld hl,ITBASEPAN
++        call ptr8_cur
++        ld a,(hl)
++        cp b
++        jr nc,it_p_left_ok
++        xor a
++        jr it_p_store
++it_p_left_ok:
++        sub b
++it_p_store:
++        ld (hl),a
++        ret
++
++effect_tempo_slide:
++        ld a,(TICK_NOW)
++        or a
++        ret z
++        ld a,e
++        cp 32
++        ret nc
++        and 0Fh
++        ld b,a
++        ld a,e
++        and 0F0h
++        cp 010h
++        ld a,(TEMPO)
++        jr z,it_t_add
++        sub b
++        cp 32
++        jr nc,it_t_store
++        ld a,32
++        jr it_t_store
++it_t_add:
++        add a,b
++        jr nc,it_t_store
++        ld a,255
++it_t_store:
++        ld (TEMPO),a
++        xor a
++        ld (TEMPO+1),a
++        ret
++
++effect_fine_vibrato:
++        ; Uxy shares H's phase/memory but has one-quarter H depth.
++        ld hl,VIBPH
++        call ptr8_cur
++        ld a,(hl)
++        and 3Fh
++        call get_vib_wave_current
++        ld b,a
++        ld hl,VIBPH
++        call ptr8_cur
++        ld a,(hl)
++        ld c,a
++        ld hl,VIBSPD
++        call ptr8_cur
++        ld a,(hl)
++        add a,c
++        and 3Fh
++        ld hl,VIBPH
++        call ptr8_cur
++        ld (hl),a
++        ld a,b
++        or a
++        ret z
++        jp p,it_u_pos
++        neg
++        ld b,1
++        jr it_u_abs
++it_u_pos:
++        ld b,0
++it_u_abs:
++        ld e,a
++        ld d,0
++        push bc
++        ld hl,VIBDEP
++        call ptr8_cur
++        ld c,(hl)
++        ld hl,0
++it_u_mul:
++        ld a,c
++        or a
++        jr z,it_u_mul_done
++        add hl,de
++        dec c
++        jr it_u_mul
++it_u_mul_done:
++        ld c,7
++it_u_div128:
++        srl h
++        rr l
++        dec c
++        jr nz,it_u_div128
++        ld e,l
++        ld d,0
++        pop bc
++        ld hl,(OUT_PERIOD)
++        ld a,b
++        or a
++        jr nz,it_u_sub
++        add hl,de
++        jr it_u_store
++it_u_sub:
++        or a
++        sbc hl,de
++        jr nc,it_u_store
++        ld hl,1
++it_u_store:
++        ld (OUT_PERIOD),hl
++        ld a,e
++        or d
++        ret z
++        ld a,1
++        ld (PITCH_DIRTY),a
++        ret
++
++effect_panbrello:
++        ; Resolved Yxy carries complete speed/depth memory. Keep an 8-bit IT
++        ; phase and address the 64-step sine as phase>>2. The OPL4 itself only
++        ; exposes 15 useful pan positions, so this does not reduce hardware pan
++        ; resolution. S5x alternate/random waveforms remain explicit fail-fast.
++        ld a,e
++        and 0F0h
++        rrca
++        rrca
++        rrca
++        rrca
++        ld hl,PANBRSPD
++        call ptr8_cur
++        ld (hl),a
++        ld a,e
++        and 0Fh
++        ld hl,PANBRDEP
++        call ptr8_cur
++        ld (hl),a
++        ld hl,PANBRPH
++        call ptr8_cur
++        ld a,(hl)
++        ld c,a
++        srl c
++        srl c
++        ld b,0
++        call get_mod_wave
++        ld b,a
++        ld hl,PANBRPH
++        call ptr8_cur
++        ld a,(hl)
++        ld c,a
++        ld hl,PANBRSPD
++        call ptr8_cur
++        add a,(hl)
++        ld hl,PANBRPH
++        call ptr8_cur
++        ld (hl),a
++        ld a,b
++        or a
++        jr z,it_y_zero
++        jp p,it_y_pos
++        neg
++        ld d,1
++        jr it_y_abs
++it_y_pos:
++        ld d,0
++it_y_abs:
++        ld e,a
++        ld a,d
++        ld (EV_TOKEN),a
++        ld hl,PANBRDEP
++        call ptr8_cur
++        ld c,(hl)
++        ld a,e
++        call it_mul8x8
++        ; Existing sine is +/-127, twice IT's nominal +/-64 panbrello wave:
++        ; divide by 16 to reproduce IT delta*depth/8.
++        ld c,4
++it_y_div16:
++        srl h
++        rr l
++        dec c
++        jr nz,it_y_div16
++        ld a,l
++        ld b,a
++        ld a,(EV_TOKEN)
++        or a
++        ld a,b
++        jr z,it_y_store
++        neg
++it_y_store:
++        ld hl,PANBROFF
++        call ptr8_cur
++        ld (hl),a
++        ret
++it_y_zero:
++        xor a
++        jr it_y_store
++
+ ; Static profile pointer table + converter-patched records/curves.
+-        org 06C00h
++        org 06E00h
+ IT_PROFILE_PTRS:
+         defs 512,0
+ IT_PROFILE_DATA:
+diff -ruN '--exclude=*.bin' '--exclude=*.map' '--exclude=*.lst' '--exclude=SHA256SUMS.txt' '--exclude=*.patch' a/compact_stream.py b/compact_stream.py
+--- a/compact_stream.py	2026-08-22 22:27:02.000000000 +0000
++++ b/compact_stream.py	2026-08-22 22:52:02.080589673 +0000
+@@ -7,7 +7,8 @@
+ 
+ # Compact semantic commands use the S3M command numbers where possible.
+ CMD_A=1; CMD_B=2; CMD_C=3; CMD_D=4; CMD_E=5; CMD_F=6; CMD_G=7; CMD_H=8; CMD_I=9
+-CMD_J=10; CMD_K=11; CMD_L=12; CMD_O=15; CMD_Q=17; CMD_R=18; CMD_S=19; CMD_T=20; CMD_X=24
++CMD_J=10; CMD_K=11; CMD_L=12; CMD_M=13; CMD_N=14; CMD_O=15; CMD_P=16; CMD_Q=17; CMD_R=18; CMD_S=19; CMD_T=20
++CMD_U=21; CMD_V=22; CMD_W=23; CMD_X=24; CMD_Y=25; CMD_Z=26
+ CMD_NOTE_CUT=27
+ CMD_XM_PROFILE=28; CMD_VCTRL=29; CMD_GLISS=30; CMD_KEYOFF=31
+ CMD_ST3_COMBINED_D=32; CMD_ST3_COMBINED_H=33; CMD_ST3_COMBINED_G=34
+@@ -50,6 +51,10 @@
+     it_tremolo_speed: int = 0
+     it_tremolo_depth: int = 0
+     it_pan_tracker: int = 128
++    it_channel_volume: int = 64
++    it_panbrello_speed: int = 0
++    it_panbrello_depth: int = 0
++    it_tempo_mem: int = 0
+     xm_volslide_mem: int = 0
+     xm_fine_porta_mem: int = 0
+     xm_xfine_porta_mem: int = 0
+@@ -188,10 +193,14 @@
+         self.mod_pending_oor_delay={}
+         self.it_voice_map={}
+         self.it_voices=[None]*24
++        self.it_global_volume=int(getattr(self.m,'it_global_volume',128)) if self.fmt=='IT' else 128
++        self.it_initial_global_emitted=False
+         if self.fmt=='IT':
+             pans=list(getattr(self.m,'it_channel_pan_tracker',()))
++            chvol=list(getattr(self.m,'it_channel_volume',()))
+             for ch,st in self.states.items():
+                 if ch < len(pans): st.it_pan_tracker=int(pans[ch])
++                if ch < len(chvol): st.it_channel_volume=max(0,min(64,int(chvol[ch])))
+ 
+     def _it_profile_for_instrument(self,inum:int):
+         inst=getattr(self.m,'it_instruments',{}).get(int(inum))
+@@ -336,7 +345,9 @@
+             if cmd in (CMD_E,CMD_F):
+                 if raw: st.it_ef_mem=raw
+                 return raw or st.it_ef_mem
+-            if cmd==CMD_H:
++            if cmd in (CMD_H,CMD_U):
++                # IT Hxy and Uxy share the same speed/depth nibble memory.
++                # U merely applies the remembered depth at 1/4 H's depth scale.
+                 if raw & 0xF0: st.vib_speed=(raw>>4)&15
+                 if raw & 0x0F: st.vib_depth=raw&15
+                 return (st.vib_speed<<4)|st.vib_depth
+@@ -355,9 +366,16 @@
+                 if raw & 0xF0: st.it_tremolo_speed=(raw>>4)&15
+                 if raw & 0x0F: st.it_tremolo_depth=raw&15
+                 return (st.it_tremolo_speed<<4)|st.it_tremolo_depth
+-            if cmd in (CMD_J,CMD_Q,CMD_S):
++            if cmd in (CMD_J,CMD_N,CMD_P,CMD_Q,CMD_S,CMD_W):
+                 if raw: st.mem[cmd]=raw
+                 return raw or st.mem.get(cmd,0)
++            if cmd==CMD_T:
++                if raw: st.it_tempo_mem=raw
++                return raw or st.it_tempo_mem
++            if cmd==CMD_Y:
++                if raw & 0xF0: st.it_panbrello_speed=(raw>>4)&15
++                if raw & 0x0F: st.it_panbrello_depth=raw&15
++                return (st.it_panbrello_speed<<4)|st.it_panbrello_depth
+             return raw
+ 
+         # IT-authored and modern/non-ST3 S3M use effect-local memory instead
+@@ -688,7 +706,9 @@
+                 elif sx==0x4:
+                     if sl<=3: effects.append((CMD_ST3_TREM_WAVE,sl,None))
+                 elif sx==0x6: effects.append((CMD_ST3_TICK_DELAY,sl,None))
+-                elif sx==0x8: effects.append((CMD_X,(sl*255+7)//15,None))
++                elif sx==0x8:
++                    pv=(sl*255+7)//15
++                    effects.append((CMD_X,pv,None)); st.it_pan_tracker=pv
+                 elif sx==0xA: st.high_offset=sl
+                 elif sx==0xB: pass  # flattened by compile() below
+                 elif sx==0xC: effects.append((CMD_NOTE_CUT,sl or 1,None))
+@@ -766,6 +786,8 @@
+ 
+         if self.fmt=='IT' and cmd==CMD_X:
+             st.it_pan_tracker=max(0,min(255,int(p)))
++        if self.fmt=='IT' and cmd==CMD_M and 0<=p<=64:
++            st.it_channel_volume=int(p)
+         a=Action(e.ch)
+         a.delay_tick=delay
+         old_ins=st.instrument
+@@ -1144,6 +1166,11 @@
+             # later channel wins for B/C, matching the backend's channel-order walk.
+             pending_jump=None; pending_break=None; pending_loop_row=None; pending_stop=False; xm_row_delay=0
+             actions=[]
++            if self.fmt=='IT' and not self.it_initial_global_emitted:
++                # IT header global volume is 0..128. V is parser-immediate and
++                # does not consume either realtime effect slot.
++                actions.append(Action(0,effects=[(CMD_V,max(0,min(128,self.it_global_volume)),None)]))
++                self.it_initial_global_emitted=True
+             row_events=sorted((e for e in evs if e.ch in self.states),key=lambda x:x.ch)
+             # ProTracker quirk: EDx with x>=speed can trigger at the beginning of
+             # the following row, but only if that row has no new note on the channel.
+@@ -1177,6 +1204,7 @@
+                     self.mod_pending_oor_delay[e.ch]=core.Event(ch=e.ch,note=e.note,ins=e.ins,vol=e.vol)
+                     event_for_action=core.Event(ch=e.ch,cmd=e.cmd,param=e.param)
+                 state=self.states[e.ch]
++                it_had_foreground=(self.fmt=='IT' and e.ch in self.it_voice_map)
+                 phys=self._it_target_voice(e.ch) if self.fmt=='IT' else e.ch
+                 synth=[]
+                 if (self.fmt=='IT' and bool(getattr(self.m,'it_instrument_mode',False))
+@@ -1191,11 +1219,20 @@
+                 a=self._event_action(event_for_action,state)
+                 if self.fmt=='IT':
+                     for sa in synth: actions.append(sa)
++                    if (a and bool(getattr(self.m,'it_instrument_mode',False)) and not it_had_foreground
++                            and not (e.note is not None and e.note<254)
++                            and e.cmd not in (CMD_A,CMD_T,CMD_V,CMD_W)
++                            and not (e.cmd==CMD_S and (((int(getattr(e,'resolved_param',e.param or 0))>>4)&15) in (0x6,0xE)))):
++                        # IT effect memory is already resolved on the logical
++                        # channel by the host. Do not accidentally mutate an
++                        # unrelated NNA background voice at the same physical index.
++                        a=None
+                     if a:
+                         a.ch=phys
+-                        # A newly allocated background-capable voice must inherit
+-                        # the logical channel's current base pan.
++                        # A newly allocated NNA-capable physical voice must inherit
++                        # the logical IT channel's current base pan and channel volume.
+                         if e.note is not None and e.note<254 and e.cmd not in (CMD_G,CMD_L):
++                            a.effects.insert(0,(CMD_M,max(0,min(64,state.it_channel_volume)),None))
+                             a.effects.insert(0,(CMD_X,max(0,min(255,state.it_pan_tracker)),None))
+                         actions.append(a)
+                     sp=getattr(e,'it_note_special',None)
+@@ -1251,14 +1288,70 @@
+ 
+                 # Global tempo/speed commands are effective on this row.
+                 if e.cmd==CMD_A and (e.param or 0): self.speed=max(1,e.param or 0)
+-                if e.cmd==CMD_T and (e.param or 0)>=32: self.tempo=max(32,e.param or 0)
++                if e.cmd==CMD_T:
++                    tp=int(getattr(e,'resolved_param',e.param or 0))
++                    if tp>=32: self.tempo=max(32,min(255,tp))
++                if self.fmt=='IT' and e.cmd==CMD_V and 0 <= int(e.param or 0) <= 128:
++                    self.it_global_volume=int(e.param or 0)
+             if len(actions)>255: raise ValueError('too many compact row actions')
+             rb=bytearray((len(actions),))
+             for a in actions: rb+=self._encode_action(a)
+             rows_encoded.append(bytes(rb)); max_events=max(max_events,len(actions)); total_events+=len(actions)
+             self.rows+=1
+             mod_row_delay=max(((e.param or 0)&15 for e in row_events if self.fmt=='MOD' and e.cmd==CMD_MOD_PATDELAY),default=0)
+-            self.seconds += self.speed*(1+xm_row_delay+mod_row_delay)*2.5/self.tempo
++            if self.fmt=='IT':
++                # Simulate global IT tempo slides and logical channel M/N/P/W
++                # state across every tracker tick. Pattern delay repeats the
++                # already-parsed row, so tick-0 fine slides re-apply but M/V/T>=20h
++                # parser-immediate commands do not.
++                it_pat_delay=0; it_tick_delay=0
++                for e in row_events:
++                    rp=int(getattr(e,'resolved_param',e.param or 0))
++                    if e.cmd==CMD_S and ((rp>>4)&15)==0xE: it_pat_delay=rp&15
++                    if e.cmd==CMD_S and ((rp>>4)&15)==0x6: it_tick_delay=rp&15
++                ticks=max(1,self.speed+it_tick_delay)
++                repeats=1+it_pat_delay
++                tfx=[int(getattr(e,'resolved_param',e.param or 0)) for e in row_events if e.cmd==CMD_T and int(getattr(e,'resolved_param',e.param or 0))<32]
++                nfx=[(e.ch,int(getattr(e,'resolved_param',e.param or 0))) for e in row_events if e.cmd==CMD_N]
++                pfx=[(e.ch,int(getattr(e,'resolved_param',e.param or 0))) for e in row_events if e.cmd==CMD_P]
++                wfx=[int(getattr(e,'resolved_param',e.param or 0)) for e in row_events if e.cmd==CMD_W]
++                for rep in range(repeats):
++                    for tick in range(ticks):
++                        # Fine N/P/W forms run on tick 0, including delayed repeats.
++                        for ch,np in nfx:
++                            st=self.states[ch]; hi=(np>>4)&15; lo=np&15
++                            delta=0
++                            if tick==0:
++                                if lo==15 and hi: delta=hi
++                                elif hi==15 and lo: delta=-lo
++                            elif lo==0 and hi: delta=hi
++                            elif hi==0 and lo: delta=-lo
++                            st.it_channel_volume=max(0,min(64,st.it_channel_volume+delta))
++                        for ch,pp in pfx:
++                            st=self.states[ch]; hi=(pp>>4)&15; lo=pp&15
++                            delta=0
++                            if tick==0:
++                                if lo==15 and hi: delta=-(hi*4)
++                                elif hi==15 and lo: delta=lo*4
++                            elif lo==0 and hi: delta=-(hi*4)
++                            elif hi==0 and lo: delta=lo*4
++                            st.it_pan_tracker=max(0,min(255,st.it_pan_tracker+delta))
++                        for wp in wfx:
++                            hi=(wp>>4)&15; lo=wp&15; delta=0
++                            if tick==0:
++                                if lo==15 and hi: delta=hi
++                                elif hi==15 and lo: delta=-lo
++                            elif lo==0 and hi: delta=hi
++                            elif hi==0 and lo: delta=-lo
++                            self.it_global_volume=max(0,min(128,self.it_global_volume+delta))
++                        if tick>0:
++                            for tp in tfx:
++                                lo=tp&15
++                                if (tp&0xF0)==0x10: self.tempo=min(255,self.tempo+lo)
++                                else: self.tempo=max(32,self.tempo-lo)
++                        self.seconds += 2.5/max(32,self.tempo)
++            else:
++                self.seconds += self.speed*(1+xm_row_delay+mod_row_delay)*2.5/self.tempo
+             if pending_stop:
+                 self.ended_reason='FT2 F00 stop'; break
+             # advance flattened playback order
+diff -ruN '--exclude=*.bin' '--exclude=*.map' '--exclude=*.lst' '--exclude=SHA256SUMS.txt' '--exclude=*.patch' a/module_formats.py b/module_formats.py
+--- a/module_formats.py	2026-08-22 22:31:00.000000000 +0000
++++ b/module_formats.py	2026-08-22 22:52:02.079713702 +0000
+@@ -1057,7 +1057,7 @@
+     # state mandated by ITTECH. We remap only actually used channels to the
+     # OPL4 runtime's dense 0..23 voice range afterwards.
+     raw_patterns=[]; used_channels=set()
+-    unsupported_effects={10:'Jxx arpeggio tick semantics',13:'Mxx channel volume',14:'Nxx channel volume slide',16:'Pxx panning slide',21:'Uxx fine vibrato',22:'Vxx global volume',23:'Wxx global volume slide',25:'Yxx panbrello',26:'Zxx MIDI macro'}
++    unsupported_effects={26:'Zxx MIDI macro / filter macro'}
+     for pi,ptr in enumerate(pptrs):
+         if not ptr:
+             raw_patterns.append([[] for _ in range(64)]); continue
+@@ -1113,8 +1113,6 @@
+             instrument_present=bool(mask&(2|0x20) and ins)
+             if cmd in unsupported_effects:
+                 raise ValueError(f'IT pattern {pi} row {r} channel {och+1}: {unsupported_effects[cmd]} is not yet supported')
+-            if cmd==20 and 0<param<0x20:
+-                raise ValueError(f'IT pattern {pi} row {r} channel {och+1}: T{param:02X} tempo slide is not yet supported')
+             if cmd==19 and (param>>4) in (0,5,7,9,15):
+                 raise ValueError(f'IT pattern {pi} row {r} channel {och+1}: S{param:02X} subcommand is not yet supported')
+             if cmd>26: raise ValueError(f'IT pattern {pi} row {r} channel {och+1}: invalid effect command {cmd}')
+@@ -1149,8 +1147,6 @@
+     for old in used:
+         pv=b[0x40+old]; vv=b[0x80+old]
+         if vv>64: raise ValueError(f'IT channel {old+1}: invalid initial channel volume {vv}')
+-        if vv!=64:
+-            raise ValueError(f'IT channel {old+1}: initial channel volume {vv} needs the pending true-IT channel-volume runtime')
+         if (pv&0x7F)==100:
+             raise ValueError(f'IT channel {old+1}: surround panning needs the pending true-IT surround runtime')
+         pv=min(64,pv&0x7F)
+@@ -1158,12 +1154,12 @@
+         pv=max(0,min(64,32+int(round((pv-32)*(int(sep)/128.0)))))
+         pans.append((pv*15+32)//64); pan_track.append((pv*255+32)//64); chvol.append(vv)
+     chset=[0]*len(used)+[255]*(32-len(used))
+-    # The existing KSP volume LUT is 0..64. IT global volume is 0..128 and is
+-    # static here because V/W effects are rejected above.
++    # Keep the public Module field in the existing 0..64 scale, while the
++    # native IT engine receives the exact 0..128 header global-volume value.
+     gv64=max(0,min(64,(int(gv)+1)//2))
+     m=core.Module(path,b,title,orders,patterns,samples,chset,max(1,int(speed or 6)),max(32,int(tempo or 125)),gv64,flags,1)
+     m.source_format='IT'; m.offset_quantum=256; m.it_cwtv=cwtv; m.it_cmwt=cmwt; m.it_flags=flags; m.it_special=special
+-    m.it_instrument_mode=instrument_mode; m.it_linear_slides=linear_slides; m.it_old_effects=old_effects; m.it_compatible_gxx=compatible_gxx
++    m.it_instrument_mode=instrument_mode; m.it_linear_slides=linear_slides; m.it_old_effects=old_effects; m.it_compatible_gxx=compatible_gxx; m.it_global_volume=int(gv)
+     m.it_instruments=instruments; m.it_instrument_keymaps={k:v['keymap'] for k,v in instruments.items()}
+     # Deduplicate realtime instrument profiles. Profile 0 is neutral/sample-mode.
+     def _env_key(env):
+diff -ruN '--exclude=*.bin' '--exclude=*.map' '--exclude=*.lst' '--exclude=SHA256SUMS.txt' '--exclude=*.patch' a/source/BUILD_ENGINES.py b/source/BUILD_ENGINES.py
+--- a/source/BUILD_ENGINES.py	2026-08-22 21:51:28.000000000 +0000
++++ b/source/BUILD_ENGINES.py	2026-08-22 22:56:00.001761681 +0000
+@@ -1,9 +1,16 @@
+ #!/usr/bin/env python3
+ from pathlib import Path
+-import subprocess, sys
++import shutil, subprocess, sys
+ here=Path(__file__).resolve().parent
++root=here.parent
+ asm=here/'tools'/'z80asm.py'
+ for stem in ('compact_engine_s3m','compact_engine_it_s3m','compact_engine_it','compact_engine_mod','compact_engine_xm'):
+     src=here/f'{stem}.asm'; out=here/f'{stem}.bin'; mp=here/f'{stem}.map'; lst=here/f'{stem}.lst'
+     subprocess.check_call([sys.executable,str(asm),str(src),str(out),str(mp),str(lst)])
++    # The release intentionally carries root + source copies because the root
++    # wrappers import their local generated engine/map files. Keep generated
++    # artifacts synchronized so a source patch + rebuild cannot leave a stale
++    # root engine behind.
++    for generated in (out,mp,lst):
++        shutil.copy2(generated,root/generated.name)
+     print(f'{stem}: {out.stat().st_size} bytes')
+diff -ruN '--exclude=*.bin' '--exclude=*.map' '--exclude=*.lst' '--exclude=SHA256SUMS.txt' '--exclude=*.patch' a/source/compact_engine_it.asm b/source/compact_engine_it.asm
+--- a/source/compact_engine_it.asm	2026-08-22 22:26:58.000000000 +0000
++++ b/source/compact_engine_it.asm	2026-08-22 22:49:54.995047574 +0000
+@@ -77,10 +77,16 @@
+ ITFADEVOL       equ 06580h      ; 24 words, 0..65535
+ ITTEMPVOL       equ 065B0h      ; 24 bytes, per-tick tremolo/tremor working volume
+ ITBASEPAN       equ 065C8h      ; 24 bytes, exact 0..255 logical-channel base pan
++ITCHVOL         equ 065E0h      ; 24 bytes, IT channel volume 0..64
++ITGLOBALVOL     equ 065F8h      ; global IT volume 0..128
++PANBRSPD        equ 065F9h      ; 24 bytes
++PANBRDEP        equ 06611h      ; 24 bytes
++PANBRPH         equ 06629h      ; 24 bytes, 8-bit phase
++PANBROFF        equ 06641h      ; 24 bytes, signed held offset
+ PAGE_TOTAL_CFG  equ 063FCh      ; patched by converter
+ STATE_CLEAR     equ 05F00h
+ STATE_CLEAR_END equ 06288h
+-EXT_STATE_END   equ 065E0h
++EXT_STATE_END   equ 06659h
+ 
+ CMD_A           equ 1
+ CMD_D           equ 4
+@@ -90,11 +96,18 @@
+ CMD_H           equ 8
+ CMD_I           equ 9
+ CMD_J           equ 10
++CMD_M           equ 13
++CMD_N           equ 14
+ CMD_O           equ 15
++CMD_P           equ 16
+ CMD_Q           equ 17
+ CMD_R           equ 18
+ CMD_T           equ 20
++CMD_U           equ 21
++CMD_V           equ 22
++CMD_W           equ 23
+ CMD_X           equ 24
++CMD_Y           equ 25
+ CMD_CUT         equ 27
+ CMD_GLISS       equ 30
+ CMD_ST3_PATDELAY equ 35
+@@ -124,6 +137,15 @@
+         ld (hl),a
+         inc hl
+         djnz init_delay_ff
++        ld hl,ITCHVOL
++        ld b,24
++        ld a,64
++init_itchvol_64:
++        ld (hl),a
++        inc hl
++        djnz init_itchvol_64
++        ld a,128
++        ld (ITGLOBALVOL),a
+         ld hl,0000h
+         ld (PAGE_INDEX),hl
+         ld hl,STREAM_DATA+HEADER_SIZE
+@@ -430,6 +452,24 @@
+         or a
+         ret
+ fx_not_tempo:
++        cp CMD_M
++        jr nz,fx_not_m
++        ld a,e
++        cp 65
++        ret nc
++        ld hl,ITCHVOL
++        call ptr8_cur
++        ld (hl),a
++        ret
++fx_not_m:
++        cp CMD_V
++        jr nz,fx_not_v
++        ld a,e
++        cp 129
++        ret nc
++        ld (ITGLOBALVOL),a
++        ret
++fx_not_v:
+         cp CMD_X
+         jr nz,fx_not_pan
+         ld a,e
+@@ -487,9 +527,12 @@
+         or a
+         ret
+ fx_not_it_profile:
+-        ; H updates nibble memory immediately; its resolved parameter already has both nibbles.
++        ; Native IT H/U share the same vibrato nibble memory.
+         cp CMD_H
++        jr z,fx_vibmem
++        cp CMD_U
+         jr nz,fx_store
++fx_vibmem:
+         ld a,e
+         and 0F0h
+         rrca
+@@ -580,6 +623,11 @@
+         jr z,finish_no_note
+         ld a,(EV_NOTE_KIND)
+         cp 0FCh
++        jr nc,finish_note_no_panreset
++        call clear_panbrello_offset
++finish_note_no_panreset:
++        ld a,(EV_NOTE_KIND)
++        cp 0FCh
+         jp z,do_note_cut_it
+         cp 0FDh
+         jp z,do_note_fade_it
+@@ -759,6 +807,7 @@
+         jp keyon_current
+ 
+ process_all_channels:
++        call process_it_global_tick_effects
+         xor a
+         ld (CUR_CH),a
+ process_ch_loop:
+@@ -906,10 +955,18 @@
+         jp z,effect_tremor
+         cp CMD_J
+         jp z,effect_arpeggio
++        cp CMD_N
++        jp z,effect_channel_volume_slide
++        cp CMD_P
++        jp z,effect_pan_slide
+         cp CMD_Q
+         jp z,effect_retrig
+         cp CMD_R
+         jp z,effect_tremolo
++        cp CMD_U
++        jp z,effect_fine_vibrato
++        cp CMD_Y
++        jp z,effect_panbrello
+         cp CMD_ST3_FINETUNE
+         jp z,effect_finetune
+         cp CMD_CUT
+@@ -1654,6 +1711,9 @@
+         ret
+ 
+ set_pan_from_tracker:
++        push af
++        call clear_panbrello_offset
++        pop af
+         ; A=0..255 tracker pan. Preserve the exact IT base for pan envelopes,
+         ; then quantize the hardware/base PAN nibble as before.
+         push af
+@@ -1980,14 +2040,14 @@
+ ;
+ ; Dynamic materialization replaces 4000h..7FFFh, including our RAM state.
+ ; Store only state that must survive between rows in reserved MoonSound RAM
+-; 2FFC00h..2FFFFFh. Native IT uses up to 760 bytes; the converter never places MWK sample
+-; payload in this final 512-byte window. CMD/PAR/delay/ARP scratch is row-local
++; 2FFC00h..2FFFFFh. Native IT remains below the converter-reserved final 1 KiB
++; of MoonSound RAM. CMD/PAR/delay/ARP scratch is row-local
+ ; and deliberately not persisted because page changes only occur between rows.
+ ; ---------------------------------------------------------------------------
+ 
+ state_mem_address:
+         ld d,03h
+-        ld e,02Fh              ; 2FFE00h high six address bits
++        ld e,02Fh              ; state reserve begins at 2FFC00h
+         call opl4_write_de
+         ld d,04h
+         ld e,0FCh
+@@ -2541,7 +2601,7 @@
+ ; state.  Profiles and interpolated envelope curves are patched by the host
+ ; into the resident template below the 7C00h semantic-stream window.
+ ; ---------------------------------------------------------------------------
+-        org 06600h
++        org 06660h
+ 
+ it_profile_ptr_a:
+         ld l,a
+@@ -2913,6 +2973,36 @@
+ it_vol_mul_fade_done:
+         ld a,h
+         cp 65
++        jr c,it_vol_have_fade
++        ld a,64
++it_vol_have_fade:
++        ; effective = env/sample * channelVol/64 * globalVol/128
++        ld b,a
++        ld hl,ITCHVOL
++        call ptr8_cur
++        ld c,(hl)
++        ld a,b
++        call it_mul8x8
++        ld de,32
++        add hl,de
++        ld b,6
++it_vol_div64:
++        srl h
++        rr l
++        djnz it_vol_div64
++        ld a,(ITGLOBALVOL)
++        ld c,a
++        ld a,l
++        call it_mul8x8
++        ld de,64
++        add hl,de
++        ld b,7
++it_vol_div128:
++        srl h
++        rr l
++        djnz it_vol_div128
++        ld a,l
++        cp 65
+         jr c,it_vol_lut
+         ld a,64
+ it_vol_lut:
+@@ -2931,22 +3021,22 @@
+         inc hl
+         ld a,(hl)
+         bit 0,a
+-        ret z
+-        ld de,19                     ; current profile+1 +19 = +20
++        jr z,it_pan_base
++        ld de,19
+         add hl,de
+         ld bc,ITPANPOS
+-        call it_env_byte_value       ; 0..64, 32 neutral
++        call it_env_byte_value
+         sub 32
+-        ld b,0                       ; B=sign 0 plus, 1 minus
++        ld b,0
+         jp p,it_pan_abs
+         neg
+         ld b,1
+ it_pan_abs:
+-        ld c,a                       ; C=abs delta 0..32
++        ld c,a
+         ld hl,ITBASEPAN
+         call ptr8_cur
+         ld a,(hl)
+-        ld e,a                       ; E=base pan
++        ld e,a
+         cp 128
+         jr nc,it_pan_right_dist
+         ld a,128
+@@ -2955,11 +3045,10 @@
+ it_pan_right_dist:
+         sub 128
+ it_pan_dist_ready:
+-        ld d,a                       ; distance from centre
++        ld d,a
+         ld a,128
+         sub d
+-        ld d,0                       ; DE=available movement range
+-        ; E currently overwritten: reload range low from A.
++        ld d,0
+         ld e,a
+         ld hl,0
+ it_pan_mul:
+@@ -2970,18 +3059,13 @@
+         dec c
+         jr it_pan_mul
+ it_pan_mul_done:
+-        ; /32
+-        srl h
+-        rr l
+-        srl h
+-        rr l
++        ld c,5
++it_pan_div32:
+         srl h
+         rr l
+-        srl h
+-        rr l
+-        srl h
+-        rr l
+-        ld c,l                       ; movement magnitude
++        dec c
++        jr nz,it_pan_div32
++        ld c,l
+         ld hl,ITBASEPAN
+         call ptr8_cur
+         ld e,(hl)
+@@ -2990,19 +3074,51 @@
+         jr nz,it_pan_sub
+         ld a,e
+         add a,c
+-        jr nc,it_pan_emit
++        jr nc,it_pan_env_done
+         ld a,255
+-        jr it_pan_emit
++        jr it_pan_env_done
+ it_pan_sub:
+         ld a,e
+         cp c
+         jr nc,it_pan_sub_ok
+         xor a
+-        jr it_pan_emit
++        jr it_pan_env_done
+ it_pan_sub_ok:
+         sub c
++        jr it_pan_env_done
++it_pan_base:
++        ld hl,ITBASEPAN
++        call ptr8_cur
++        ld a,(hl)
++it_pan_env_done:
++        ; IT Yxx offset is signed and persists until note/direct panning.
++        ld b,a
++        ld hl,PANBROFF
++        call ptr8_cur
++        ld c,(hl)
++        ld a,c
++        or a
++        ld a,b
++        jr z,it_pan_emit
++        bit 7,c
++        jr nz,it_pan_brell_neg
++        add a,c
++        jr nc,it_pan_emit
++        ld a,255
++        jr it_pan_emit
++it_pan_brell_neg:
++        ld b,a
++        ld a,c
++        neg
++        ld c,a
++        ld a,b
++        cp c
++        jr nc,it_pan_brell_sub
++        xor a
++        jr it_pan_emit
++it_pan_brell_sub:
++        sub c
+ it_pan_emit:
+-        ; Quantize temporary 0..255 IT pan without changing base PAN memory.
+         cp 128
+         jr nc,it_pan_emit_right
+         rrca
+@@ -3152,8 +3268,402 @@
+         ld (PITCH_DIRTY),a
+         ret
+ 
++; ---------------------------------------------------------------------------
++; Remaining native-IT realtime effects (v0.5.1). Kept in the IT-only resident
++; region so the long-standing generic tracker tables below 6288h do not move.
++; ---------------------------------------------------------------------------
++process_it_global_tick_effects:
++        xor a
++        ld (CUR_CH),a
++it_global_fx_loop:
++        ld hl,CMD1
++        call ptr8_cur
++        ld d,(hl)
++        ld hl,PAR1
++        call ptr8_cur
++        ld e,(hl)
++        call it_apply_global_de
++        ld hl,CMD2
++        call ptr8_cur
++        ld d,(hl)
++        ld hl,PAR2
++        call ptr8_cur
++        ld e,(hl)
++        call it_apply_global_de
++        ld a,(CUR_CH)
++        inc a
++        ld (CUR_CH),a
++        cp 24
++        jr c,it_global_fx_loop
++        ret
++
++it_apply_global_de:
++        ld a,d
++        cp CMD_T
++        jp z,effect_tempo_slide
++        cp CMD_W
++        jp z,effect_global_volume_slide
++        ret
++
++clear_panbrello_offset:
++        xor a
++        ld hl,PANBROFF
++        call ptr8_cur
++        ld (hl),a
++        ret
++
++; Decode E into B=high nibble, C=low nibble.
++it_slide_nibbles:
++        ld a,e
++        and 0Fh
++        ld c,a
++        ld a,e
++        and 0F0h
++        rrca
++        rrca
++        rrca
++        rrca
++        and 0Fh
++        ld b,a
++        ret
++
++effect_channel_volume_slide:
++        call it_slide_nibbles
++        ld a,(TICK_NOW)
++        or a
++        jr nz,it_n_reg
++        ld a,c
++        cp 15
++        jr z,it_n_add_b
++        ld a,b
++        cp 15
++        ret nz
++        ld a,c
++        or a
++        ret z
++        jr it_n_sub_a
++it_n_reg:
++        ld a,c
++        or a
++        jr z,it_n_add_b
++        ld a,b
++        or a
++        ret nz
++        ld a,c
++it_n_sub_a:
++        ld b,a
++        ld hl,ITCHVOL
++        call ptr8_cur
++        ld a,(hl)
++        cp b
++        jr nc,it_n_sub_ok
++        xor a
++        jr it_n_store
++it_n_sub_ok:
++        sub b
++        jr it_n_store
++it_n_add_b:
++        ld a,b
++        or a
++        ret z
++        ld b,a
++        ld hl,ITCHVOL
++        call ptr8_cur
++        ld a,(hl)
++        add a,b
++        cp 65
++        jr c,it_n_store
++        ld a,64
++it_n_store:
++        ld (hl),a
++        ret
++
++effect_global_volume_slide:
++        call it_slide_nibbles
++        ld a,(TICK_NOW)
++        or a
++        jr nz,it_w_reg
++        ld a,c
++        cp 15
++        jr z,it_w_add_b
++        ld a,b
++        cp 15
++        ret nz
++        ld a,c
++        or a
++        ret z
++        jr it_w_sub_a
++it_w_reg:
++        ld a,c
++        or a
++        jr z,it_w_add_b
++        ld a,b
++        or a
++        ret nz
++        ld a,c
++it_w_sub_a:
++        ld b,a
++        ld a,(ITGLOBALVOL)
++        cp b
++        jr nc,it_w_sub_ok
++        xor a
++        jr it_w_store
++it_w_sub_ok:
++        sub b
++        jr it_w_store
++it_w_add_b:
++        ld a,b
++        or a
++        ret z
++        ld b,a
++        ld a,(ITGLOBALVOL)
++        add a,b
++        cp 129
++        jr c,it_w_store
++        ld a,128
++it_w_store:
++        ld (ITGLOBALVOL),a
++        ret
++
++effect_pan_slide:
++        call it_slide_nibbles
++        ld a,(TICK_NOW)
++        or a
++        jr nz,it_p_reg
++        ld a,c
++        cp 15
++        jr z,it_p_left_b
++        ld a,b
++        cp 15
++        ret nz
++        ld a,c
++        or a
++        ret z
++        jr it_p_right_a
++it_p_reg:
++        ld a,c
++        or a
++        jr z,it_p_left_b
++        ld a,b
++        or a
++        ret nz
++        ld a,c
++it_p_right_a:
++        add a,a
++        add a,a
++        ld b,a
++        ld hl,ITBASEPAN
++        call ptr8_cur
++        ld a,(hl)
++        add a,b
++        jr nc,it_p_store
++        ld a,255
++        jr it_p_store
++it_p_left_b:
++        ld a,b
++        or a
++        ret z
++        add a,a
++        add a,a
++        ld b,a
++        ld hl,ITBASEPAN
++        call ptr8_cur
++        ld a,(hl)
++        cp b
++        jr nc,it_p_left_ok
++        xor a
++        jr it_p_store
++it_p_left_ok:
++        sub b
++it_p_store:
++        ld (hl),a
++        ret
++
++effect_tempo_slide:
++        ld a,(TICK_NOW)
++        or a
++        ret z
++        ld a,e
++        cp 32
++        ret nc
++        and 0Fh
++        ld b,a
++        ld a,e
++        and 0F0h
++        cp 010h
++        ld a,(TEMPO)
++        jr z,it_t_add
++        sub b
++        cp 32
++        jr nc,it_t_store
++        ld a,32
++        jr it_t_store
++it_t_add:
++        add a,b
++        jr nc,it_t_store
++        ld a,255
++it_t_store:
++        ld (TEMPO),a
++        xor a
++        ld (TEMPO+1),a
++        ret
++
++effect_fine_vibrato:
++        ; Uxy shares H's phase/memory but has one-quarter H depth.
++        ld hl,VIBPH
++        call ptr8_cur
++        ld a,(hl)
++        and 3Fh
++        call get_vib_wave_current
++        ld b,a
++        ld hl,VIBPH
++        call ptr8_cur
++        ld a,(hl)
++        ld c,a
++        ld hl,VIBSPD
++        call ptr8_cur
++        ld a,(hl)
++        add a,c
++        and 3Fh
++        ld hl,VIBPH
++        call ptr8_cur
++        ld (hl),a
++        ld a,b
++        or a
++        ret z
++        jp p,it_u_pos
++        neg
++        ld b,1
++        jr it_u_abs
++it_u_pos:
++        ld b,0
++it_u_abs:
++        ld e,a
++        ld d,0
++        push bc
++        ld hl,VIBDEP
++        call ptr8_cur
++        ld c,(hl)
++        ld hl,0
++it_u_mul:
++        ld a,c
++        or a
++        jr z,it_u_mul_done
++        add hl,de
++        dec c
++        jr it_u_mul
++it_u_mul_done:
++        ld c,7
++it_u_div128:
++        srl h
++        rr l
++        dec c
++        jr nz,it_u_div128
++        ld e,l
++        ld d,0
++        pop bc
++        ld hl,(OUT_PERIOD)
++        ld a,b
++        or a
++        jr nz,it_u_sub
++        add hl,de
++        jr it_u_store
++it_u_sub:
++        or a
++        sbc hl,de
++        jr nc,it_u_store
++        ld hl,1
++it_u_store:
++        ld (OUT_PERIOD),hl
++        ld a,e
++        or d
++        ret z
++        ld a,1
++        ld (PITCH_DIRTY),a
++        ret
++
++effect_panbrello:
++        ; Resolved Yxy carries complete speed/depth memory. Keep an 8-bit IT
++        ; phase and address the 64-step sine as phase>>2. The OPL4 itself only
++        ; exposes 15 useful pan positions, so this does not reduce hardware pan
++        ; resolution. S5x alternate/random waveforms remain explicit fail-fast.
++        ld a,e
++        and 0F0h
++        rrca
++        rrca
++        rrca
++        rrca
++        ld hl,PANBRSPD
++        call ptr8_cur
++        ld (hl),a
++        ld a,e
++        and 0Fh
++        ld hl,PANBRDEP
++        call ptr8_cur
++        ld (hl),a
++        ld hl,PANBRPH
++        call ptr8_cur
++        ld a,(hl)
++        ld c,a
++        srl c
++        srl c
++        ld b,0
++        call get_mod_wave
++        ld b,a
++        ld hl,PANBRPH
++        call ptr8_cur
++        ld a,(hl)
++        ld c,a
++        ld hl,PANBRSPD
++        call ptr8_cur
++        add a,(hl)
++        ld hl,PANBRPH
++        call ptr8_cur
++        ld (hl),a
++        ld a,b
++        or a
++        jr z,it_y_zero
++        jp p,it_y_pos
++        neg
++        ld d,1
++        jr it_y_abs
++it_y_pos:
++        ld d,0
++it_y_abs:
++        ld e,a
++        ld a,d
++        ld (EV_TOKEN),a
++        ld hl,PANBRDEP
++        call ptr8_cur
++        ld c,(hl)
++        ld a,e
++        call it_mul8x8
++        ; Existing sine is +/-127, twice IT's nominal +/-64 panbrello wave:
++        ; divide by 16 to reproduce IT delta*depth/8.
++        ld c,4
++it_y_div16:
++        srl h
++        rr l
++        dec c
++        jr nz,it_y_div16
++        ld a,l
++        ld b,a
++        ld a,(EV_TOKEN)
++        or a
++        ld a,b
++        jr z,it_y_store
++        neg
++it_y_store:
++        ld hl,PANBROFF
++        call ptr8_cur
++        ld (hl),a
++        ret
++it_y_zero:
++        xor a
++        jr it_y_store
++
+ ; Static profile pointer table + converter-patched records/curves.
+-        org 06C00h
++        org 06E00h
+ IT_PROFILE_PTRS:
+         defs 512,0
+ IT_PROFILE_DATA:
+diff -ruN '--exclude=*.bin' '--exclude=*.map' '--exclude=*.lst' '--exclude=SHA256SUMS.txt' '--exclude=*.patch' a/source/compact_stream.py b/source/compact_stream.py
+--- a/source/compact_stream.py	2026-08-22 22:26:58.000000000 +0000
++++ b/source/compact_stream.py	2026-08-22 22:47:48.028343352 +0000
+@@ -7,7 +7,8 @@
+ 
+ # Compact semantic commands use the S3M command numbers where possible.
+ CMD_A=1; CMD_B=2; CMD_C=3; CMD_D=4; CMD_E=5; CMD_F=6; CMD_G=7; CMD_H=8; CMD_I=9
+-CMD_J=10; CMD_K=11; CMD_L=12; CMD_O=15; CMD_Q=17; CMD_R=18; CMD_S=19; CMD_T=20; CMD_X=24
++CMD_J=10; CMD_K=11; CMD_L=12; CMD_M=13; CMD_N=14; CMD_O=15; CMD_P=16; CMD_Q=17; CMD_R=18; CMD_S=19; CMD_T=20
++CMD_U=21; CMD_V=22; CMD_W=23; CMD_X=24; CMD_Y=25; CMD_Z=26
+ CMD_NOTE_CUT=27
+ CMD_XM_PROFILE=28; CMD_VCTRL=29; CMD_GLISS=30; CMD_KEYOFF=31
+ CMD_ST3_COMBINED_D=32; CMD_ST3_COMBINED_H=33; CMD_ST3_COMBINED_G=34
+@@ -50,6 +51,10 @@
+     it_tremolo_speed: int = 0
+     it_tremolo_depth: int = 0
+     it_pan_tracker: int = 128
++    it_channel_volume: int = 64
++    it_panbrello_speed: int = 0
++    it_panbrello_depth: int = 0
++    it_tempo_mem: int = 0
+     xm_volslide_mem: int = 0
+     xm_fine_porta_mem: int = 0
+     xm_xfine_porta_mem: int = 0
+@@ -188,10 +193,14 @@
+         self.mod_pending_oor_delay={}
+         self.it_voice_map={}
+         self.it_voices=[None]*24
++        self.it_global_volume=int(getattr(self.m,'it_global_volume',128)) if self.fmt=='IT' else 128
++        self.it_initial_global_emitted=False
+         if self.fmt=='IT':
+             pans=list(getattr(self.m,'it_channel_pan_tracker',()))
++            chvol=list(getattr(self.m,'it_channel_volume',()))
+             for ch,st in self.states.items():
+                 if ch < len(pans): st.it_pan_tracker=int(pans[ch])
++                if ch < len(chvol): st.it_channel_volume=max(0,min(64,int(chvol[ch])))
+ 
+     def _it_profile_for_instrument(self,inum:int):
+         inst=getattr(self.m,'it_instruments',{}).get(int(inum))
+@@ -336,7 +345,9 @@
+             if cmd in (CMD_E,CMD_F):
+                 if raw: st.it_ef_mem=raw
+                 return raw or st.it_ef_mem
+-            if cmd==CMD_H:
++            if cmd in (CMD_H,CMD_U):
++                # IT Hxy and Uxy share the same speed/depth nibble memory.
++                # U merely applies the remembered depth at 1/4 H's depth scale.
+                 if raw & 0xF0: st.vib_speed=(raw>>4)&15
+                 if raw & 0x0F: st.vib_depth=raw&15
+                 return (st.vib_speed<<4)|st.vib_depth
+@@ -355,9 +366,16 @@
+                 if raw & 0xF0: st.it_tremolo_speed=(raw>>4)&15
+                 if raw & 0x0F: st.it_tremolo_depth=raw&15
+                 return (st.it_tremolo_speed<<4)|st.it_tremolo_depth
+-            if cmd in (CMD_J,CMD_Q,CMD_S):
++            if cmd in (CMD_J,CMD_N,CMD_P,CMD_Q,CMD_S,CMD_W):
+                 if raw: st.mem[cmd]=raw
+                 return raw or st.mem.get(cmd,0)
++            if cmd==CMD_T:
++                if raw: st.it_tempo_mem=raw
++                return raw or st.it_tempo_mem
++            if cmd==CMD_Y:
++                if raw & 0xF0: st.it_panbrello_speed=(raw>>4)&15
++                if raw & 0x0F: st.it_panbrello_depth=raw&15
++                return (st.it_panbrello_speed<<4)|st.it_panbrello_depth
+             return raw
+ 
+         # IT-authored and modern/non-ST3 S3M use effect-local memory instead
+@@ -688,7 +706,9 @@
+                 elif sx==0x4:
+                     if sl<=3: effects.append((CMD_ST3_TREM_WAVE,sl,None))
+                 elif sx==0x6: effects.append((CMD_ST3_TICK_DELAY,sl,None))
+-                elif sx==0x8: effects.append((CMD_X,(sl*255+7)//15,None))
++                elif sx==0x8:
++                    pv=(sl*255+7)//15
++                    effects.append((CMD_X,pv,None)); st.it_pan_tracker=pv
+                 elif sx==0xA: st.high_offset=sl
+                 elif sx==0xB: pass  # flattened by compile() below
+                 elif sx==0xC: effects.append((CMD_NOTE_CUT,sl or 1,None))
+@@ -766,6 +786,8 @@
+ 
+         if self.fmt=='IT' and cmd==CMD_X:
+             st.it_pan_tracker=max(0,min(255,int(p)))
++        if self.fmt=='IT' and cmd==CMD_M and 0<=p<=64:
++            st.it_channel_volume=int(p)
+         a=Action(e.ch)
+         a.delay_tick=delay
+         old_ins=st.instrument
+@@ -1144,6 +1166,11 @@
+             # later channel wins for B/C, matching the backend's channel-order walk.
+             pending_jump=None; pending_break=None; pending_loop_row=None; pending_stop=False; xm_row_delay=0
+             actions=[]
++            if self.fmt=='IT' and not self.it_initial_global_emitted:
++                # IT header global volume is 0..128. V is parser-immediate and
++                # does not consume either realtime effect slot.
++                actions.append(Action(0,effects=[(CMD_V,max(0,min(128,self.it_global_volume)),None)]))
++                self.it_initial_global_emitted=True
+             row_events=sorted((e for e in evs if e.ch in self.states),key=lambda x:x.ch)
+             # ProTracker quirk: EDx with x>=speed can trigger at the beginning of
+             # the following row, but only if that row has no new note on the channel.
+@@ -1177,6 +1204,7 @@
+                     self.mod_pending_oor_delay[e.ch]=core.Event(ch=e.ch,note=e.note,ins=e.ins,vol=e.vol)
+                     event_for_action=core.Event(ch=e.ch,cmd=e.cmd,param=e.param)
+                 state=self.states[e.ch]
++                it_had_foreground=(self.fmt=='IT' and e.ch in self.it_voice_map)
+                 phys=self._it_target_voice(e.ch) if self.fmt=='IT' else e.ch
+                 synth=[]
+                 if (self.fmt=='IT' and bool(getattr(self.m,'it_instrument_mode',False))
+@@ -1191,11 +1219,20 @@
+                 a=self._event_action(event_for_action,state)
+                 if self.fmt=='IT':
+                     for sa in synth: actions.append(sa)
++                    if (a and bool(getattr(self.m,'it_instrument_mode',False)) and not it_had_foreground
++                            and not (e.note is not None and e.note<254)
++                            and e.cmd not in (CMD_A,CMD_T,CMD_V,CMD_W)
++                            and not (e.cmd==CMD_S and (((int(getattr(e,'resolved_param',e.param or 0))>>4)&15) in (0x6,0xE)))):
++                        # IT effect memory is already resolved on the logical
++                        # channel by the host. Do not accidentally mutate an
++                        # unrelated NNA background voice at the same physical index.
++                        a=None
+                     if a:
+                         a.ch=phys
+-                        # A newly allocated background-capable voice must inherit
+-                        # the logical channel's current base pan.
++                        # A newly allocated NNA-capable physical voice must inherit
++                        # the logical IT channel's current base pan and channel volume.
+                         if e.note is not None and e.note<254 and e.cmd not in (CMD_G,CMD_L):
++                            a.effects.insert(0,(CMD_M,max(0,min(64,state.it_channel_volume)),None))
+                             a.effects.insert(0,(CMD_X,max(0,min(255,state.it_pan_tracker)),None))
+                         actions.append(a)
+                     sp=getattr(e,'it_note_special',None)
+@@ -1251,14 +1288,70 @@
+ 
+                 # Global tempo/speed commands are effective on this row.
+                 if e.cmd==CMD_A and (e.param or 0): self.speed=max(1,e.param or 0)
+-                if e.cmd==CMD_T and (e.param or 0)>=32: self.tempo=max(32,e.param or 0)
++                if e.cmd==CMD_T:
++                    tp=int(getattr(e,'resolved_param',e.param or 0))
++                    if tp>=32: self.tempo=max(32,min(255,tp))
++                if self.fmt=='IT' and e.cmd==CMD_V and 0 <= int(e.param or 0) <= 128:
++                    self.it_global_volume=int(e.param or 0)
+             if len(actions)>255: raise ValueError('too many compact row actions')
+             rb=bytearray((len(actions),))
+             for a in actions: rb+=self._encode_action(a)
+             rows_encoded.append(bytes(rb)); max_events=max(max_events,len(actions)); total_events+=len(actions)
+             self.rows+=1
+             mod_row_delay=max(((e.param or 0)&15 for e in row_events if self.fmt=='MOD' and e.cmd==CMD_MOD_PATDELAY),default=0)
+-            self.seconds += self.speed*(1+xm_row_delay+mod_row_delay)*2.5/self.tempo
++            if self.fmt=='IT':
++                # Simulate global IT tempo slides and logical channel M/N/P/W
++                # state across every tracker tick. Pattern delay repeats the
++                # already-parsed row, so tick-0 fine slides re-apply but M/V/T>=20h
++                # parser-immediate commands do not.
++                it_pat_delay=0; it_tick_delay=0
++                for e in row_events:
++                    rp=int(getattr(e,'resolved_param',e.param or 0))
++                    if e.cmd==CMD_S and ((rp>>4)&15)==0xE: it_pat_delay=rp&15
++                    if e.cmd==CMD_S and ((rp>>4)&15)==0x6: it_tick_delay=rp&15
++                ticks=max(1,self.speed+it_tick_delay)
++                repeats=1+it_pat_delay
++                tfx=[int(getattr(e,'resolved_param',e.param or 0)) for e in row_events if e.cmd==CMD_T and int(getattr(e,'resolved_param',e.param or 0))<32]
++                nfx=[(e.ch,int(getattr(e,'resolved_param',e.param or 0))) for e in row_events if e.cmd==CMD_N]
++                pfx=[(e.ch,int(getattr(e,'resolved_param',e.param or 0))) for e in row_events if e.cmd==CMD_P]
++                wfx=[int(getattr(e,'resolved_param',e.param or 0)) for e in row_events if e.cmd==CMD_W]
++                for rep in range(repeats):
++                    for tick in range(ticks):
++                        # Fine N/P/W forms run on tick 0, including delayed repeats.
++                        for ch,np in nfx:
++                            st=self.states[ch]; hi=(np>>4)&15; lo=np&15
++                            delta=0
++                            if tick==0:
++                                if lo==15 and hi: delta=hi
++                                elif hi==15 and lo: delta=-lo
++                            elif lo==0 and hi: delta=hi
++                            elif hi==0 and lo: delta=-lo
++                            st.it_channel_volume=max(0,min(64,st.it_channel_volume+delta))
++                        for ch,pp in pfx:
++                            st=self.states[ch]; hi=(pp>>4)&15; lo=pp&15
++                            delta=0
++                            if tick==0:
++                                if lo==15 and hi: delta=-(hi*4)
++                                elif hi==15 and lo: delta=lo*4
++                            elif lo==0 and hi: delta=-(hi*4)
++                            elif hi==0 and lo: delta=lo*4
++                            st.it_pan_tracker=max(0,min(255,st.it_pan_tracker+delta))
++                        for wp in wfx:
++                            hi=(wp>>4)&15; lo=wp&15; delta=0
++                            if tick==0:
++                                if lo==15 and hi: delta=hi
++                                elif hi==15 and lo: delta=-lo
++                            elif lo==0 and hi: delta=hi
++                            elif hi==0 and lo: delta=-lo
++                            self.it_global_volume=max(0,min(128,self.it_global_volume+delta))
++                        if tick>0:
++                            for tp in tfx:
++                                lo=tp&15
++                                if (tp&0xF0)==0x10: self.tempo=min(255,self.tempo+lo)
++                                else: self.tempo=max(32,self.tempo-lo)
++                        self.seconds += 2.5/max(32,self.tempo)
++            else:
++                self.seconds += self.speed*(1+xm_row_delay+mod_row_delay)*2.5/self.tempo
+             if pending_stop:
+                 self.ended_reason='FT2 F00 stop'; break
+             # advance flattened playback order
+diff -ruN '--exclude=*.bin' '--exclude=*.map' '--exclude=*.lst' '--exclude=SHA256SUMS.txt' '--exclude=*.patch' a/source/module_formats.py b/source/module_formats.py
+--- a/source/module_formats.py	2026-08-22 22:31:00.000000000 +0000
++++ b/source/module_formats.py	2026-08-22 22:43:46.022920568 +0000
+@@ -1057,7 +1057,7 @@
+     # state mandated by ITTECH. We remap only actually used channels to the
+     # OPL4 runtime's dense 0..23 voice range afterwards.
+     raw_patterns=[]; used_channels=set()
+-    unsupported_effects={10:'Jxx arpeggio tick semantics',13:'Mxx channel volume',14:'Nxx channel volume slide',16:'Pxx panning slide',21:'Uxx fine vibrato',22:'Vxx global volume',23:'Wxx global volume slide',25:'Yxx panbrello',26:'Zxx MIDI macro'}
++    unsupported_effects={26:'Zxx MIDI macro / filter macro'}
+     for pi,ptr in enumerate(pptrs):
+         if not ptr:
+             raw_patterns.append([[] for _ in range(64)]); continue
+@@ -1113,8 +1113,6 @@
+             instrument_present=bool(mask&(2|0x20) and ins)
+             if cmd in unsupported_effects:
+                 raise ValueError(f'IT pattern {pi} row {r} channel {och+1}: {unsupported_effects[cmd]} is not yet supported')
+-            if cmd==20 and 0<param<0x20:
+-                raise ValueError(f'IT pattern {pi} row {r} channel {och+1}: T{param:02X} tempo slide is not yet supported')
+             if cmd==19 and (param>>4) in (0,5,7,9,15):
+                 raise ValueError(f'IT pattern {pi} row {r} channel {och+1}: S{param:02X} subcommand is not yet supported')
+             if cmd>26: raise ValueError(f'IT pattern {pi} row {r} channel {och+1}: invalid effect command {cmd}')
+@@ -1149,8 +1147,6 @@
+     for old in used:
+         pv=b[0x40+old]; vv=b[0x80+old]
+         if vv>64: raise ValueError(f'IT channel {old+1}: invalid initial channel volume {vv}')
+-        if vv!=64:
+-            raise ValueError(f'IT channel {old+1}: initial channel volume {vv} needs the pending true-IT channel-volume runtime')
+         if (pv&0x7F)==100:
+             raise ValueError(f'IT channel {old+1}: surround panning needs the pending true-IT surround runtime')
+         pv=min(64,pv&0x7F)
+@@ -1158,12 +1154,12 @@
+         pv=max(0,min(64,32+int(round((pv-32)*(int(sep)/128.0)))))
+         pans.append((pv*15+32)//64); pan_track.append((pv*255+32)//64); chvol.append(vv)
+     chset=[0]*len(used)+[255]*(32-len(used))
+-    # The existing KSP volume LUT is 0..64. IT global volume is 0..128 and is
+-    # static here because V/W effects are rejected above.
++    # Keep the public Module field in the existing 0..64 scale, while the
++    # native IT engine receives the exact 0..128 header global-volume value.
+     gv64=max(0,min(64,(int(gv)+1)//2))
+     m=core.Module(path,b,title,orders,patterns,samples,chset,max(1,int(speed or 6)),max(32,int(tempo or 125)),gv64,flags,1)
+     m.source_format='IT'; m.offset_quantum=256; m.it_cwtv=cwtv; m.it_cmwt=cmwt; m.it_flags=flags; m.it_special=special
+-    m.it_instrument_mode=instrument_mode; m.it_linear_slides=linear_slides; m.it_old_effects=old_effects; m.it_compatible_gxx=compatible_gxx
++    m.it_instrument_mode=instrument_mode; m.it_linear_slides=linear_slides; m.it_old_effects=old_effects; m.it_compatible_gxx=compatible_gxx; m.it_global_volume=int(gv)
+     m.it_instruments=instruments; m.it_instrument_keymaps={k:v['keymap'] for k,v in instruments.items()}
+     # Deduplicate realtime instrument profiles. Profile 0 is neutral/sample-mode.
+     def _env_key(env):
+diff -ruN '--exclude=*.bin' '--exclude=*.map' '--exclude=*.lst' '--exclude=SHA256SUMS.txt' '--exclude=*.patch' a/source/tracker2ksp.py b/source/tracker2ksp.py
+--- a/source/tracker2ksp.py	2026-08-22 22:20:36.000000000 +0000
++++ b/source/tracker2ksp.py	2026-08-22 22:51:40.853789798 +0000
+@@ -392,7 +392,7 @@
+     t[:len(engine_bin)]=engine_bin
+     struct.pack_into('<H',t,PAGE_TOTAL_CFG-PAGE_LOAD,page_count)
+     vo=sym['vol_lut']-PAGE_LOAD
+-    t[vo:vo+65]=volume_lut(module)
++    t[vo:vo+65]=(bytes(core.Compiler._level_reg(v,64) for v in range(65)) if use_it_engine else volume_lut(module))
+     pinfo=None
+     if use_xm_engine:
+         pinfo=build_xm_profile_patch(module,sym,waves)
+@@ -453,7 +453,7 @@
+         'format=KSP 1.05',f'engine=native Z80 {source_format}-specific multi-page realtime engine',
+         'conversion=compact rows/effects + shared MWK PCM payloads + INIT-time OPL4 header aliases; no rendered PCM and no pre-expanded tick register stream',
+         f'initial_speed={module.speed}',f'initial_tempo={module.tempo}',f'active_channels={len(module.active_channels)}',
+-        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.5.0'
++        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.5.1'
+     ])+'\n'; meta=metadata.encode()
+     mwkp,mcomp=maybe_zx0(mwk,compression)
+     engine_off=80; page_off=engine_off+64; track_off=page_off+page_count*24; resource_off=track_off+32
+@@ -486,7 +486,7 @@
+     assert len(out)==file_size
+     output.parent.mkdir(parents=True,exist_ok=True); output.write_bytes(out)
+     packed_pages=sum(r['stored_bytes'] for r in records); mapper_segments=(packed_pages+PAGE_SIZE-1)//PAGE_SIZE
+-    return {'status':'built','format':'KSP 1.05','converter_version':'0.5.0','input':str(module.path),'output':str(output),
++    return {'status':'built','format':'KSP 1.05','converter_version':'0.5.1','input':str(module.path),'output':str(output),
+             'title':title,'duration_ms':round(semantic_stats['duration_seconds']*1000),'output_bytes':len(out),'output_sha256':sha256(out),
+             'engine':{'init':hex(engine_sym['init']),'play':hex(engine_sym['play']),'stop':hex(engine_sym['stop']),'play_hz':60,'hardware':'OPL4',
+                       'resident_range':f'0x4000-0x{stream_base-1:04X} (code/state; persistent tracker state handoff via OPL4 RAM 0x2FFC00)','dynamic_window':f'0x{stream_base:04X}-0x7FFF','binary_bytes':len(engine_bin),'xm_ft2_profiles':profile_info['profiles'] if (profile_info and source_format=='XM') else 0,'xm_profile_bytes':profile_info['bytes'] if (profile_info and source_format=='XM') else 0,'it_profiles':profile_info['profiles'] if (profile_info and source_format=='IT') else 0,'it_profile_bytes':profile_info['bytes'] if (profile_info and source_format=='IT') else 0},
+diff -ruN '--exclude=*.bin' '--exclude=*.map' '--exclude=*.lst' '--exclude=SHA256SUMS.txt' '--exclude=*.patch' a/tests/test_it_v049.py b/tests/test_it_v049.py
+--- a/tests/test_it_v049.py	2026-08-22 22:25:08.000000000 +0000
++++ b/tests/test_it_v049.py	2026-08-22 22:51:40.854155491 +0000
+@@ -146,10 +146,10 @@
+     assert fmt=='IT' and e.note is None and e.it_note_special=='fade_ignored'
+ 
+ 
+-def test_instrument_only_memory_and_jxx_fail_fast(tmp_path):
++def test_instrument_only_memory_and_jxx_supported(tmp_path):
+     p=tmp_path/'instrument_only.it'; make_it_instrumentmode(p)
+     b=bytearray(p.read_bytes())
+-    # Instrument-only cells are valid IT instrument-memory updates in v0.5.0.
++    # Instrument-only cells are valid IT instrument-memory updates in v0.5.0+.
+     pdata=bytes((0x81,0x02,1,0,0,0,0))
+     b[0x380:0x380+8+len(pdata)]=struct.pack('<HHI',len(pdata),4,0)+pdata
+     p.write_bytes(b)
+@@ -164,12 +164,11 @@
+     # First event effect command/parameter live at +5/+6 in packed data.
+     b[0x130+8+5]=10; b[0x130+8+6]=0x37
+     q.write_bytes(b)
+-    try:
+-        mf.parse_module(q)
+-    except ValueError as exc:
+-        assert 'Jxx arpeggio' in str(exc)
+-    else:
+-        raise AssertionError('native IT Jxx remains fail-fast in v0.5.0')
++    m,fmt=mf.parse_module(q)
++    assert fmt=='IT' and m.patterns[0][0][0].cmd==cs.CMD_J
++    cc=cs.CompactCompiler(m,fmt,max_seconds=1)
++    stream,rows,stats=cc.compile()
++    assert rows and b'CTR1'==stream[:4]
+ 
+ 
+ def test_native_it_builds_with_dedicated_engine(tmp_path):
+@@ -180,7 +179,7 @@
+     out=tmp_path/'build.ksp'
+     rep=t2k.build_ksp(m,fmt,stream,rows,stats,mwk,waves,m.title,p.name,out,'none')
+     assert out.read_bytes()[:4]==b'KSP1'
+-    assert rep['converter_version']=='0.5.0'
++    assert rep['converter_version']=='0.5.1'
+     assert rep['engine']['binary_bytes']==len(t2k.IT_ENGINE_BIN)
+ 
+ 
+diff -ruN '--exclude=*.bin' '--exclude=*.map' '--exclude=*.lst' '--exclude=SHA256SUMS.txt' '--exclude=*.patch' a/tests/test_it_v051.py b/tests/test_it_v051.py
+--- a/tests/test_it_v051.py	1970-01-01 00:00:00.000000000 +0000
++++ b/tests/test_it_v051.py	2026-08-22 22:55:14.980651940 +0000
+@@ -0,0 +1,139 @@
++#!/usr/bin/env python3
++from pathlib import Path
++import struct, sys, math
++sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
++import module_formats as mf
++import compact_stream as cs
++import tracker2ksp as t2k
++from test_it_v049 import make_it_samplemode
++
++
++def _patch_fx(path:Path, cmd:int, param:int):
++    b=bytearray(path.read_bytes())
++    # v0.4.9 synthetic sample-mode fixture: first packed cell command/param.
++    b[0x130+8+5]=cmd; b[0x130+8+6]=param
++    b[0x130+8+9]=0x70  # row 1 reuses note/instrument/volume, but not effect
++    path.write_bytes(b)
++
++
++def test_it_v051_parser_accepts_extended_effects_and_z_remains_fail_fast(tmp_path):
++    for cmd,param in ((cs.CMD_J,0x37),(cs.CMD_M,40),(cs.CMD_N,0x20),(cs.CMD_P,0x03),
++                      (cs.CMD_T,0x11),(cs.CMD_U,0x34),(cs.CMD_V,96),(cs.CMD_W,0x10),(cs.CMD_Y,0x23)):
++        p=tmp_path/f'e{cmd}.it'; make_it_samplemode(p); _patch_fx(p,cmd,param)
++        m,fmt=mf.parse_module(p)
++        assert fmt=='IT' and m.patterns[0][0][0].cmd==cmd
++    p=tmp_path/'z.it'; make_it_samplemode(p); _patch_fx(p,cs.CMD_Z,0x80)
++    try:
++        mf.parse_module(p)
++    except ValueError as exc:
++        assert 'MIDI macro' in str(exc) or 'filter macro' in str(exc)
++    else:
++        raise AssertionError('native IT Zxx must remain fail-fast until MIDI/filter macros are implemented')
++
++
++def test_it_v051_effect_memory_is_it_local_and_h_u_share(tmp_path):
++    p=tmp_path/'mem.it'; make_it_samplemode(p)
++    m,fmt=mf.parse_module(p); cc=cs.CompactCompiler(m,fmt); st=cs.ResolveState()
++    assert cc._resolve(st,cs.CMD_N,0x24)==0x24
++    assert cc._resolve(st,cs.CMD_N,0)==0x24
++    assert cc._resolve(st,cs.CMD_P,0x3F)==0x3F
++    assert cc._resolve(st,cs.CMD_P,0)==0x3F
++    assert cc._resolve(st,cs.CMD_W,0x41)==0x41
++    assert cc._resolve(st,cs.CMD_W,0)==0x41
++    assert cc._resolve(st,cs.CMD_T,0x11)==0x11
++    assert cc._resolve(st,cs.CMD_T,0)==0x11
++    assert cc._resolve(st,cs.CMD_H,0x34)==0x34
++    assert cc._resolve(st,cs.CMD_U,0x05)==0x35
++    assert cc._resolve(st,cs.CMD_H,0x60)==0x65
++    assert cc._resolve(st,cs.CMD_Y,0x23)==0x23
++    assert cc._resolve(st,cs.CMD_Y,0x04)==0x24
++    assert cc._resolve(st,cs.CMD_Y,0)==0x24
++
++
++def test_it_v051_initial_channel_and_global_volume_are_dynamic(tmp_path):
++    p=tmp_path/'vol.it'; make_it_samplemode(p)
++    b=bytearray(p.read_bytes())
++    b[0x30]=80       # IT global volume 0..128
++    b[0x80]=40       # tracker channel 1 volume 0..64
++    p.write_bytes(b)
++    m,fmt=mf.parse_module(p)
++    assert fmt=='IT' and m.it_global_volume==80 and m.it_channel_volume[0]==40
++    cc=cs.CompactCompiler(m,fmt,max_seconds=1)
++    stream,rows,stats=cc.compile()
++    assert cc.states[0].it_channel_volume==40
++    # IT LUT is neutral; global volume is a runtime multiplier, not baked twice.
++    template,_,sym,_=t2k.make_engine_template(m,1,'IT',[],t2k.IT_STREAM_BASE)
++    vo=sym['vol_lut']-t2k.PAGE_LOAD
++    neutral=bytes(mf.core.Compiler._level_reg(v,64) for v in range(65))
++    assert template[vo:vo+65]==neutral
++    assert rows and rows[0][0]>=2  # synthetic initial V action + source cell
++
++
++def test_it_v051_n_p_w_t_host_state_tracks_tick_semantics(tmp_path):
++    # N20: +2 channel-volume on ticks 1..5 => +10 from 40.
++    p=tmp_path/'n.it'; make_it_samplemode(p); b=bytearray(p.read_bytes()); b[0x80]=40; p.write_bytes(b); _patch_fx(p,cs.CMD_N,0x20)
++    m,fmt=mf.parse_module(p); cc=cs.CompactCompiler(m,fmt,max_seconds=10); cc.compile()
++    assert cc.states[0].it_channel_volume==50
++
++    # P20: left 8 tracker-pan units on ticks 1..5 => 128 -> 88.
++    p=tmp_path/'p.it'; make_it_samplemode(p); _patch_fx(p,cs.CMD_P,0x20)
++    m,fmt=mf.parse_module(p); cc=cs.CompactCompiler(m,fmt,max_seconds=10); cc.compile()
++    assert cc.states[0].it_pan_tracker==88
++
++    # W10: +1 global volume on ticks 1..5, starting from 128 -> clamp 128.
++    p=tmp_path/'w.it'; make_it_samplemode(p); b=bytearray(p.read_bytes()); b[0x30]=100; p.write_bytes(b); _patch_fx(p,cs.CMD_W,0x10)
++    m,fmt=mf.parse_module(p); cc=cs.CompactCompiler(m,fmt,max_seconds=10); cc.compile()
++    assert cc.it_global_volume==105
++
++    # T11: +1 BPM on ticks 1..5; effect is row-local so later rows keep 130.
++    p=tmp_path/'t.it'; make_it_samplemode(p); _patch_fx(p,cs.CMD_T,0x11)
++    m,fmt=mf.parse_module(p); cc=cs.CompactCompiler(m,fmt,max_seconds=10); cc.compile()
++    assert cc.tempo==130
++
++
++def test_it_v051_fine_slide_tick_zero_priority(tmp_path):
++    # N2F is fine +2 once on row tick 0 (no pattern delay in fixture).
++    p=tmp_path/'nf.it'; make_it_samplemode(p); b=bytearray(p.read_bytes()); b[0x80]=40; p.write_bytes(b); _patch_fx(p,cs.CMD_N,0x2F)
++    m,fmt=mf.parse_module(p); cc=cs.CompactCompiler(m,fmt,max_seconds=10); cc.compile()
++    assert cc.states[0].it_channel_volume==42
++    # P2F is fine-left 8 once.
++    p=tmp_path/'pf.it'; make_it_samplemode(p); _patch_fx(p,cs.CMD_P,0x2F)
++    m,fmt=mf.parse_module(p); cc=cs.CompactCompiler(m,fmt,max_seconds=10); cc.compile()
++    assert cc.states[0].it_pan_tracker==120
++
++
++def test_it_v051_engine_is_physically_separate_and_contains_effect_runtime():
++    root=Path(__file__).resolve().parents[1]
++    asm=(root/'source'/'compact_engine_it.asm').read_text()
++    mp=(root/'source'/'compact_engine_it.map').read_text().lower()
++    for label in ('effect_channel_volume_slide:','effect_pan_slide:','effect_tempo_slide:',
++                  'effect_fine_vibrato:','effect_global_volume_slide:','effect_panbrello:',
++                  'process_it_global_tick_effects:'):
++        assert label in asm
++    # Txx/Wxx are global effects: they must run in the pre-pass, never again
++    # from the ordinary per-physical-voice dispatcher (which would make the
++    # result depend on channel order and/or apply the slide twice).
++    dispatch=asm.split('apply_effect_de:',1)[1].split('effect_volume_slide:',1)[0]
++    assert 'cp CMD_T' not in dispatch and 'cp CMD_W' not in dispatch
++    global_dispatch=asm.split('it_apply_global_de:',1)[1].split('clear_panbrello_offset:',1)[0]
++    assert 'cp CMD_T' in global_dispatch and 'cp CMD_W' in global_dispatch
++    fine_vib=asm.split('effect_fine_vibrato:',1)[1].split('effect_panbrello:',1)[0]
++    assert 'jp p,it_u_pos\n        neg\n        ld b,1' in fine_vib
++    assert 'neg\n        neg' not in fine_vib
++    for sym in ('itchvol =','itglobalvol =','panbrph =','panbroff ='):
++        assert sym in mp
++    assert len(t2k.IT_ENGINE_BIN)==12288
++    assert t2k.IT_ENGINE_BIN != t2k.IT_S3M_ENGINE_BIN
++    assert len(t2k.S3M_ENGINE_BIN)==9054 and len(t2k.MOD_ENGINE_BIN)==10674 and len(t2k.XM_ENGINE_BIN)==6472
++    # All state that must survive a semantic-page swap still fits in the
++    # converter-reserved final 1 KiB of MoonSound RAM.
++    syms={}
++    for line in mp.splitlines():
++        if ' = 0x' in line:
++            name,val=line.split(' = 0x',1)
++            try: syms[name.strip()]=int(val.strip(),16)
++            except ValueError: pass
++    persisted=(9 + 31 + (syms['cmd1']-syms['period_q']) +
++               (syms['arp1']-syms['vibspd']) + 24 + 168 +
++               (syms['ext_state_end']-syms['itprof']))
++    assert persisted==905 and persisted<=1024
+diff -ruN '--exclude=*.bin' '--exclude=*.map' '--exclude=*.lst' '--exclude=SHA256SUMS.txt' '--exclude=*.patch' a/tracker2ksp.py b/tracker2ksp.py
+--- a/tracker2ksp.py	2026-08-22 22:24:58.000000000 +0000
++++ b/tracker2ksp.py	2026-08-22 22:51:40.853953841 +0000
+@@ -392,7 +392,7 @@
+     t[:len(engine_bin)]=engine_bin
+     struct.pack_into('<H',t,PAGE_TOTAL_CFG-PAGE_LOAD,page_count)
+     vo=sym['vol_lut']-PAGE_LOAD
+-    t[vo:vo+65]=volume_lut(module)
++    t[vo:vo+65]=(bytes(core.Compiler._level_reg(v,64) for v in range(65)) if use_it_engine else volume_lut(module))
+     pinfo=None
+     if use_xm_engine:
+         pinfo=build_xm_profile_patch(module,sym,waves)
+@@ -453,7 +453,7 @@
+         'format=KSP 1.05',f'engine=native Z80 {source_format}-specific multi-page realtime engine',
+         'conversion=compact rows/effects + shared MWK PCM payloads + INIT-time OPL4 header aliases; no rendered PCM and no pre-expanded tick register stream',
+         f'initial_speed={module.speed}',f'initial_tempo={module.tempo}',f'active_channels={len(module.active_channels)}',
+-        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.5.0'
++        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.5.1'
+     ])+'\n'; meta=metadata.encode()
+     mwkp,mcomp=maybe_zx0(mwk,compression)
+     engine_off=80; page_off=engine_off+64; track_off=page_off+page_count*24; resource_off=track_off+32
+@@ -486,7 +486,7 @@
+     assert len(out)==file_size
+     output.parent.mkdir(parents=True,exist_ok=True); output.write_bytes(out)
+     packed_pages=sum(r['stored_bytes'] for r in records); mapper_segments=(packed_pages+PAGE_SIZE-1)//PAGE_SIZE
+-    return {'status':'built','format':'KSP 1.05','converter_version':'0.5.0','input':str(module.path),'output':str(output),
++    return {'status':'built','format':'KSP 1.05','converter_version':'0.5.1','input':str(module.path),'output':str(output),
+             'title':title,'duration_ms':round(semantic_stats['duration_seconds']*1000),'output_bytes':len(out),'output_sha256':sha256(out),
+             'engine':{'init':hex(engine_sym['init']),'play':hex(engine_sym['play']),'stop':hex(engine_sym['stop']),'play_hz':60,'hardware':'OPL4',
+                       'resident_range':f'0x4000-0x{stream_base-1:04X} (code/state; persistent tracker state handoff via OPL4 RAM 0x2FFC00)','dynamic_window':f'0x{stream_base:04X}-0x7FFF','binary_bytes':len(engine_bin),'xm_ft2_profiles':profile_info['profiles'] if (profile_info and source_format=='XM') else 0,'xm_profile_bytes':profile_info['bytes'] if (profile_info and source_format=='XM') else 0,'it_profiles':profile_info['profiles'] if (profile_info and source_format=='IT') else 0,'it_profile_bytes':profile_info['bytes'] if (profile_info and source_format=='IT') else 0},

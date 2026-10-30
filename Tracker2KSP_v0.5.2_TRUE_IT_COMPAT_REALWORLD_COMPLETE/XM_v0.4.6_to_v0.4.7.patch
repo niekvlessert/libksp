@@ -1,0 +1,665 @@
+--- /mnt/data/work_xm047/baseline046/Tracker2KSP_v0.4.6_XM_GENERIC_COMPLETE/source/module_formats.py	2026-08-22 15:51:58.000000000 +0000
++++ /mnt/data/work_xm047/release/source/module_formats.py	2026-08-22 16:13:04.664819043 +0000
+@@ -1,5 +1,5 @@
+ from __future__ import annotations
+-import struct, math
++import struct, math, io, subprocess, shutil
+ from pathlib import Path
+ from typing import Dict, List, Optional, Tuple
+ import _s3m2opl4_backend as core
+@@ -143,14 +143,70 @@
+     return bytes(out)
+ 
+ 
++def _xm_is_ogg_chunk(raw: bytes) -> bool:
++    # OggMod / OXM stores a 32-bit original PCM byte count followed by one
++    # complete Ogg Vorbis stream in the sample data chunk.
++    return len(raw) >= 8 and raw[4:8] == b'OggS'
++
++
++def _decode_xm_ogg(raw: bytes, typ: int) -> bytes:
++    """Decode an OggMod/OXM sample to signed 8-bit mono PCM.
++
++    OpenMPT treats the first dword as the original PCM byte count and uses the
++    XM sample flags only for the expected 8/16-bit and mono/stereo geometry;
++    the Vorbis stream's sample rate does not alter XM pitch.  We prefer the
++    Python soundfile backend when available and fall back to ffmpeg.
++    """
++    if not _xm_is_ogg_chunk(raw):
++        raise ValueError('not an OggMod/OXM sample chunk')
++    original_size=struct.unpack_from('<I',raw,0)[0]
++    is16=bool(typ & 0x10); stereo=bool(typ & 0x20)
++    div=(2 if is16 else 1)*(2 if stereo else 1)
++    expected_frames=(original_size // div) if div else 0
++    ogg=raw[4:]
++    pcm16=None
++    try:
++        import soundfile as sf
++        data,_rate=sf.read(io.BytesIO(ogg),dtype='int16',always_2d=True)
++        # The OPL4 path is mono. OpenMPT's OXM reader honours the declared XM
++        # channel geometry; averaging decoded channels is the closest mono fold.
++        if data.shape[1] > 1:
++            # int32 avoids int16 overflow while averaging.
++            mono=(data.astype('int32').sum(axis=1)//data.shape[1]).astype('int16')
++        else:
++            mono=data[:,0]
++        pcm16=mono.tobytes()
++    except Exception:
++        ffmpeg=shutil.which('ffmpeg')
++        if ffmpeg:
++            proc=subprocess.run([ffmpeg,'-v','error','-i','pipe:0','-f','s16le','-ac','1','pipe:1'],
++                                input=ogg,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False)
++            if proc.returncode==0:
++                pcm16=proc.stdout
++    if pcm16 is None:
++        raise ValueError('OXM/Ogg sample needs Python soundfile/libsndfile or ffmpeg for conversion')
++    out=bytearray()
++    frames=len(pcm16)//2
++    limit=min(frames,expected_frames) if expected_frames else frames
++    for i in range(limit):
++        v=int.from_bytes(pcm16[i*2:i*2+2],'little',signed=True)
++        out.append((v>>8)&0xff)
++    if expected_frames and len(out)<expected_frames:
++        out.extend(b'\0'*(expected_frames-len(out)))
++    return bytes(out)
++
++
+ def _decode_xm_pcm(raw: bytes, typ: int, reserved: int, length_bytes: int):
+     """Return mono signed-8 PCM plus byte->sample divisor for XM sample geometry.
+ 
+     XM stereo is split-channel delta PCM, not interleaved.  The OPL4 path is
+     mono, so decode L/R independently and average them after delta decoding.
++    OggMod/OXM chunks are decoded before the normal XM delta path.
+     """
+     is16=bool(typ & 0x10); stereo=bool(typ & 0x20)
+     div=(2 if is16 else 1)*(2 if stereo else 1)
++    if _xm_is_ogg_chunk(raw):
++        return _decode_xm_ogg(raw,typ),div
+     sample_len=length_bytes//div
+     if reserved==0xAD and not is16 and not stereo:
+         return _decode_xm_adpcm(raw,sample_len),div
+@@ -241,7 +297,7 @@
+         smp=core.Sample(sid,sname,plen2,ls2,le2,min(64,vol),1 if looped else 0,max(1,c22),0,data2)
+         smp.xm_relative_note=rel; smp.xm_finetune=ft
+         smp.xm_period_offset=(int(round(768.0*math.log2(prelimit_len/float(plen2)))) if prelimit_len>plen2 and plen2 else 0)
+-        smp.xm_pan=pan; smp.xm_reserved=reserved; smp.xm_stereo=bool(typ&0x20); smp.xm_16bit=bool(typ&0x10)
++        smp.xm_pan=pan; smp.xm_reserved=reserved; smp.xm_stereo=bool(typ&0x20); smp.xm_16bit=bool(typ&0x10); smp.xm_ogg=_xm_is_ogg_chunk(raw)
+         samples[sid]=smp
+         return sid
+ 
+@@ -393,6 +449,18 @@
+     elif tracker.startswith('FastTracker v 2.00') or tracker.startswith('ModPlug Tracker'): profile='MODPLUG'
+     else: profile='GENERIC-XM'
+     m.xm_profile=profile
++    # OpenMPT starts XM in FT2-compatible mode, then disables a small set of
++    # quirks for known clones. Old ModPlug XMs use MPT semantics instead.
++    m.xm_ft2_arpeggio = profile not in ('MADTRACKER','SKALE','MODPLUG')
++    m.xm_ft2_porta_no_note = profile not in ('MADTRACKER','MODPLUG')
++    m.xm_ft2_offset_oor = profile not in ('SKALE','MODPLUG')
++    m.xm_ft2_envelope_escape = profile != 'MODPLUG'
++    m.xm_ft2_pan_sustain_release = profile != 'MODPLUG'
++    m.xm_ft2_e60_restart = profile != 'MODPLUG'
++    m.xm_ft2_auto_vib_abort_sweep = profile != 'MODPLUG'
++    m.xm_ft2_porta_reset_direction = profile != 'MODPLUG'
++    m.xm_ft2_porta_target_no_reset = profile != 'MODPLUG'
++    m.xm_oxm = any(bool(getattr(smp,'xm_ogg',False)) for smp in samples.values())
+ 
+     neutral=((),(),0,0,0,0,0,0,0,0,0,0,0,0,0,128)
+     profiles=[neutral]; profile_ids={neutral:0}
+--- /mnt/data/work_xm047/baseline046/Tracker2KSP_v0.4.6_XM_GENERIC_COMPLETE/source/compact_stream.py	2026-08-22 15:51:58.000000000 +0000
++++ /mnt/data/work_xm047/release/source/compact_stream.py	2026-08-22 16:17:54.772713687 +0000
+@@ -155,6 +155,15 @@
+     def __init__(self, module: core.Module, source_format: str, start_order=0, stop_order=None, max_seconds=1800.0):
+         self.m=module; self.fmt=source_format
+         self.xm_linear=(source_format=='XM' and bool(getattr(module,'xm_linear',False)))
++        self.xm_ft2_arpeggio=(source_format=='XM' and bool(getattr(module,'xm_ft2_arpeggio',True)))
++        self.xm_ft2_porta_no_note=(source_format=='XM' and bool(getattr(module,'xm_ft2_porta_no_note',True)))
++        self.xm_ft2_offset_oor=(source_format=='XM' and bool(getattr(module,'xm_ft2_offset_oor',True)))
++        self.xm_ft2_envelope_escape=(source_format=='XM' and bool(getattr(module,'xm_ft2_envelope_escape',True)))
++        self.xm_ft2_pan_sustain_release=(source_format=='XM' and bool(getattr(module,'xm_ft2_pan_sustain_release',True)))
++        self.xm_ft2_e60_restart=(source_format=='XM' and bool(getattr(module,'xm_ft2_e60_restart',True)))
++        self.xm_ft2_auto_vib_abort_sweep=(source_format=='XM' and bool(getattr(module,'xm_ft2_auto_vib_abort_sweep',True)))
++        self.xm_ft2_porta_reset_direction=(source_format=='XM' and bool(getattr(module,'xm_ft2_porta_reset_direction',True)))
++        self.xm_ft2_porta_target_no_reset=(source_format=='XM' and bool(getattr(module,'xm_ft2_porta_target_no_reset',True)))
+         self.start_order=start_order
+         self.stop_order=stop_order if stop_order is not None else self._next_255(start_order)
+         self.max_seconds=max_seconds
+@@ -162,6 +171,7 @@
+         self.bank=SharedPayloadWaveBank(module,extended_aliases=(source_format in S3M_FMTS))
+         self.speed=max(1,module.speed); self.tempo=max(32,module.tempo)
+         self.order=start_order; self.row=0; self.seconds=0.0; self.rows=0
++        self.xm_next_pat_start_row=0
+         self.ended_reason=''; self.warnings=[]
+ 
+     def _next_255(self,start):
+@@ -602,7 +612,7 @@
+                     lo,hi=core.Compiler._pitch_regs(period)
+                 wants_porta=row_wants_porta
+                 porta=wants_porta and st.period_seen
+-                suppress_new_note=(self.fmt=='XM' and wants_porta and not st.period_seen)
++                suppress_new_note=(self.fmt=='XM' and self.xm_ft2_porta_no_note and wants_porta and not st.period_seen)
+                 if self.fmt=='XM' and porta and xm_ins_present and old_ins:
+                     # FT2 ignores the new instrument number on tone-portamento rows.
+                     use_ins=old_ins
+@@ -632,6 +642,13 @@
+                     else:
+                         off=0
+                     smp=self.m.samples[use_ins]
++                    if self.fmt=='XM' and cmd==CMD_O and off>=smp.length and self.xm_ft2_offset_oor:
++                        # FT2 9xx past sample end zeros the active period instead of
++                        # starting a one-byte/silent offset variant. Skale explicitly
++                        # disables this quirk, in which case the silent variant below
++                        # preserves period state for later effects.
++                        a.note_kind='off'
++                        st.period_seen=False
+                     if self.fmt=='S3M' and cmd==CMD_O and smp.looped and off>=smp.loop_end:
+                         if bool(getattr(self.m,'s3m_use_gus',False)):
+                             span=max(1,smp.loop_end-smp.loop_begin)
+@@ -639,15 +656,16 @@
+                         else:
+                             # ST3/SB stops the sample instead of GUS-style loop wrap.
+                             off=smp.length
+-                    wave=self.bank.get(use_ins,off)
+-                    a.tone=wave-384
+-                    a.period_q=pq; a.pitch_lo=lo|1; a.pitch_hi=hi
+-                    a.note_kind='delay_normal' if delay>=0 else 'normal'
++                    if a.note_kind!='off':
++                        wave=self.bank.get(use_ins,off)
++                        a.tone=wave-384
++                        a.period_q=pq; a.pitch_lo=lo|1; a.pitch_hi=hi
++                        a.note_kind='delay_normal' if delay>=0 else 'normal'
+                     if self.fmt=='S3M':
+                         st.note_offset=off
+                 if delay>=0 and valid_ins and e.vol is None and (self.fmt!='XM' or xm_ins_present):
+                     a.delayed_volume=min(64,self.m.samples[valid_ins].volume) if self.fmt in S3M_FMTS else self.m.samples[valid_ins].volume
+-                if not suppress_new_note:
++                if not suppress_new_note and a.note_kind!='off':
+                     st.note_index=ni
+                     st.period_seen=True
+                     if self.fmt=='XM' and not porta:
+@@ -699,10 +717,13 @@
+             extra=None
+             if ec==CMD_J and ep and arp_ins in self.m.samples and st.note_index>=0:
+                 if self.fmt=='XM':
++                    n1=st.note_index+((ep>>4)&15); n2=st.note_index+(ep&15)
++                    if self.xm_ft2_arpeggio:
++                        n1=min(108,n1); n2=min(108,n2)
+                     if self.xm_linear:
+-                        p1=self._xm_linear_period(arp_ins,st.note_index+((ep>>4)&15)); p2=self._xm_linear_period(arp_ins,st.note_index+(ep&15))
++                        p1=self._xm_linear_period(arp_ins,n1); p2=self._xm_linear_period(arp_ins,n2)
+                     else:
+-                        p1=self._xm_amiga_period(arp_ins,st.note_index+((ep>>4)&15)); p2=self._xm_amiga_period(arp_ins,st.note_index+(ep&15))
++                        p1=self._xm_amiga_period(arp_ins,n1); p2=self._xm_amiga_period(arp_ins,n2)
+                     extra=(p1,p2)
+                 elif self.fmt in S3M_FMTS:
+                     p1=self._s3m_period_q(arp_ins,st.note_index+((ep>>4)&15),st.finetune_c5)
+@@ -799,8 +820,11 @@
+             row_events=sorted((e for e in evs if e.ch in self.states),key=lambda x:x.ch)
+             for e in row_events:
+                 # Resolve B/C parameters directly (no memory in supported profiles).
+-                if e.cmd==CMD_B: pending_jump=e.param or 0
++                if e.cmd==CMD_B:
++                    pending_jump=e.param or 0
++                    if self.fmt=='XM': self.xm_next_pat_start_row=0
+                 elif e.cmd==CMD_C:
++                    if self.fmt=='XM': self.xm_next_pat_start_row=0
+                     raw_break=e.param or 0
+                     # Genuine ST3 stores Cxx as packed decimal. IT-authored
+                     # S3M writes/interprets the parameter as a raw row number.
+@@ -837,9 +861,11 @@
+                         lst.loop_count-=1
+                         if lst.loop_count:
+                             pending_loop_row=lst.loop_start_row
++                            if self.xm_ft2_e60_restart: self.xm_next_pat_start_row=lst.loop_start_row
+                     else:
+                         lst.loop_count=lp
+                         pending_loop_row=lst.loop_start_row
++                        if self.xm_ft2_e60_restart: self.xm_next_pat_start_row=lst.loop_start_row
+                 # Global tempo/speed commands are effective on this row.
+                 if e.cmd==CMD_A and (e.param or 0): self.speed=max(1,e.param or 0)
+                 if e.cmd==CMD_T and (e.param or 0)>=32: self.tempo=max(32,e.param or 0)
+@@ -862,7 +888,13 @@
+                 self.order+=1; self.row=pending_break
+             else:
+                 self.row+=1
+-                if self.row>=len(pat): self.row=0; self.order+=1
++                if self.row>=len(pat):
++                    self.order+=1
++                    if self.fmt=='XM' and self.xm_ft2_e60_restart:
++                        self.row=self.xm_next_pat_start_row
++                        self.xm_next_pat_start_row=0
++                    else:
++                        self.row=0
+             while self.order<self.stop_order and self.order<len(self.m.orders) and self.m.orders[self.order]==254:
+                 self.order+=1
+             if self.fmt=='XM' and self.order>=self.stop_order and self.stop_order==len(self.m.orders):
+@@ -885,6 +917,13 @@
+         stream_flags = 1 if (self.fmt in S3M_FMTS and (bool(self.m.flags & 0x40) or st3_fast)) else 0
+         if self.fmt in S3M_FMTS and bool(getattr(self.m,'s3m_old_vibrato',False)): stream_flags |= 0x04
+         if self.xm_linear: stream_flags |= 0x02
++        if self.fmt=='XM':
++            if self.xm_ft2_arpeggio: stream_flags |= 0x04
++            if self.xm_ft2_envelope_escape: stream_flags |= 0x08
++            if self.xm_ft2_pan_sustain_release: stream_flags |= 0x10
++            if self.xm_ft2_auto_vib_abort_sweep: stream_flags |= 0x20
++            if self.xm_ft2_porta_reset_direction: stream_flags |= 0x40
++            if self.xm_ft2_porta_target_no_reset: stream_flags |= 0x80
+         header += bytes((STREAM_VERSION,min(24,len(self.m.active_channels)),(self.m.speed or (6 if self.fmt=='XM' else 1)),stream_flags))
+         header += struct.pack('<H',(self.m.tempo or (125 if self.fmt=='XM' else 32)))
+         header += struct.pack('<I',self.rows)
+@@ -895,7 +934,17 @@
+         return stream, rows_encoded, {
+             'semantic_rows':self.rows,'semantic_events':total_events,'max_events_per_row':max_events,
+             'semantic_stream_bytes':len(stream),'duration_seconds':self.seconds,'end_reason':self.ended_reason,
+-            'xm_linear_periods':self.xm_linear,'xm_tracker_profile':getattr(self.m,'xm_profile',None),'warnings':self.warnings,
++            'xm_linear_periods':self.xm_linear,'xm_tracker_profile':getattr(self.m,'xm_profile',None),
++            'xm_oxm':bool(getattr(self.m,'xm_oxm',False)),
++            'xm_ft2_arpeggio':self.xm_ft2_arpeggio if self.fmt=='XM' else None,
++            'xm_ft2_offset_oor':self.xm_ft2_offset_oor if self.fmt=='XM' else None,
++            'xm_ft2_envelope_escape':self.xm_ft2_envelope_escape if self.fmt=='XM' else None,
++            'xm_ft2_pan_sustain_release':self.xm_ft2_pan_sustain_release if self.fmt=='XM' else None,
++            'xm_ft2_e60_restart':self.xm_ft2_e60_restart if self.fmt=='XM' else None,
++            'xm_ft2_auto_vib_abort_sweep':self.xm_ft2_auto_vib_abort_sweep if self.fmt=='XM' else None,
++            'xm_ft2_porta_reset_direction':self.xm_ft2_porta_reset_direction if self.fmt=='XM' else None,
++            'xm_ft2_porta_target_no_reset':self.xm_ft2_porta_target_no_reset if self.fmt=='XM' else None,
++            'warnings':self.warnings,
+         }
+ 
+ 
+--- /mnt/data/work_xm047/baseline046/Tracker2KSP_v0.4.6_XM_GENERIC_COMPLETE/source/compact_engine_xm.asm	2026-08-22 15:51:59.000000000 +0000
++++ /mnt/data/work_xm047/release/source/compact_engine_xm.asm	2026-08-22 16:15:06.096927970 +0000
+@@ -31,7 +31,8 @@
+ EV_NOTE_PRESENT equ 05F20h
+ SECOND_FX       equ 05F1Ch
+ FX_SLOT         equ 05F1Dh
+-FAST_VOL        equ 05F1Eh
++XMFLAGS         equ 05F1Eh      ; compact-stream XM behavior flags
++FAST_VOL        equ XMFLAGS      ; persisted block compatibility alias
+ ROW_COUNT_TMP   equ 05F1Fh
+ LINEAR_XM       equ 05F21h
+ PREV_PFX        equ 05F22h      ; 24 bytes: bit0 previous arpeggio, bit1 previous vibrato
+@@ -85,9 +86,10 @@
+ TREMOFF         equ 063C1h      ; 24 signed bytes, transient tremolo volume offset
+ PATDELAY        equ 063D9h      ; FT2 EEx row-delay multiplier minus one
+ ROW_LIMIT       equ 063DAh      ; ticks on current row, clamped to 255
++PANENVSTOP      equ 063DBh      ; 24 bytes: FT2 pan sustain reached before key-off
+ PAGE_TOTAL_CFG  equ 063FCh      ; patched by converter
+ STATE_CLEAR     equ 05F00h
+-STATE_CLEAR_END equ 063DBh
++STATE_CLEAR_END equ 063F3h
+ 
+ CMD_A           equ 1
+ CMD_D           equ 4
+@@ -161,8 +163,7 @@
+         ld (GLOBALVOL),a
+         ld a,(STREAM_DATA+7)
+         ld b,a
+-        and 1
+-        ld (FAST_VOL),a
++        ld (XMFLAGS),a            ; bits 1..7: linear, arp, env escape, pan sustain, auto-vib abort, porta-dir, target-preserve
+         ld a,b
+         and 2
+         ld (LINEAR_XM),a
+@@ -608,6 +609,12 @@
+         ld (hl),e
+         inc hl
+         ld (hl),d
++        ; A new tone-portamento target resets FT2's remembered arrival direction.
++        ld hl,GLISS
++        call ptr8_cur
++        ld a,(hl)
++        and 07Fh
++        ld (hl),a
+         ret
+ 
+ do_note_off:
+@@ -651,18 +658,28 @@
+         ret
+ 
+ do_normal_note:
+-        ; Save base/target quarter-period and tone.
++        ; Save base quarter-period. Genuine FT2 deliberately keeps an older
++        ; tone-portamento target across ordinary new notes (Porta-Pickup.xm).
+         ld de,(EV_PERIOD)
+         ld hl,PERIOD_Q
+         call ptr16_cur
+         ld (hl),e
+         inc hl
+         ld (hl),d
++        ld a,(XMFLAGS)
++        bit 7,a
++        jr nz,normal_target_done
+         ld hl,TARGET_Q
+         call ptr16_cur
+         ld (hl),e
+         inc hl
+         ld (hl),d
++        ld hl,GLISS
++        call ptr8_cur
++        ld a,(hl)
++        and 07Fh
++        ld (hl),a
++normal_target_done:
+         ld a,(EV_TONE)
+         ld hl,WAVE
+         call ptr8_cur
+@@ -1253,7 +1270,21 @@
+         or a
+         sbc hl,bc
+         pop hl                    ; HL=step
++        jr nz,porta_compare_done
++        ; FT2 remembers the direction from which a tone-portamento reached
++        ; its target. On a later row that starts exactly at the old target,
++        ; it may continue in the previous upward-period direction.
++        ld a,(XMFLAGS)
++        bit 6,a
+         jr z,porta_done
++        push hl
++        ld hl,GLISS
++        call ptr8_cur
++        bit 7,(hl)
++        pop hl
++        jr nz,porta_current_lower
++        jr porta_done
++porta_compare_done:
+         jr c,porta_current_lower
+         ; current > target: subtract step, clamp at target
+         ex de,hl                  ; DE=step, HL=current
+@@ -1262,10 +1293,19 @@
+         push hl
+         or a
+         sbc hl,bc
++        jr c,porta_high_clamp
++        jr z,porta_high_exact
++        pop hl
++        jr porta_store
++porta_high_clamp:
+         pop hl
+-        jr nc,porta_store
+         ld h,b
+         ld l,c
++        jr porta_high_reached
++porta_high_exact:
++        pop hl
++porta_high_reached:
++        call porta_mark_reached
+         jr porta_store
+ porta_current_lower:
+         ; current < target: add step, clamp at target
+@@ -1284,6 +1324,19 @@
+ porta_done:
+         ret
+ 
++; Preserve HL and mark that FT2 reached the current porta target from the
++; current>target direction. The flag shares GLISS bit 7; E3x uses low bits.
++porta_mark_reached:
++        ld a,(XMFLAGS)
++        bit 6,a
++        ret z
++        push hl
++        ld hl,GLISS
++        call ptr8_cur
++        set 7,(hl)
++        pop hl
++        ret
++
+ effect_vibrato:
+         ld a,(TICK_NOW)
+         or a
+@@ -1465,12 +1518,50 @@
+ 
+ effect_arpeggio:
+         ld a,(TICK_NOW)
+-arp_mod3:
++        or a
++        ret z                      ; FT2 and clone modes: tick 0 is base note
++        ld a,(XMFLAGS)
++        bit 2,a
++        jr z,arp_generic
++        ; FT2's 16-entry arpeggio-position LUT is indexed backwards from
++        ; speed. At >=16 ticks/row it famously reads into the next table.
++        ld a,(TICK_NOW)
++        ld b,a
++        ld a,(SPEED)
++        ld c,a
++        ld a,b
++arp_tick_mod_speed:
++        cp c
++        jr c,arp_tick_rem_ready
++        sub c
++        jr arp_tick_mod_speed
++arp_tick_rem_ready:
++        ld b,a                    ; remainder = tick % speed
++        ld a,c
++        sub b                     ; FT2 arpPos = speed - remainder
++        cp 17
++        jr c,arp_ft2_le16
++        ld a,2
++        jr arp_pos_ready
++arp_ft2_le16:
++        cp 16
++        jr nz,arp_ft2_mod3
++        xor a
++        jr arp_pos_ready
++arp_ft2_mod3:
++arp_ft2_mod3_loop:
+         cp 3
+-        jr c,arp_mod_done
++        jr c,arp_pos_ready
+         sub 3
+-        jr arp_mod3
+-arp_mod_done:
++        jr arp_ft2_mod3_loop
++arp_generic:
++        ld a,(TICK_NOW)
++arp_generic_mod3:
++        cp 3
++        jr c,arp_pos_ready
++        sub 3
++        jr arp_generic_mod3
++arp_pos_ready:
+         or a
+         ret z
+         cp 1
+@@ -1661,8 +1752,12 @@
+         ret nz
+         ld a,e
+         and 0Fh
++        ld b,a
+         ld hl,GLISS
+         call ptr8_cur
++        ld a,(hl)
++        and 080h                  ; high bit is FT2 portaTargetReached state
++        or b
+         ld (hl),a
+         ret
+ 
+@@ -2219,6 +2314,9 @@
+         inc hl
+         ld (hl),0FFh
+         xor a
++        ld hl,PANENVSTOP
++        call ptr8_cur
++        ld (hl),a
+         ld hl,XMKEYOFF
+         call ptr8_cur
+         ld (hl),a
+@@ -2304,7 +2402,41 @@
+         call ptr8_cur
+         ld a,(hl)
+         or a
+-        jr nz,xm_auto_amp_ready
++        jr z,xm_auto_ramp_held
++        ; FT2 auto-vibrato quirk: key-off before the sweep finished resets
++        ; the sweep accumulator to one sweep step. Once full depth was
++        ; reached it remains there. Clone profiles can disable this quirk.
++        ld a,(XMFLAGS)
++        bit 5,a
++        jr z,xm_auto_amp_ready
++        ld hl,AUTOAMP
++        call ptr16_cur
++        ld e,(hl)
++        inc hl
++        ld d,(hl)                  ; DE=current Q8 depth
++        ld hl,(EV_PERIOD)
++        ld bc,5
++        add hl,bc
++        ld a,(hl)                  ; full depth (integer, high byte)
++        cp d
++        jr nz,xm_auto_keyoff_reset
++        ld a,e
++        or a
++        jr z,xm_auto_amp_ready     ; exactly fullDepth<<8: sweep completed
++xm_auto_keyoff_reset:
++        ld hl,(EV_PERIOD)
++        ld bc,8
++        add hl,bc
++        ld e,(hl)
++        inc hl
++        ld d,(hl)                  ; one precomputed sweep step
++        ld hl,AUTOAMP
++        call ptr16_cur
++        ld (hl),e
++        inc hl
++        ld (hl),d
++        jr xm_auto_amp_ready
++xm_auto_ramp_held:
+         ld hl,(EV_PERIOD)
+         ld de,8                    ; sweep step Q8
+         add hl,de
+@@ -2498,6 +2630,41 @@
+ xm_vol_tick_inc:
+         inc de
+ xm_vol_tick_after_inc:
++        ; FT2 envelope escape: after key-off, a loop whose end point is also
++        ; the sustain point must not trap the released envelope.
++        ld a,(XMFLAGS)
++        bit 3,a
++        jr z,xm_vol_loop_check
++        push de
++        ld hl,XMKEYOFF
++        call ptr8_cur
++        ld a,(hl)
++        or a
++        jr z,xm_vol_escape_no
++        call xm_profile_current
++        ld a,(hl)
++        bit 1,a
++        jr z,xm_vol_escape_no
++        ld de,14
++        add hl,de
++        ld c,(hl)
++        inc hl
++        ld b,(hl)                 ; BC=sustain tick
++        call xm_profile_current
++        ld de,18
++        add hl,de
++        ld a,(hl)
++        cp c
++        jr nz,xm_vol_escape_no
++        inc hl
++        ld a,(hl)
++        cp b
++        jr nz,xm_vol_escape_no
++        pop de
++        jr xm_vol_no_loop
++xm_vol_escape_no:
++        pop de
++xm_vol_loop_check:
+         ; loop end jumps to loop start (FT2's common-case semantics)
+         ld hl,(EV_PERIOD)
+         ld a,(hl)
+@@ -2760,6 +2927,19 @@
+         ld e,(hl)
+         inc hl
+         ld d,(hl)
++        ; FT2 panning envelope quirk: if sustain was reached while the key
++        ; was still held, the panning envelope stays there even after key-off.
++        ld a,(XMFLAGS)
++        bit 4,a
++        jr z,xm_pan_stop_checked
++        push de
++        ld hl,PANENVSTOP
++        call ptr8_cur
++        ld a,(hl)
++        pop de
++        or a
++        jp nz,xm_pan_no_loop
++xm_pan_stop_checked:
+         ld hl,(EV_PERIOD)
+         ld a,(hl)
+         bit 4,a
+@@ -2780,10 +2960,53 @@
+         jr nz,xm_pan_tick_inc
+         ld a,e
+         cp c
++        jr nz,xm_pan_tick_inc
++        ld a,(XMFLAGS)
++        bit 4,a
+         jr z,xm_pan_tick_after_inc
++        push de
++        ld hl,PANENVSTOP
++        call ptr8_cur
++        ld (hl),1
++        pop de
++        jr xm_pan_no_loop
+ xm_pan_tick_inc:
+         inc de
+ xm_pan_tick_after_inc:
++        ; Same FT2 loop/sustain escape rule applies to the panning envelope.
++        ld a,(XMFLAGS)
++        bit 3,a
++        jr z,xm_pan_loop_check
++        push de
++        ld hl,XMKEYOFF
++        call ptr8_cur
++        ld a,(hl)
++        or a
++        jr z,xm_pan_escape_no
++        call xm_profile_current
++        ld a,(hl)
++        bit 4,a
++        jr z,xm_pan_escape_no
++        ld de,24
++        add hl,de
++        ld c,(hl)
++        inc hl
++        ld b,(hl)                 ; BC=pan sustain tick
++        call xm_profile_current
++        ld de,28
++        add hl,de
++        ld a,(hl)
++        cp c
++        jr nz,xm_pan_escape_no
++        inc hl
++        ld a,(hl)
++        cp b
++        jr nz,xm_pan_escape_no
++        pop de
++        jr xm_pan_no_loop
++xm_pan_escape_no:
++        pop de
++xm_pan_loop_check:
+         ld hl,(EV_PERIOD)
+         ld a,(hl)
+         bit 5,a
+--- /mnt/data/work_xm047/baseline046/Tracker2KSP_v0.4.6_XM_GENERIC_COMPLETE/source/tracker2ksp.py	2026-08-22 15:51:58.000000000 +0000
++++ /mnt/data/work_xm047/release/source/tracker2ksp.py	2026-08-22 16:15:38.382250274 +0000
+@@ -340,7 +340,7 @@
+         'format=KSP 1.05',f'engine=native Z80 {source_format}-specific multi-page realtime engine',
+         'conversion=compact rows/effects + shared MWK PCM payloads + INIT-time OPL4 header aliases; no rendered PCM and no pre-expanded tick register stream',
+         f'initial_speed={module.speed}',f'initial_tempo={module.tempo}',f'active_channels={len(module.active_channels)}',
+-        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.4.6'
++        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.4.7'
+     ])+'\n'; meta=metadata.encode()
+     mwkp,mcomp=maybe_zx0(mwk,compression)
+     engine_off=80; page_off=engine_off+64; track_off=page_off+page_count*24; resource_off=track_off+32
+@@ -373,7 +373,7 @@
+     assert len(out)==file_size
+     output.parent.mkdir(parents=True,exist_ok=True); output.write_bytes(out)
+     packed_pages=sum(r['stored_bytes'] for r in records); mapper_segments=(packed_pages+PAGE_SIZE-1)//PAGE_SIZE
+-    return {'status':'built','format':'KSP 1.05','converter_version':'0.4.6','input':str(module.path),'output':str(output),
++    return {'status':'built','format':'KSP 1.05','converter_version':'0.4.7','input':str(module.path),'output':str(output),
+             'title':title,'duration_ms':round(semantic_stats['duration_seconds']*1000),'output_bytes':len(out),'output_sha256':sha256(out),
+             'engine':{'init':hex(engine_sym['init']),'play':hex(engine_sym['play']),'stop':hex(engine_sym['stop']),'play_hz':60,'hardware':'OPL4',
+                       'resident_range':'0x4000-0x67FF (code/state + extended tracker state; persistent tracker state handoff via OPL4 RAM 0x2FFC00)','dynamic_window':'0x6800-0x7FFF','binary_bytes':len(engine_bin),'xm_ft2_profiles':profile_info['profiles'] if profile_info else 0,'xm_profile_bytes':profile_info['bytes'] if profile_info else 0},

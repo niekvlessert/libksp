@@ -1,0 +1,2924 @@
+--- /mnt/data/Tracker2KSP_v0.4.7_XM_EDGE_COMPLETE/module_formats.py	2026-08-22 16:15:38.380257419 +0000
++++ module_formats.py	2026-08-22 17:21:24.041203319 +0000
+@@ -34,101 +34,384 @@
+     # Internal S3M-style note byte, C-0 = 0x00. XM note 1 is C-0.
+     return ((note_index//12)<<4)|(note_index%12)
+ 
+-def _mod_effect(eff:int,param:int, vol:Optional[int]=None):
++MOD_PT_PERIODS=(3424,3232,3048,2880,2712,2560,2416,2280,2152,2032,1920,1812,
++    1712,1616,1524,1440,1356,1280,1208,1140,1076,1016,960,907,
++    856,808,762,720,678,640,604,570,538,508,480,453,
++    428,404,381,360,339,320,302,285,269,254,240,226,
++    214,202,190,180,170,160,151,143,135,127,120,113,
++    107,101,95,90,85,80,75,71,67,63,60,56,
++    53,50,47,45,42,40,37,35,33,31,30,28)
++MOD_TUNED_PERIODS=(
++    1712,1616,1524,1440,1356,1280,1208,1140,1076,1016,960,907,
++    1700,1604,1514,1430,1348,1274,1202,1134,1070,1010,954,900,
++    1688,1592,1504,1418,1340,1264,1194,1126,1064,1004,948,894,
++    1676,1582,1492,1408,1330,1256,1184,1118,1056,996,940,888,
++    1664,1570,1482,1398,1320,1246,1176,1110,1048,990,934,882,
++    1652,1558,1472,1388,1310,1238,1168,1102,1040,982,926,874,
++    1640,1548,1460,1378,1302,1228,1160,1094,1032,974,920,868,
++    1628,1536,1450,1368,1292,1220,1150,1086,1026,968,914,862,
++    1814,1712,1616,1524,1440,1356,1280,1208,1140,1076,1016,960,
++    1800,1700,1604,1514,1430,1350,1272,1202,1134,1070,1010,954,
++    1788,1688,1592,1504,1418,1340,1264,1194,1126,1064,1004,948,
++    1774,1676,1582,1492,1408,1330,1256,1184,1118,1056,996,940,
++    1762,1664,1570,1482,1398,1320,1246,1176,1110,1048,988,934,
++    1750,1652,1558,1472,1388,1310,1238,1168,1102,1040,982,926,
++    1736,1640,1548,1460,1378,1302,1228,1160,1094,1032,974,920,
++    1724,1628,1536,1450,1368,1292,1220,1150,1086,1026,968,914)
++
++
++def _mod_note_index(period:int)->Optional[int]:
++    if period<=0 or period==0xFFF: return None
++    # Match OpenMPT ReadMODPatternEntry: nearest entry in the canonical
++    # 7-octave ProTracker table. Table index 36 is C-2 in our internal domain.
++    note=len(MOD_PT_PERIODS)-1
++    for i,p in enumerate(MOD_PT_PERIODS):
++        if period>=p:
++            if period!=p and i and MOD_PT_PERIODS[i-1]-period < period-p:
++                note=i-1
++            else: note=i
++            break
++    return note+12
++
++
++def _mod_effect(eff:int,param:int, vol:Optional[int]=None, *, vblank:bool=False, startrekker:bool=False, noisetracker:bool=False):
+     cmd=None; p=param
+-    if eff==0 and param: cmd=10 # J arpeggio
+-    elif eff==1: cmd=6 # F slide up
+-    elif eff==2: cmd=5 # E slide down
+-    elif eff==3: cmd=7 # G tone porta
+-    elif eff==4: cmd=8 # H vibrato
+-    elif eff==5: cmd=12 # L tone-portamento + volume slide
+-    elif eff==6: cmd=11 # K vibrato+volume slide
+-    elif eff==8: cmd=24 # X/set panning
+-    elif eff==9: cmd=15 # O offset
+-    elif eff==0xA: cmd=4 # D volume slide
+-    elif eff==0xB: cmd=2 # B jump
++    if eff==0 and param: cmd=10 # 0xy arpeggio
++    elif eff==1: cmd=6          # 1xx porta up (no MOD parameter memory)
++    elif eff==2: cmd=5          # 2xx porta down (no MOD parameter memory)
++    elif eff==3: cmd=7          # 3xx tone porta (has its own speed memory)
++    elif eff==4: cmd=8          # 4xy vibrato (nibble memory)
++    elif eff==5: cmd=12         # 5xy tone porta + volume slide
++    elif eff==6: cmd=11         # 6xy vibrato + volume slide
++    elif eff==7: cmd=40         # private MOD tremolo
++    elif eff==8: cmd=24         # 8xx panning
++    elif eff==9: cmd=15         # 9xx sample offset (memory)
++    elif eff==0xA: cmd=4        # Axy volume slide (no MOD parameter memory)
++    elif eff==0xB: cmd=2        # Bxx position jump
+     elif eff==0xC: vol=min(64,param)
+     elif eff==0xD:
+-        cmd=3; p=((param>>4)*10+(param&15)) # C pattern break uses row integer in backend
++        cmd=3
++        # NoiseTracker ignores the break-row parameter entirely.
++        p=0 if noisetracker else ((param>>4)*10+(param&15))
+     elif eff==0xE:
+         sub=param>>4; lo=param&15
+-        if sub==1: cmd=6; p=0xF0|lo
+-        elif sub==2: cmd=5; p=0xF0|lo
+-        elif sub==9: cmd=17; p=lo # Q retrig
+-        elif sub==0xA: cmd=4; p=(lo<<4)|0x0F # fine volume up
+-        elif sub==0xB: cmd=4; p=0xF0|lo      # fine volume down
+-        elif sub==0xC: cmd=27; p=lo          # note cut
+-        elif sub==0xD: cmd=19; p=0xD0|lo     # note delay
++        if sub==0x0: cmd=72; p=lo          # E0x Amiga LED filter (state only / no-op on OPL4)
++        elif sub==0x1: cmd=73; p=lo        # E1x fine porta up
++        elif sub==0x2: cmd=74; p=lo        # E2x fine porta down
++        elif sub==0x3: cmd=75; p=lo        # E3x glissando control
++        elif sub==0x4: cmd=76; p=lo        # E4x vibrato waveform
++        elif sub==0x5: cmd=77; p=lo        # E5x set finetune
++        elif sub==0x6: cmd=78; p=lo        # E6x pattern loop (host flattened)
++        elif sub==0x7: cmd=79; p=lo        # E7x tremolo waveform
++        elif sub==0x8: cmd=80; p=lo        # E8x 4-bit panning
++        elif sub==0x9: cmd=17; p=lo        # E9x retrigger
++        elif sub==0xA: cmd=81; p=lo        # EAx fine volume up
++        elif sub==0xB: cmd=82; p=lo        # EBx fine volume down
++        elif sub==0xC: cmd=27; p=lo        # ECx note cut
++        elif sub==0xD: cmd=19; p=0xD0|lo   # EDx note delay
++        elif sub==0xE: cmd=83; p=lo        # EEx pattern delay
++        elif sub==0xF: cmd=84; p=lo        # EFx invert loop / funk repeat
+     elif eff==0xF and param>0:
+-        if param<32: cmd=1 # A speed
+-        else: cmd=20      # T tempo
++        if vblank:
++            cmd=1; p=min(param,31) if startrekker else param
++        elif param<32: cmd=1
++        else: cmd=20
+     return cmd,p,vol
+ 
+ 
++def _mod_magic(sig:bytes):
++    """Return (channels, profile, flags) for OpenMPT-compatible 31-sample MOD magics."""
++    flags={'vblank':False,'startrekker':False,'noisetracker':False,'generic':False,'swap_bytes':False,'delta':False,'pattern_offset':1084}
++    if sig in (b'M.K.',b'M!K!',b'PATT',b'NSMS',b'LARD'):
++        return 4,'PROTRACKER',flags
++    if sig in (b'M&K!',b'FEST',b'N.T.'):
++        flags.update(vblank=True,noisetracker=True)
++        return 4,('NOISETRACKER' if sig==b'N.T.' else 'HMN'),flags
++    if sig in (b'OKTA',b'OCTA'):
++        flags['generic']=True; return 8,'OKTALYZER',flags
++    if sig in (b'CD81',b'CD61'):
++        flags['generic']=True; return sig[2]-48,'OCTALYSER',flags
++    if len(sig)==4 and sig[0] in (ord('M'),ord('8')) and sig[1:]==b'\0\0\0':
++        flags.update(delta=True,generic=True); return (8 if sig[0]==ord('8') else 4),'INCONEXIA',flags
++    if sig[:3]==b'FA0' and sig[3:4] in b'45678':
++        flags.update(generic=True,pattern_offset=1088); return sig[3]-48,'DIGITAL_TRACKER',flags
++    if sig[:3] in (b'FLT',b'EXO') and sig[3:4] in (b'4',b'8'):
++        flags.update(vblank=True,startrekker=True); return sig[3]-48,'STARTREKKER',flags
++    if sig[:3]==b'TDZ' and 49<=sig[3]<=57:
++        flags['generic']=True; return sig[3]-48,'TAKETRACKER',flags
++    if sig==b'.M.K':
++        flags['swap_bytes']=True; return 4,'DMF_HACK',flags
++    if sig==b'WARD':
++        flags['generic']=True; return 8,'WARD',flags
++    try: s=sig.decode('ascii')
++    except: s=''
++    ch=None
++    if len(s)==4 and s[0].isdigit() and s[1:]=='CHN': ch=int(s[0])
++    elif len(s)==4 and s[:2].isdigit() and s[2:] in ('CH','CN'): ch=int(s[:2])
++    elif s.endswith('CHN') and s[:-3].isdigit(): ch=int(s[:-3])
++    elif s.endswith('CH') and s[:-2].isdigit(): ch=int(s[:-2])
++    if ch:
++        flags['generic']=True; return ch,'GENERIC_MOD',flags
++    return None,None,flags
++
++
++def _mod_swap16(blob:bytes)->bytes:
++    if len(blob)%2: blob+=b'\0'
++    out=bytearray(len(blob))
++    for i in range(0,len(blob),2): out[i],out[i+1]=blob[i+1],blob[i]
++    return bytes(out)
++
++
++def _decode_mod_adpcm(raw: bytes, sample_len: int) -> bytes:
++    """Decode OpenMPT-compatible MOD 4-bit ADPCM payload after the ADPCM marker."""
++    if len(raw) < 16:
++        return b''
++    table=[_s8(x) for x in raw[:16]]
++    out=bytearray(); acc=0
++    for x in raw[16:16+(sample_len+1)//2]:
++        acc=(acc+table[x&15]) & 0xff; out.append(acc)
++        if len(out)>=sample_len: break
++        acc=(acc+table[(x>>4)&15]) & 0xff; out.append(acc)
++        if len(out)>=sample_len: break
++    return bytes(out)
++
++
++
++def _estimate_mod_duration(patterns, orders, *, vblank: bool) -> float:
++    """Small MOD timing model used only for OpenMPT-style VBlank detection.
++
++    It follows the sequence-level effects that materially alter duration
++    (Fxx, Bxx, Dxx, E6x and EEx).  The heuristic is deliberately bounded and
++    is not used for actual conversion playback.
++    """
++    if not orders:
++        return 0.0
++    speed=6; tempo=125; order=0; row=0; seconds=0.0
++    # Per-channel E6 loop state, matching the later channel-order walk.
++    loop_start={}; loop_count={}
++    visited={}
++    steps=0
++    while 0 <= order < len(orders) and steps < 200000 and seconds < 7200.0:
++        patidx=orders[order]
++        if patidx >= len(patterns):
++            order += 1; row=0; continue
++        pat=patterns[patidx]
++        if row >= len(pat):
++            order += 1; row=0; continue
++        key=(order,row,speed,tempo,tuple(sorted(loop_start.items())),tuple(sorted(loop_count.items())))
++        n=visited.get(key,0)
++        if n>=2:
++            break
++        visited[key]=n+1
++        evs=sorted(pat[row], key=lambda e:e.ch)
++        jump=None; brk=None; loop_to=None; pat_delay=0
++        row_speed=speed; row_tempo=tempo
++        has_speed=False; has_tempo=False
++        for e in evs:
++            eff=int(getattr(e,'mod_raw_effect',-1)); param=int(getattr(e,'mod_raw_param',0))
++            if eff==0xF and param:
++                if vblank:
++                    speed=max(1,param)
++                elif param < 32:
++                    speed=max(1,param); has_speed=True
++                else:
++                    tempo=max(32,param); has_tempo=True
++            elif eff==0xB:
++                jump=param
++            elif eff==0xD:
++                brk=((param>>4)*10 + (param&15))
++            elif eff==0xE:
++                sub=param>>4; lo=param&15
++                if sub==0x6:
++                    if lo==0:
++                        loop_start[e.ch]=row
++                    else:
++                        cnt=loop_count.get(e.ch,0)
++                        if cnt==0: cnt=lo
++                        if cnt>0:
++                            loop_to=loop_start.get(e.ch,0)
++                            cnt-=1
++                            loop_count[e.ch]=cnt
++                elif sub==0xE:
++                    pat_delay=max(pat_delay,lo)
++        # Approximate PT's tick-1 tempo quirk with the timing state that was
++        # active on entry to the row. This is sufficient for the 8-minute
++        # VBlank detector and avoids circular dependence on the compiler.
++        tick_tempo = 125 if vblank else max(32,row_tempo)
++        seconds += max(1,row_speed) * (pat_delay+1) * (2.5/tick_tempo)
++        if loop_to is not None:
++            row=loop_to
++        elif jump is not None or brk is not None:
++            order=(jump if jump is not None else order+1)
++            row=(brk or 0)
++        else:
++            row+=1
++            if row>=len(pat): order+=1; row=0
++        steps+=1
++    return seconds
++
++
++def _remap_mod_vblank_effects(patterns, *, startrekker: bool=False, noisetracker: bool=False):
++    for pat in patterns:
++        for row in pat:
++            for e in row:
++                if int(getattr(e,'mod_raw_effect',-1)) != 0xF:
++                    continue
++                raw=int(getattr(e,'mod_raw_param',0))
++                cmd,p,vol=_mod_effect(0xF,raw,getattr(e,'vol',None),vblank=True,startrekker=startrekker,noisetracker=noisetracker)
++                e.cmd=cmd; e.param=(p if cmd is not None else None); e.vol=vol
++
+ def parse_mod(path:Path)->core.Module:
+     b=path.read_bytes()
+-    if len(b)<1084: raise ValueError('not a valid MOD')
++    if len(b)<1084: raise ValueError('not a valid 31-sample MOD')
+     sig=b[1080:1084]
+-    channels={b'M.K.':4,b'M!K!':4,b'FLT4':4,b'4CHN':4,b'6CHN':6,b'8CHN':8,b'CD81':8,b'OKTA':8}.get(sig)
+-    if channels is None:
+-        try:
+-            s=sig.decode('ascii')
+-            channels=int(s[:-3]) if s.endswith('CHN') else int(s[:-2]) if s.endswith('CH') else None
+-        except: channels=None
+-    if not channels or channels>32: raise ValueError(f'unsupported/unknown MOD signature {sig!r}')
+-    title=b[:20].split(b'\0')[0].decode('cp437','replace').rstrip()
+-    samples:Dict[int,core.Sample]={}
+-    sample_meta=[]
++    channels,profile,flags=_mod_magic(sig)
++    if not channels: raise ValueError(f'unsupported/unknown MOD signature {sig!r}')
++    # The resident OPL4 player has 24 hardware voices. Reject wider MODs cleanly
++    # instead of silently overrunning the fixed channel-state arrays.
++    if channels>24: raise ValueError(f'MOD has {channels} channels; OPL4 runtime supports at most 24')
++    raw=b
++    if flags['swap_bytes']:
++        # Apocalypse Abyss .DMF-derived MODs swap byte pairs in header/pattern area.
++        # Match OpenMPT sufficiently for ordinary sample/pattern decoding.
++        raw=_mod_swap16(b)
++        sig=raw[1080:1084]
++    title=raw[:20].split(b'\0')[0].decode('cp437','replace').rstrip()
++    samples:Dict[int,core.Sample]={}; sample_meta=[]
++    only_amiga_notes=True; has_rep_len0=False; has_empty_sample_vol64=False; has_long_samples=False
+     for i in range(31):
+         o=20+i*30
+-        name=b[o:o+22].split(b'\0')[0].decode('cp437','replace').rstrip()
+-        length=int.from_bytes(b[o+22:o+24],'big')*2
+-        finetune=b[o+24]&15; finetune=finetune-16 if finetune>=8 else finetune
+-        vol=min(64,b[o+25])
+-        lb=int.from_bytes(b[o+26:o+28],'big')*2; ll=int.from_bytes(b[o+28:o+30],'big')*2
+-        # ProTracker/Paula PAL: C-2 period 428 at finetune 0.  The compact
+-        # engine's period domain uses the same 3.546895 MHz numerator, so with
+-        # this reference one internal period unit is one Amiga period unit.
+-        # One MOD finetune step is 1/8 semitone.
+-        c2=max(1,int(round((core.PERIOD_CLOCK/428.0)*(2**(finetune/96.0)))))
+-        sample_meta.append((name,length,lb,ll,vol,c2))
+-    songlen=min(128,b[950]); orders=list(b[952:952+songlen]); pat_count=(max(orders)+1) if orders else 0
+-    po=1084; patterns=[]
+-    # Amiga period to internal S3M-style note index. In this engine index 48
+-    # is the sample reference pitch; for a PAL MOD that corresponds to period
+-    # 428 (ProTracker C-2). Period 856 is therefore index 36, not 24.
+-    for pi in range(pat_count):
+-        rows=[[] for _ in range(64)]
++        name=raw[o:o+22].split(b'\0')[0].decode('cp437','replace').rstrip()
++        length=int.from_bytes(raw[o+22:o+24],'big')*2
++        ft=raw[o+24]&15
++        if profile=='HMN':
++            # His Master's Noise writes the opposite finetune sign.
++            ft=(-ft)&15
++        finetune=ft-16 if ft>=8 else ft
++        vol=min(64,raw[o+25])
++        lb=int.from_bytes(raw[o+26:o+28],'big')*2; ll=int.from_bytes(raw[o+28:o+30],'big')*2
++        has_rep_len0 |= bool(length and ll==0)
++        has_long_samples |= bool(length>65535)
++        has_empty_sample_vol64 |= bool(not length and vol==64)
++        # Store native MOD finetune nibble for exact ProTracker period lookup.
++        c2=max(1,int(round(core.PERIOD_CLOCK/428.0)))
++        sample_meta.append((name,length,lb,ll,vol,c2,ft))
++    songlen=raw[950]
++    if songlen>128: songlen=128
++    if songlen==0:
++        songlen=128
++        while songlen>1 and raw[952+songlen-1]==0: songlen-=1
++    restart=raw[951]
++    orders=list(raw[952:952+songlen])
++    # Startrekker FLT8 stores a logical 8-channel pattern as an even/odd pair
++    # of 4-channel physical patterns and order numbers reference those halves.
++    flt8=(profile=='STARTREKKER' and channels==8)
++    if flt8: orders=[x//2 for x in orders]
++    pat_count=(max(orders)+1) if orders else 0
++    read_channels=4 if flt8 else channels
++    physical_patterns=(pat_count*2 if flt8 else pat_count)
++    po=flags['pattern_offset']; patterns=[]
++    max_panning=0; left_panning=False; extended_panning=False
++    sample_swap_detected=False; has_tempo_commands=False; definitely_cia=has_long_samples
++    if flt8: patterns=[[[] for _ in range(64)] for _ in range(pat_count)]
++    for pi in range(physical_patterns):
++        rows=([[] for _ in range(64)] if not flt8 else patterns[pi//2])
++        base_ch=(4 if flt8 and (pi&1) else 0)
++        last_instrument=[0]*read_channels
++        instr_without_note=[0]*read_channels
+         for r in range(64):
+-            for ch in range(channels):
+-                x=b[po:po+4]; po+=4
++            has_speed_on_row=False; has_tempo_on_row=False
++            for rch in range(read_channels):
++                x=raw[po:po+4]
++                if len(x)<4: x=x+b'\0'*(4-len(x))
++                po+=4
+                 period=((x[0]&15)<<8)|x[1]; ins=(x[0]&0xF0)|(x[2]>>4); eff=x[2]&15; param=x[3]
+-                note=None
+-                if period:
+-                    import math
+-                    idx=int(round(48+12*math.log2(428.0/period)))
+-                    note=_note_byte(max(0,min(119,idx)))
+-                cmd,p,vol=_mod_effect(eff,param)
++                if eff==0x8:
++                    max_panning=max(max_panning,param)
++                    if param<0x80: left_panning=True
++                    elif param>0x8F and param!=0xA4: extended_panning=True
++                elif eff==0xE and (param&0xF0)==0x80:
++                    max_panning=max(max_panning,(param&15)<<4)
++                ni=_mod_note_index(period); note=_note_byte(ni) if ni is not None else None
++                if period and not (113<=period<=856): only_amiga_notes=False
++                if eff==0xF and param:
++                    if param<32: has_speed_on_row=True
++                    else:
++                        has_tempo_on_row=True
++                        if param<100: has_tempo_commands=True
++                if not flt8:
++                    if note is None and ins>0:
++                        if last_instrument[rch]>0 and last_instrument[rch]!=ins:
++                            instr_without_note[rch]+=1
++                            if instr_without_note[rch]>=4: sample_swap_detected=True
++                    elif note is not None:
++                        instr_without_note[rch]=0
++                    if ins: last_instrument[rch]=ins
++                cmd,p,vol=_mod_effect(eff,param,vblank=flags['vblank'],startrekker=flags['startrekker'],noisetracker=flags['noisetracker'])
+                 if note is not None or ins or vol is not None or cmd is not None:
+-                    ev=core.Event(ch=ch,note=note,ins=ins or None,vol=vol,cmd=cmd,param=p if cmd else None)
+-                    # Preserve the literal Paula period from the MOD cell.  For
+-                    # finetune-0 samples this is the exact playback/tone-porta
+-                    # period and avoids re-quantising it through a note index.
+-                    ev.mod_period=period or 0
++                    ev=core.Event(ch=base_ch+rch,note=note,ins=ins or None,vol=vol,cmd=cmd,param=p if cmd else None)
++                    ev.mod_period=period or 0; ev.mod_raw_effect=eff; ev.mod_raw_param=param
+                     rows[r].append(ev)
+-        patterns.append(rows)
+-    data_pos=po
+-    for i,(name,length,lb,ll,vol,c2) in enumerate(sample_meta,1):
+-        data=b[data_pos:data_pos+length]; data_pos+=length
+-        le=min(length,lb+ll); looped=ll>2 and le>lb
+-        samples[i]=core.Sample(i,name,length,lb,le,vol,1 if looped else 0,c2,0,data)
++            if has_speed_on_row and has_tempo_on_row:
++                definitely_cia=True
++        if not flt8: patterns.append(rows)
++    data_pos=po; any_adpcm=False
++    for i,(name,length,lb,ll,vol,c2,ft) in enumerate(sample_meta,1):
++        if length and not flags['delta'] and b[data_pos:data_pos+5]==b'ADPCM':
++            need=16+(length+1)//2
++            packed=b[data_pos+5:data_pos+5+need]
++            data_pos += 5+len(packed)
++            data=_decode_mod_adpcm(packed,length); any_adpcm=True
++        else:
++            enc=b[data_pos:data_pos+length]; data_pos+=length
++            if flags['delta']:
++                # Inconexia's special M\0\0\0 / 8\0\0\0 modules use signed 8-bit delta PCM.
++                data=_decode_delta8(enc)
++            else: data=enc
++        le=min(len(data),lb+ll); looped=ll>2 and le>lb
++        smp=core.Sample(i,name,len(data),lb,le,vol,1 if looped else 0,c2,0,data)
++        smp.mod_finetune=ft; smp.mod_finetune_signed=(ft-16 if ft>=8 else ft)
++        samples[i]=smp
+     chset=[255]*32
+     for ch in range(channels): chset[ch]=0 if ch%4 in (0,3) else 8
+     m=core.Module(path,b,title,orders,patterns,samples,chset,6,125,64,0,1)
+-    m.source_format='MOD'; m.offset_quantum=2048
++    m.source_format='MOD'; m.offset_quantum=256
++    m.mod_signature=sig.decode('latin1','replace'); m.mod_profile=profile
++    m.mod_startrekker=flags['startrekker']; m.mod_noisetracker=flags['noisetracker']
++    m.mod_generic=flags['generic']; m.mod_restart=restart
++    m.mod_only_amiga_notes=only_amiga_notes; m.mod_has_rep_len0=has_rep_len0
++    canonical_pt=bool(profile=='PROTRACKER' and only_amiga_notes and not has_rep_len0)
++    # OpenMPT treats low-valued 8xx commands in canonical 4ch ProTracker files
++    # as sync markers rather than panning. Generic multichannel modules keep them.
++    m.mod_ignore_panning=bool(flags['delta'] or (profile in ('NOISETRACKER','HMN','STARTREKKER')) or (canonical_pt and max_panning<0x30))
++    m.mod_fix_7bit_panning=bool(flags['generic'] and left_panning and not extended_panning and max_panning>=0x30)
++    m.mod_ft2_tremolo_ramp=bool(flags['generic'] or sig==b'M!K!')
++    m.mod_adpcm=any_adpcm
++    # OpenMPT also enables sample swapping after detecting four consecutive
++    # instrument-only swaps in a pattern, even outside strict canonical PT.
++    m.mod_sample_swap=bool(canonical_pt or sample_swap_detected)
++    m.mod_sample_swap_detected=sample_swap_detected
++    m.mod_one_shot_loops=bool(canonical_pt and max_panning<0x30 and restart!=0x7F)
++    m.mod_out_of_range_delay=canonical_pt
++    m.mod_pt_mode=canonical_pt
++    m.mod_amiga_limits=canonical_pt
++    # M.K./M!K! files are ambiguous between CIA and old VBlank timing. Match
++    # OpenMPT's high-value heuristic: only suspicious low tempo commands, no
++    # strong CIA evidence, and a CIA interpretation of at least eight minutes.
++    detected_vblank=bool(flags['vblank'])
++    if not detected_vblank and sig in (b'M.K.',b'M!K!') and has_tempo_commands and not definitely_cia:
++        cia_len=_estimate_mod_duration(patterns,orders,vblank=False)
++        vb_len=_estimate_mod_duration(patterns,orders,vblank=True)
++        if cia_len>=480.0 and vb_len<cia_len:
++            detected_vblank=True
++            _remap_mod_vblank_effects(patterns)
++            if profile=='PROTRACKER': profile='PROTRACKER_VBLANK'; m.mod_profile=profile
++        m.mod_cia_duration_probe=cia_len; m.mod_vblank_duration_probe=vb_len
++    m.mod_vblank=detected_vblank
++    # Treat 0x78 and 0x7F as tracker markers rather than usable restart positions in the common PT/ST cases.
++    m.mod_restart_valid=bool(restart<songlen and restart not in (0x78,0x7F))
+     return m
+ 
+-
+ def _decode_xm_adpcm(raw: bytes, sample_len: int) -> bytes:
+     """Decode ModPlug's XM 4-bit ADPCM (16-byte signed delta table + nibbles)."""
+     if len(raw) < 16:
+--- /mnt/data/Tracker2KSP_v0.4.7_XM_EDGE_COMPLETE/compact_stream.py	2026-08-22 16:17:54.773102674 +0000
++++ compact_stream.py	2026-08-22 17:26:19.448646095 +0000
+@@ -18,6 +18,9 @@
+ CMD_XM_FINETUNE=50; CMD_XM_PATLOOP=51; CMD_XM_TREMWAVE=52; CMD_XM_E9RETRIG=53; CMD_XM_FINEVOLUP=54; CMD_XM_FINEVOLDOWN=55
+ CMD_XM_PATDELAY=56; CMD_XM_GVOL=57; CMD_XM_GVOLSLIDE=58; CMD_XM_ENVPOS=59; CMD_XM_PANSLIDE=60; CMD_XM_RETRIG=61; CMD_XM_TREMOR=62; CMD_XM_XFINE_UP=63; CMD_XM_XFINE_DOWN=64; CMD_XM_STOP=65
+ CMD_XM_VC_VOLDN=66; CMD_XM_VC_VOLUP=67; CMD_XM_ROWINS=68; CMD_XM_ROWDELAY=69; CMD_XM_ROWNOTE=70; CMD_XM_ROWVOL=71
++CMD_MOD_FILTER=72; CMD_MOD_FINE_UP=73; CMD_MOD_FINE_DOWN=74; CMD_MOD_GLISS=75; CMD_MOD_VIBWAVE=76; CMD_MOD_FINETUNE=77
++CMD_MOD_PATLOOP=78; CMD_MOD_TREMWAVE=79; CMD_MOD_PAN4=80; CMD_MOD_FINEVOLUP=81; CMD_MOD_FINEVOLDOWN=82; CMD_MOD_PATDELAY=83; CMD_MOD_INVERT=84; CMD_MOD_INSTR=85
++MOD_EFX_SPEED=(0,5,6,7,8,10,11,13,16,19,22,26,32,43,64,128)
+ S3M_FMTS=('S3M','IT-S3M','MODERN-S3M')
+ S3M_FINETUNE=(7895,7941,7985,8046,8107,8169,8232,8280,8363,8413,8463,8529,8581,8651,8723,8757)
+ 
+@@ -49,6 +52,7 @@
+     xm_tremolo_speed: int = 0
+     xm_tremolo_depth: int = 0
+     xm_channel_finetune: int = 0
++    mod_finetune: int = 0
+     loop_start_row: int = 0
+     loop_count: int = 0
+     mem: Dict[int,int] = field(default_factory=dict)
+@@ -173,6 +177,7 @@
+         self.order=start_order; self.row=0; self.seconds=0.0; self.rows=0
+         self.xm_next_pat_start_row=0
+         self.ended_reason=''; self.warnings=[]
++        self.mod_pending_oor_delay={}
+ 
+     def _next_255(self,start):
+         for i in range(start,len(self.m.orders)):
+@@ -232,7 +237,24 @@
+                 if raw: st.mem[cmd]=raw
+                 return raw or st.mem.get(cmd,0)
+             return raw
+-        # XM / MOD. XM has several deliberately unlinked FT2 memories.
++        if self.fmt=='MOD':
++            # ProTracker memory is deliberately sparse. 1xx/2xx/Axy and the
++            # volume half of 5xy/6xy do NOT recall parameter 00. Tone-porta,
++            # vibrato nibbles and 9xx do have memory.
++            if cmd==CMD_G:
++                p=raw or st.g_mem
++                if raw: st.g_mem=raw
++                return p
++            if cmd==CMD_H:
++                if raw & 0xF0: st.vib_speed=(raw>>4)&15
++                if raw & 0x0F: st.vib_depth=raw&15
++                return (st.vib_speed<<4)|st.vib_depth
++            if cmd==CMD_O:
++                p=raw or st.o_mem
++                if raw: st.o_mem=raw
++                return p
++            return raw
++        # XM. FT2 has several deliberately unlinked memories.
+         if cmd==CMD_G:
+             p=raw or st.g_mem
+             if raw: st.g_mem=raw
+@@ -327,6 +349,17 @@
+         si=(int(km[key]) if key<len(km) else 0)
+         return ids[si] if 0<=si<len(ids) and ids[si] in self.m.samples else None
+ 
++    def _mod_period(self,ins,noteidx,ft_override=None):
++        smp=self.m.samples[ins]
++        ft=int(getattr(smp,'mod_finetune',0)) if ft_override is None else int(ft_override)&15
++        # Internal note 48 is C-2 / ProTracker period 428.  The tuned table is
++        # one octave above that reference and is shifted by note octave.
++        octave=(int(noteidx)-24)//12; semi=int(noteidx)%12
++        base=self.MOD_TUNED_PERIODS[(ft&15)*12+semi]
++        if octave>=0: per=base>>octave
++        else: per=base<<(-octave)
++        return float(max(1,per))
++
+     def _period(self,ins,noteidx):
+         s=self.m.samples[ins]
+         freq=s.c2spd*(2.0**((noteidx-48)/12.0))
+@@ -349,6 +382,24 @@
+         # period_q is exactly four times the physical/reference period.
+         return core.Compiler._pitch_regs(max(0.25,float(period_q)/4.0))
+ 
++    MOD_TUNED_PERIODS=(
++        1712,1616,1524,1440,1356,1280,1208,1140,1076,1016,960,907,
++        1700,1604,1514,1430,1348,1274,1202,1134,1070,1010,954,900,
++        1688,1592,1504,1418,1340,1264,1194,1126,1064,1004,948,894,
++        1676,1582,1492,1408,1330,1256,1184,1118,1056,996,940,888,
++        1664,1570,1482,1398,1320,1246,1176,1110,1048,990,934,882,
++        1652,1558,1472,1388,1310,1238,1168,1102,1040,982,926,874,
++        1640,1548,1460,1378,1302,1228,1160,1094,1032,974,920,868,
++        1628,1536,1450,1368,1292,1220,1150,1086,1026,968,914,862,
++        1814,1712,1616,1524,1440,1356,1280,1208,1140,1076,1016,960,
++        1800,1700,1604,1514,1430,1350,1272,1202,1134,1070,1010,954,
++        1788,1688,1592,1504,1418,1340,1264,1194,1126,1064,1004,948,
++        1774,1676,1582,1492,1408,1330,1256,1184,1118,1056,996,940,
++        1762,1664,1570,1482,1398,1320,1246,1176,1110,1048,988,934,
++        1750,1652,1558,1472,1388,1310,1238,1168,1102,1040,982,926,
++        1736,1640,1548,1460,1378,1302,1228,1160,1094,1032,974,920,
++        1724,1628,1536,1450,1368,1292,1220,1150,1086,1026,968,914)
++
+     XM_AMIGA_TABLE=(907,900,894,887,881,875,868,862,856,850,844,838,832,826,820,814,
+         808,802,796,791,785,779,774,768,762,757,752,746,741,736,730,725,720,715,709,704,
+         699,694,689,684,678,675,670,665,660,655,651,646,640,636,632,628,623,619,614,610,
+@@ -417,6 +468,17 @@
+                 p = st.o_mem  # FT2: 9xx without a note does not store new offset memory
+             else:
+                 p=self._resolve(st,cmd,p)
++        if self.fmt=='MOD' and semantic_cmd in (CMD_D,CMD_K,CMD_L):
++            # ProTracker Axy / 5xy / 6xy uses high-nibble priority when both
++            # nibbles are non-zero; this is not S3M fine-slide syntax.
++            p=(p & 0xF0) if (p & 0xF0) else (p & 0x0F)
++        if self.fmt=='MOD' and semantic_cmd==CMD_X and int(getattr(e,'mod_raw_effect',-1))==0x8 and bool(getattr(self.m,'mod_fix_7bit_panning',False)):
++            if p==0xA4:
++                # Paula surround has no direct OPL4 equivalent; centre it.
++                p=0x80
++                self.warnings.append(f'row event on channel {e.ch}: MOD surround pan 8A4 approximated as centre')
++            else:
++                p=min(255,p*2)
+         if semantic_cmd==CMD_XM_XFINE_DOWN:
+             cmd=CMD_E; p=0xE0|(p&15)
+         elif semantic_cmd==CMD_XM_XFINE_UP:
+@@ -432,10 +494,30 @@
+         sx=(p>>4)&15 if cmd==CMD_S else -1
+         sl=p&15 if cmd==CMD_S else 0
+ 
++        # MOD extended commands. Keep ProTracker semantics separate from the
++        # S3M engine: 1xx/2xx/Axy are ordinary effects, while E1/E2/EA/EB
++        # are dedicated tick-0 fine effects.
++        if self.fmt=='MOD' and cmd in (CMD_MOD_FILTER,CMD_MOD_FINE_UP,CMD_MOD_FINE_DOWN,CMD_MOD_GLISS,CMD_MOD_VIBWAVE,CMD_MOD_FINETUNE,CMD_MOD_PATLOOP,CMD_MOD_TREMWAVE,CMD_MOD_PAN4,CMD_MOD_FINEVOLUP,CMD_MOD_FINEVOLDOWN,CMD_MOD_PATDELAY,CMD_MOD_INVERT):
++            if cmd==CMD_MOD_FILTER:
++                pass  # Amiga LED filter has no OPL4 analogue.
++            elif cmd in (CMD_MOD_FINE_UP,CMD_MOD_FINE_DOWN,CMD_MOD_GLISS,CMD_MOD_VIBWAVE,CMD_MOD_TREMWAVE,CMD_MOD_FINEVOLUP,CMD_MOD_FINEVOLDOWN,CMD_MOD_PATDELAY):
++                effects.append((cmd,p&15,None))
++            elif cmd==CMD_MOD_FINETUNE:
++                st.mod_finetune=p&15
++                effects.append((CMD_MOD_FINETUNE,p&15,None))
++            elif cmd==CMD_MOD_PATLOOP:
++                pass  # flattened in compile()
++            elif cmd==CMD_MOD_PAN4:
++                if not bool(getattr(self.m,'mod_ignore_panning',False)):
++                    effects.append((CMD_X,((p&15)*255+7)//15,None))
++            elif cmd==CMD_MOD_INVERT:
++                # Store OpenMPT/PT's actual funk-delay increment rather than
++                # the nibble, so the Z80 runtime needs no 16-byte speed table.
++                effects.append((cmd,MOD_EFX_SPEED[p&15],None))
+         # S3M extended commands. State-only commands are encoded as private
+         # semantic commands and consumed by the Z80 parser; they do not waste
+         # a realtime effect slot.
+-        if cmd==CMD_S:
++        elif cmd==CMD_S:
+             if sx==0x1: effects.append((CMD_GLISS,sl,None))
+             elif sx==0x2:
+                 st.finetune_c5=S3M_FINETUNE[sl]
+@@ -472,6 +554,9 @@
+         elif cmd not in (0,CMD_B,CMD_C,CMD_O):
+             effects.append((cmd,p,None))
+ 
++        if self.fmt=='MOD' and bool(getattr(self.m,'mod_ignore_panning',False)):
++            effects=[fx for fx in effects if fx[0] != CMD_X]
++
+         # S3M volume-column 128..192 is panning 0..64.
+         vpan=getattr(e,'volume_pan',None)
+         if vpan is not None and self.fmt in S3M_FMTS:
+@@ -553,9 +638,13 @@
+             if 0x11 <= vc <= 0x50:
+                 effects.insert(0,(CMD_XM_ROWVOL,1,None))
+         if valid_ins and not (cmd==CMD_S and sx==0x2):
+-            # Loading an instrument/sample restores its native C5 speed; S2x on
+-            # the same row then overrides it again below.
++            # Loading an instrument/sample restores its native tuning.
+             st.finetune_c5=0
++            if self.fmt=='MOD':
++                st.mod_finetune=int(getattr(self.m.samples[valid_ins],'mod_finetune',0)) & 15
++                # Runtime marker: PT changes the channel finetune on every
++                # literal instrument and resets the EFx byte offset there.
++                effects.insert(0,(CMD_MOD_INSTR,st.mod_finetune,None))
+ 
+         # Immediate volume semantics. FT2 new-instrument + tone-portamento
+         # ignores the new instrument but reloads the OLD instrument settings.
+@@ -573,6 +662,7 @@
+             a.volume=min(64,a.volume)
+ 
+         xm_ft_override=(((p & 15)-8)*16 if self.fmt=='XM' and cmd==CMD_XM_FINETUNE and e.note is not None and e.note<254 else None)
++        mod_ft_override=((p&15) if self.fmt=='MOD' and cmd==CMD_MOD_FINETUNE else None)
+         if e.note is not None and not k00_suppresses_note and not xm_out_of_range_delay and not xm_note_limit_bad:
+             if e.note==254:
+                 a.note_kind='delay_off' if delay>=0 else 'off'
+@@ -602,12 +692,10 @@
+                     freq=float(c5)*(2.0**((ni-48)/12.0))
+                     lo,hi=core.Compiler._pitch_regs(core.PERIOD_CLOCK/max(1.0,freq))
+                 else:
+-                    period=self._period(use_ins,ni)
+-                    # A finetune-0 MOD stores the exact Paula period in the pattern.
+-                    if self.fmt=='MOD' and getattr(e,'mod_period',0):
+-                        default_c2=int(round(core.PERIOD_CLOCK/428.0))
+-                        if self.m.samples[use_ins].c2spd==default_c2:
+-                            period=float(e.mod_period)
++                    if self.fmt=='MOD':
++                        period=self._mod_period(use_ins,ni,mod_ft_override if mod_ft_override is not None else st.mod_finetune)
++                    else:
++                        period=self._period(use_ins,ni)
+                     pq=max(1,min(65535,int(round(period*4.0))))
+                     lo,hi=core.Compiler._pitch_regs(period)
+                 wants_porta=row_wants_porta
+@@ -628,7 +716,18 @@
+                         # keeping the old pitch and sliding towards the new note.
+                         wave=self.bank.get(valid_ins,0)
+                         a.note_kind='porta_swap'
+-                        a.tone=wave-384
++                        a.tone=(wave-384)
++                    elif (self.fmt=='MOD' and bool(getattr(self.m,'mod_sample_swap',False)) and delay<0
++                          and valid_ins and old_ins and valid_ins!=old_ins):
++                        # OPL4 has no per-voice sample-end interrupt. Preserve
++                        # PT's sample selection and porta target and switch the
++                        # wave at the row boundary (documented approximation).
++                        wave=self.bank.get(valid_ins,0)
++                        a.note_kind='porta_swap'
++                        a.tone=(wave-384) | (0x80 if self.m.samples[valid_ins].looped else 0)
++                        if not getattr(self,'_warned_mod_swap_boundary',False):
++                            self.warnings.append('ProTracker sample swaps are applied at the tracker row boundary; OPL4 exposes no sample-end callback')
++                            self._warned_mod_swap_boundary=True
+                     else:
+                         a.note_kind='delay_porta' if delay>=0 else 'porta'
+                     a.period_q=pq
+@@ -696,7 +795,16 @@
+                 and (e.note is None or e.note==255) and delay<0):
+             wave=self.bank.get(valid_ins,0)
+             a.note_kind='sample_swap'
+-            a.tone=wave-384
++            a.tone=(wave-384)
++
++        if (self.fmt=='MOD' and bool(getattr(self.m,'mod_sample_swap',False))
++                and valid_ins and old_ins and valid_ins!=old_ins
++                and e.note is None and delay<0):
++            wave=self.bank.get(valid_ins,0)
++            a.note_kind='sample_swap'; a.tone=(wave-384) | (0x80 if self.m.samples[valid_ins].looped else 0)
++            if not getattr(self,'_warned_mod_swap_boundary',False):
++                self.warnings.append('ProTracker sample swaps are applied at the tracker row boundary; OPL4 exposes no sample-end callback')
++                self._warned_mod_swap_boundary=True
+ 
+         # FT2 resets instrument envelope/fadeout/auto-vibrato state on an
+         # instrument-only row and on instrument+tone-portamento. Normal notes
+@@ -730,8 +838,12 @@
+                     p2=self._s3m_period_q(arp_ins,st.note_index+(ep&15),st.finetune_c5)
+                     extra=(p1,p2)
+                 else:
+-                    p1=self._period(arp_ins,st.note_index+((ep>>4)&15))
+-                    p2=self._period(arp_ins,st.note_index+(ep&15))
++                    if self.fmt=='MOD':
++                        p1=self._mod_period(arp_ins,st.note_index+((ep>>4)&15),st.mod_finetune)
++                        p2=self._mod_period(arp_ins,st.note_index+(ep&15),st.mod_finetune)
++                    else:
++                        p1=self._period(arp_ins,st.note_index+((ep>>4)&15))
++                        p2=self._period(arp_ins,st.note_index+(ep&15))
+                     extra=(max(1,min(65535,int(round(p1*4)))),max(1,min(65535,int(round(p2*4)))))
+             outfx.append((ec,ep,extra))
+         a.effects=outfx
+@@ -750,6 +862,8 @@
+                 st.xm_instrument_num=literal_inum
+         elif valid_ins:
+             st.instrument=valid_ins
++        if self.fmt=='MOD' and cmd==CMD_MOD_FINETUNE:
++            st.mod_finetune=p&15
+         # No runtime-relevant action? B/C/O only can disappear completely.
+         if a.note_kind is None and a.volume is None and not a.effects:
+             return None
+@@ -775,10 +889,10 @@
+                 out.append(d); out += struct.pack('<H',a.period_q)
+                 if a.note_kind=='delay_porta': out += bytes((a.delayed_volume&0xFF,a.delay_tick&0x0F))
+             elif a.note_kind=='porta_swap':
+-                out += bytes((d,a.tone&0x7F))
++                out += bytes((d,a.tone&0xFF))
+                 out += struct.pack('<H',a.period_q)
+             elif a.note_kind=='sample_swap':
+-                out += bytes((d,a.tone&0x7F))
++                out += bytes((d,a.tone&0xFF))
+             else:
+                 out.append(d)
+                 if a.note_kind=='delay_off': out += bytes((a.delayed_volume&0xFF,a.delay_tick&0x0F))
+@@ -818,6 +932,16 @@
+             pending_jump=None; pending_break=None; pending_loop_row=None; pending_stop=False; xm_row_delay=0
+             actions=[]
+             row_events=sorted((e for e in evs if e.ch in self.states),key=lambda x:x.ch)
++            # ProTracker quirk: EDx with x>=speed can trigger at the beginning of
++            # the following row, but only if that row has no new note on the channel.
++            if self.fmt=='MOD' and bool(getattr(self.m,'mod_out_of_range_delay',False)) and self.mod_pending_oor_delay:
++                has_note={e.ch for e in row_events if e.note is not None}
++                injected=[]
++                for ch,pe in sorted(self.mod_pending_oor_delay.items()):
++                    if ch not in has_note:
++                        injected.append(core.Event(ch=ch,note=pe.note,ins=pe.ins,vol=pe.vol))
++                self.mod_pending_oor_delay.clear()
++                row_events=sorted(injected+row_events,key=lambda x:x.ch)
+             for e in row_events:
+                 # Resolve B/C parameters directly (no memory in supported profiles).
+                 if e.cmd==CMD_B:
+@@ -833,7 +957,13 @@
+                     pending_stop=True
+                 if self.fmt=='XM' and e.cmd==CMD_XM_PATDELAY:
+                     xm_row_delay=(e.param or 0)&15  # last channel wins in FT2/XM
+-                a=self._event_action(e,self.states[e.ch])
++                event_for_action=e
++                if (self.fmt=='MOD' and bool(getattr(self.m,'mod_out_of_range_delay',False))
++                        and e.cmd==CMD_S and ((e.param or 0)&0xF0)==0xD0
++                        and ((e.param or 0)&15)>=self.speed and e.note is not None):
++                    self.mod_pending_oor_delay[e.ch]=core.Event(ch=e.ch,note=e.note,ins=e.ins,vol=e.vol)
++                    event_for_action=core.Event(ch=e.ch,cmd=e.cmd,param=e.param)
++                a=self._event_action(event_for_action,self.states[e.ch])
+                 if a: actions.append(a)
+                 # SBx pattern loop is flattened at conversion time. ST3 uses
+                 # channel 0's loop memory globally; IT/modern S3M keep per-channel state.
+@@ -866,6 +996,18 @@
+                         lst.loop_count=lp
+                         pending_loop_row=lst.loop_start_row
+                         if self.xm_ft2_e60_restart: self.xm_next_pat_start_row=lst.loop_start_row
++                if self.fmt=='MOD' and e.cmd==CMD_MOD_PATLOOP:
++                    lp=(e.param or 0)&15; lst=self.states[e.ch]
++                    if lp==0:
++                        lst.loop_start_row=self.row
++                    elif lst.loop_count:
++                        lst.loop_count-=1
++                        if lst.loop_count:
++                            pending_loop_row=lst.loop_start_row
++                    else:
++                        lst.loop_count=lp
++                        pending_loop_row=lst.loop_start_row
++
+                 # Global tempo/speed commands are effective on this row.
+                 if e.cmd==CMD_A and (e.param or 0): self.speed=max(1,e.param or 0)
+                 if e.cmd==CMD_T and (e.param or 0)>=32: self.tempo=max(32,e.param or 0)
+@@ -874,7 +1016,8 @@
+             for a in actions: rb+=self._encode_action(a)
+             rows_encoded.append(bytes(rb)); max_events=max(max_events,len(actions)); total_events+=len(actions)
+             self.rows+=1
+-            self.seconds += self.speed*(1+xm_row_delay)*2.5/self.tempo
++            mod_row_delay=max(((e.param or 0)&15 for e in row_events if self.fmt=='MOD' and e.cmd==CMD_MOD_PATDELAY),default=0)
++            self.seconds += self.speed*(1+xm_row_delay+mod_row_delay)*2.5/self.tempo
+             if pending_stop:
+                 self.ended_reason='FT2 F00 stop'; break
+             # advance flattened playback order
+@@ -902,6 +1045,11 @@
+                 if self.start_order<=restart<self.stop_order:
+                     self.order=restart; self.row=0
+                     continue
++            if self.fmt=='MOD' and self.order>=self.stop_order and self.stop_order==len(self.m.orders) and bool(getattr(self.m,'mod_restart_valid',False)):
++                restart=int(getattr(self.m,'mod_restart',0))
++                if self.start_order<=restart<self.stop_order:
++                    self.order=restart; self.row=0
++                    continue
+             if self.order>=self.stop_order or self.order>=len(self.m.orders) or self.m.orders[self.order]==255:
+                 self.ended_reason='end of subsong/order list'; break
+         if not self.ended_reason:
+@@ -916,6 +1064,8 @@
+         st3_fast = (self.fmt=='S3M' and int(getattr(self.m,'s3m_cwtv',0))==0x1300)
+         stream_flags = 1 if (self.fmt in S3M_FMTS and (bool(self.m.flags & 0x40) or st3_fast)) else 0
+         if self.fmt in S3M_FMTS and bool(getattr(self.m,'s3m_old_vibrato',False)): stream_flags |= 0x04
++        if self.fmt=='MOD' and bool(getattr(self.m,'mod_pt_mode',False)): stream_flags |= 0x01
++        if self.fmt=='MOD' and bool(getattr(self.m,'mod_ft2_tremolo_ramp',False)): stream_flags |= 0x02
+         if self.xm_linear: stream_flags |= 0x02
+         if self.fmt=='XM':
+             if self.xm_ft2_arpeggio: stream_flags |= 0x04
+@@ -936,6 +1086,7 @@
+             'semantic_stream_bytes':len(stream),'duration_seconds':self.seconds,'end_reason':self.ended_reason,
+             'xm_linear_periods':self.xm_linear,'xm_tracker_profile':getattr(self.m,'xm_profile',None),
+             'xm_oxm':bool(getattr(self.m,'xm_oxm',False)),
++            'mod_profile':getattr(self.m,'mod_profile',None),'mod_signature':getattr(self.m,'mod_signature',None),
+             'xm_ft2_arpeggio':self.xm_ft2_arpeggio if self.fmt=='XM' else None,
+             'xm_ft2_offset_oor':self.xm_ft2_offset_oor if self.fmt=='XM' else None,
+             'xm_ft2_envelope_escape':self.xm_ft2_envelope_escape if self.fmt=='XM' else None,
+--- /mnt/data/Tracker2KSP_v0.4.7_XM_EDGE_COMPLETE/tracker2ksp.py	2026-08-22 16:15:38.381843690 +0000
++++ tracker2ksp.py	2026-08-22 17:31:39.748313403 +0000
+@@ -19,9 +19,17 @@
+ PAGE_LOAD=0x4000
+ PAGE_SIZE=0x4000
+ STREAM_BASE=0x6800
++MOD_STREAM_BASE=0x6A00
+ STREAM_OFFSET=STREAM_BASE-PAGE_LOAD
+ STREAM_DATA_OFFSET=STREAM_OFFSET+2
+ STREAM_PAGE_CAPACITY=PAGE_SIZE-STREAM_DATA_OFFSET
++
++def stream_base_for(source_format:str)->int:
++    return MOD_STREAM_BASE if source_format=='MOD' else STREAM_BASE
++
++def stream_page_capacity_for(source_format:str)->int:
++    base=stream_base_for(source_format)
++    return PAGE_SIZE-((base-PAGE_LOAD)+2)
+ PAGE_TOTAL_CFG=0x63FC
+ DYNAMIC_GATEWAY_PLACEHOLDER=0x7FF0
+ HW_OPL4=0x40
+@@ -69,6 +77,16 @@
+     if not s.looped:
+         payload=s.data[off:]+b'\0'; return payload,s.length-off,len(payload)
+     lb,le=s.loop_begin,s.loop_end
++    # ProTracker one-shot loops: if loop start is zero, Paula first plays the
++    # complete sample and only then loops 0..loop_end. Represent that exactly
++    # on OPL4 by appending one copy of the loop and making the appended copy
++    # the hardware loop. Offset starts still play the remaining tail first.
++    if (getattr(module,'source_format','')=='MOD' and bool(getattr(module,'mod_one_shot_loops',False))
++            and lb==0 and le < s.length):
++        first=s.data[off:s.length] if off < s.length else b''
++        loop=s.data[0:le]
++        payload=(first+loop) or b'\0'
++        return payload,len(first),len(payload)
+     if off<=lb:
+         payload=s.data[off:le] or b'\0'; return payload,lb-off,len(payload)
+     if off<le:
+@@ -87,6 +105,9 @@
+         return base_addr,0,1
+     if not s.looped:
+         return base_addr+off,s.length-off,s.length-off+1
++    if (getattr(module,'source_format','')=='MOD' and bool(getattr(module,'mod_one_shot_loops',False))
++            and s.loop_begin==0 and off==0 and s.loop_end < s.length):
++        return base_addr,s.length,s.length+s.loop_end
+     # SharedPayloadWaveBank only calls this for off <= loop_begin.
+     return base_addr+off,s.loop_begin-off,s.loop_end-off
+ 
+@@ -270,7 +291,7 @@
+     return {'tone_addr':tone_addr,'tone_map':bytes(tone_map),'ptr_addr':ptr_addr,'ptrs':bytes(ptrs),
+             'data_addr':data_addr,'blob':blob,'limit':limit,'profiles':len(profiles),'bytes':len(blob)}
+ 
+-def make_engine_template(module:core.Module,page_count:int,source_format:str,waves:list[dict]):
++def make_engine_template(module:core.Module,page_count:int,source_format:str,waves:list[dict],stream_base:int|None=None):
+     if source_format=='S3M':
+         engine_bin=S3M_ENGINE_BIN; sym=S3M_ENGINE_SYM
+     elif source_format in ('IT-S3M','MODERN-S3M'):
+@@ -283,8 +304,10 @@
+         raise ValueError(f'unsupported tracker engine format {source_format}')
+     use_xm_engine=(source_format=='XM')
+     t=bytearray(PAGE_SIZE)
+-    if len(engine_bin)>STREAM_OFFSET:
+-        raise ValueError(f'compact engine is {len(engine_bin)} bytes and overlaps 0x{STREAM_BASE:04X} dynamic window')
++    if stream_base is None: stream_base=stream_base_for(source_format)
++    stream_offset=stream_base-PAGE_LOAD
++    if len(engine_bin)>stream_offset:
++        raise ValueError(f'compact engine is {len(engine_bin)} bytes and overlaps 0x{stream_base:04X} dynamic window')
+     t[:len(engine_bin)]=engine_bin
+     struct.pack_into('<H',t,PAGE_TOTAL_CFG-PAGE_LOAD,page_count)
+     vo=sym['vol_lut']-PAGE_LOAD
+@@ -299,19 +322,20 @@
+             t[off:off+len(pinfo['blob'])]=pinfo['blob']
+     return t,engine_bin,sym,pinfo
+ 
+-def split_semantic_pages(stream:bytes,rows:list[bytes]):
++def split_semantic_pages(stream:bytes,rows:list[bytes],source_format:str=None):
+     if len(stream)<compact_stream.HEADER_SIZE: raise ValueError('compact stream header truncated')
+     alias_count=stream[38] if stream[4]>=3 else 0
+     header_len=compact_stream.HEADER_SIZE + alias_count*8
+     header=stream[:header_len]
++    page_capacity=stream_page_capacity_for(source_format or '')
+     pages=[]; cur=bytearray(header)
+     for row in rows:
+-        if len(row)>STREAM_PAGE_CAPACITY:
++        if len(row)>page_capacity:
+             raise ValueError(f'a single compact row is {len(row)} bytes, larger than dynamic page capacity')
+-        if len(cur)+len(row)>STREAM_PAGE_CAPACITY:
++        if len(cur)+len(row)>page_capacity:
+             pages.append(bytes(cur)); cur=bytearray()
+         cur+=row
+-    if len(cur)+1>STREAM_PAGE_CAPACITY:
++    if len(cur)+1>page_capacity:
+         pages.append(bytes(cur)); cur=bytearray()
+     cur.append(0xFF); pages.append(bytes(cur))
+     if len(pages)>MAX_SUPPORTED_PAGES:
+@@ -319,14 +343,16 @@
+     return pages
+ 
+ def build_ksp(module,source_format,stream,rows,semantic_stats,mwk,waves,title,source_name,output,compression):
+-    chunks=split_semantic_pages(stream,rows); page_count=len(chunks)
+-    template,engine_bin,engine_sym,profile_info=make_engine_template(module,page_count,source_format,waves)
++    stream_base=stream_base_for(source_format); stream_offset=stream_base-PAGE_LOAD
++    page_capacity=stream_page_capacity_for(source_format)
++    chunks=split_semantic_pages(stream,rows,source_format); page_count=len(chunks)
++    template,engine_bin,engine_sym,profile_info=make_engine_template(module,page_count,source_format,waves,stream_base)
+     records=[]; payloads=[]
+     for i,ch in enumerate(chunks):
+         window=struct.pack('<H',len(ch))+ch
+-        overlay=struct.pack('<HH',STREAM_OFFSET,len(window))+window
++        overlay=struct.pack('<HH',stream_offset,len(window))+window
+         stored,comp=maybe_zx0(overlay,compression)
+-        runtime=bytearray(template); runtime[STREAM_OFFSET:STREAM_OFFSET+len(window)]=window
++        runtime=bytearray(template); runtime[stream_offset:stream_offset+len(window)]=window
+         records.append({'index':i,'stream_bytes':len(ch),'overlay_bytes':len(overlay),'stored_bytes':len(stored),
+                         'compression':comp,'runtime_crc':crc32(runtime)})
+         payloads.append(stored)
+@@ -340,7 +366,7 @@
+         'format=KSP 1.05',f'engine=native Z80 {source_format}-specific multi-page realtime engine',
+         'conversion=compact rows/effects + shared MWK PCM payloads + INIT-time OPL4 header aliases; no rendered PCM and no pre-expanded tick register stream',
+         f'initial_speed={module.speed}',f'initial_tempo={module.tempo}',f'active_channels={len(module.active_channels)}',
+-        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.4.7'
++        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.4.8'
+     ])+'\n'; meta=metadata.encode()
+     mwkp,mcomp=maybe_zx0(mwk,compression)
+     engine_off=80; page_off=engine_off+64; track_off=page_off+page_count*24; resource_off=track_off+32
+@@ -351,7 +377,7 @@
+     engines=bytearray(64)
+     struct.pack_into('<II',engines,0,ENGINE_MWK_REQUIRED|ENGINE_DYNAMIC_PAGES,HW_OPL4)
+     struct.pack_into('<HHHHHHHHHHHH',engines,8,1,60,PAGE_LOAD,PAGE_SIZE,engine_sym['init'],engine_sym['play'],engine_sym['stop'],
+-                     DYNAMIC_GATEWAY_PLACEHOLDER,STREAM_BASE,0,page_count,0)
++                     DYNAMIC_GATEWAY_PLACEHOLDER,stream_base,0,page_count,0)
+     engines[32]=COMP_NONE
+     struct.pack_into('<IIIII',engines,36,template_off,len(template),len(template),crc32(template),ename)
+     pages=bytearray(page_count*24)
+@@ -373,17 +399,17 @@
+     assert len(out)==file_size
+     output.parent.mkdir(parents=True,exist_ok=True); output.write_bytes(out)
+     packed_pages=sum(r['stored_bytes'] for r in records); mapper_segments=(packed_pages+PAGE_SIZE-1)//PAGE_SIZE
+-    return {'status':'built','format':'KSP 1.05','converter_version':'0.4.7','input':str(module.path),'output':str(output),
++    return {'status':'built','format':'KSP 1.05','converter_version':'0.4.8','input':str(module.path),'output':str(output),
+             'title':title,'duration_ms':round(semantic_stats['duration_seconds']*1000),'output_bytes':len(out),'output_sha256':sha256(out),
+             'engine':{'init':hex(engine_sym['init']),'play':hex(engine_sym['play']),'stop':hex(engine_sym['stop']),'play_hz':60,'hardware':'OPL4',
+-                      'resident_range':'0x4000-0x67FF (code/state + extended tracker state; persistent tracker state handoff via OPL4 RAM 0x2FFC00)','dynamic_window':'0x6800-0x7FFF','binary_bytes':len(engine_bin),'xm_ft2_profiles':profile_info['profiles'] if profile_info else 0,'xm_profile_bytes':profile_info['bytes'] if profile_info else 0},
+-            'semantic_stream':{**semantic_stats,'raw_bytes':len(stream),'page_count':page_count,'page_capacity':STREAM_PAGE_CAPACITY,
++                      'resident_range':f'0x4000-0x{stream_base-1:04X} (code/state; persistent tracker state handoff via OPL4 RAM 0x2FFC00)','dynamic_window':f'0x{stream_base:04X}-0x7FFF','binary_bytes':len(engine_bin),'xm_ft2_profiles':profile_info['profiles'] if profile_info else 0,'xm_profile_bytes':profile_info['bytes'] if profile_info else 0},
++            'semantic_stream':{**semantic_stats,'raw_bytes':len(stream),'page_count':page_count,'page_capacity':page_capacity,
+                                'packed_page_bytes':packed_pages,'mapper_segments_for_preload':mapper_segments,
+                                'ksp1play_preload_eligible':page_count<=MAX_PRELOADED_PAGES and mapper_segments<=12,
+                                'pages':[{k:('ZX0' if v==1 else 'none') if k=='compression' else v for k,v in r.items() if k!='payload_offset'} for r in records]},
+             'mwk':{'revision':'0x0C','custom_tones':len(waves),'pcm_payload_bytes':sum(int(w['payload_bytes']) for w in waves),'shared_alias_tones':sum(1 for w in waves if w.get('init_header_patch')),'raw_bytes':len(mwk),'stored_bytes':len(mwkp),'compression':'ZX0' if mcomp else 'none','waves':waves},
+             'ksp_format_changes_required':False,'ksp1play_0_48_changes_required':False,
+-            'tracker_profile':{'selected':source_format,'s3m_cwtv':(f'0x{getattr(module,"s3m_cwtv",0):04X}' if source_format in ('S3M','IT-S3M','MODERN-S3M') else None),'creator':getattr(module,'s3m_tracker_name',source_format),'default_panning_table':bool(getattr(module,'s3m_has_default_panning',False))},
++            'tracker_profile':{'selected':(getattr(module,'mod_profile',source_format) if source_format=='MOD' else source_format),'s3m_cwtv':(f'0x{getattr(module,"s3m_cwtv",0):04X}' if source_format in ('S3M','IT-S3M','MODERN-S3M') else None),'creator':(getattr(module,'mod_profile','MOD') if source_format=='MOD' else getattr(module,'s3m_tracker_name',source_format)),'default_panning_table':bool(getattr(module,'s3m_has_default_panning',False))},
+             'accuracy_notes':['strict Scream Tracker 3 S3Ms use a dedicated ST3 engine with ST3 shared-effect-memory, combined-slide and retrigger timing rules','Impulse Tracker-authored S3Ms use the IT-S3M engine with command-local effect memory','modern/non-ST3 S3Ms (OpenMPT/Schism/Orpheus-style) are kept out of the strict ST3 quirk profile and use the compatible S3M runtime','MOD uses a separate ProTracker/Paula engine binary','XM uses a separate FastTracker II engine with XM instrument/envelope state independent of linear-vs-Amiga frequency-table selection','ordinary note pitches are converted to OPL4 registers on the host; realtime pitch effects remain in the selected tracker engine domain']}
+ 
+ def main():
+--- /mnt/data/Tracker2KSP_v0.4.7_XM_EDGE_COMPLETE/source/compact_engine_mod.asm	2026-08-22 13:51:26.000000000 +0000
++++ source/compact_engine_mod.asm	2026-08-22 17:28:09.050258060 +0000
+@@ -1,8 +1,8 @@
+ 
+         org 04000h
+ 
+-STREAM_PAGE     equ 06800h
+-STREAM_DATA     equ 06802h
++STREAM_PAGE     equ 06A00h
++STREAM_DATA     equ 06A02h
+ HEADER_SIZE     equ 39
+ DYNAMIC_GATEWAY equ 07FF0h
+ 
+@@ -33,8 +33,13 @@
+ FX_SLOT         equ 05F1Dh
+ FAST_VOL        equ 05F1Eh
+ ROW_COUNT_TMP   equ 05F1Fh
+-LINEAR_XM       equ 05F21h
++MOD_FLAGS       equ 05F21h      ; bit0: ProTracker tempo changes on tick 1
+ PREV_PFX        equ 05F22h      ; 24 bytes: bit0 previous arpeggio, bit1 previous vibrato
++; MOD-only state in the free gap immediately after the pitch LUT (ends 5F63h).
++MOD_FINETUNE    equ 05F64h      ; 24 bytes, ProTracker finetune nibble 0..15
++EFX_SPEED       equ 05F7Ch      ; 24 bytes, PT funk delay increment (0..128)
++EFX_DELAY       equ 05F94h      ; 24 bytes, accumulated funk delay
++EFX_OFFSET      equ 05FACh      ; 24 words, current byte offset inside sample loop
+ 
+ PERIOD_Q        equ 06000h      ; 24 words
+ TARGET_Q        equ 06030h      ; 24 words
+@@ -58,9 +63,27 @@
+ PEND_PLO        equ 06240h
+ PEND_PHI        equ 06258h
+ PEND_VOL        equ 06270h
++TREMSPD         equ 06288h      ; 24 bytes
++TREMDEP         equ 062A0h      ; 24 bytes
++TREMPH          equ 062B8h      ; 24 bytes
++VIBWAVE         equ 062D0h      ; 24 bytes, E4x type (bit2=no phase reset)
++TREMWAVE        equ 062E8h      ; 24 bytes, E7x type (bit2=no phase reset)
++GLISS           equ 06300h      ; 24 bytes, E3x
++MOD_PAT_DELAY   equ 06318h
++ROW_TICK_HI     equ 06319h
++ROW_LIMIT       equ 0631Ah      ; word, ticks in current row
++PENDING_TEMPO   equ 0631Ch      ; word
++PENDING_TEMPO_F equ 0631Eh
++GLISS_OUT       equ 06320h      ; 24 words: audible semitone-snapped porta period
++GLISS_TMP       equ 06350h      ; word scratch below alias installer
++GLISS_ACC       equ 06352h      ; word scratch
++; Scratch used by EFx OPL4-RAM mutation. Overwritten on each call.
++EFX_HDR         equ 06354h      ; seven-byte custom-wave header copy
++EFX_ADDR        equ 0635Bh      ; three-byte 22-bit address high/mid/low
++EFX_LOOPLEN     equ 0635Eh      ; word
+ PAGE_TOTAL_CFG  equ 063FCh      ; patched by converter
+ STATE_CLEAR     equ 05F00h
+-STATE_CLEAR_END equ 06288h
++STATE_CLEAR_END equ 06350h
+ 
+ CMD_A           equ 1
+ CMD_D           equ 4
+@@ -74,6 +97,18 @@
+ CMD_T           equ 20
+ CMD_X           equ 24
+ CMD_CUT         equ 27
++CMD_MOD_TREMOLO equ 40
++CMD_MOD_FINE_UP equ 73
++CMD_MOD_FINE_DN equ 74
++CMD_MOD_GLISS   equ 75
++CMD_MOD_VIBWAVE equ 76
++CMD_MOD_FINETUNE equ 77
++CMD_MOD_TREMWAVE equ 79
++CMD_MOD_FINEVOLUP equ 81
++CMD_MOD_FINEVOLDN equ 82
++CMD_MOD_PATDELAY equ 83
++CMD_MOD_INVERT  equ 84
++CMD_MOD_INSTR   equ 85
+ 
+ init:
+         xor a
+@@ -101,14 +136,12 @@
+ init_speed_ok:
+         ld (SPEED),a
+         ld a,(STREAM_DATA+7)
+-        ld b,a
+-        and 1
++        ld (MOD_FLAGS),a
++        xor a
+         ld (FAST_VOL),a
+-        ld a,b
+-        and 2
+-        ld (LINEAR_XM),a
+         ld hl,(STREAM_DATA+8)
+         ld (TEMPO),hl
++        call update_row_limit
+         ld hl,STREAM_DATA+14
+         ld de,PAN
+         ld bc,24
+@@ -157,34 +190,69 @@
+ 
+ process_tick:
+         ld a,(ROW_TICK)
+-        or a
++        ld b,a
++        ld a,(ROW_TICK_HI)
++        or b
+         jr nz,process_have_row
+         call parse_row
+         ld a,(ENDED)
+         or a
+         ret nz
+ process_have_row:
++        ; Canonical ProTracker changes CIA tempo after tick 0. Generic MOD
++        ; clones retain immediate Fxx>=20 behaviour.
++        ld a,(ROW_TICK_HI)
++        or a
++        jr nz,process_no_pending_tempo
++        ld a,(ROW_TICK)
++        cp 1
++        jr nz,process_no_pending_tempo
++        ld a,(PENDING_TEMPO_F)
++        or a
++        jr z,process_no_pending_tempo
++        ld hl,(PENDING_TEMPO)
++        ld (TEMPO),hl
++        xor a
++        ld (PENDING_TEMPO_F),a
++process_no_pending_tempo:
+         ld a,(ROW_TICK)
+         ld (TICK_NOW),a
+         call process_all_channels
++        ; increment 16-bit row tick
+         ld a,(ROW_TICK)
+         inc a
++        ld (ROW_TICK),a
++        jr nz,process_tick_no_carry
++        ld a,(ROW_TICK_HI)
++        inc a
++        ld (ROW_TICK_HI),a
++process_tick_no_carry:
++        ; End row when ROW_TICK >= ROW_LIMIT.
++        ld a,(ROW_TICK_HI)
+         ld b,a
+-        ld a,(SPEED)
+-        cp b
+-        jr c,process_row_done
+-        jr z,process_row_done
++        ld a,(ROW_TICK)
++        ld c,a
++        ld hl,(ROW_LIMIT)
+         ld a,b
+-        ld (ROW_TICK),a
+-        ret
++        cp h
++        jr c,process_tick_keep
++        jr nz,process_row_done
++        ld a,c
++        cp l
++        jr c,process_tick_keep
+ process_row_done:
+         xor a
+         ld (ROW_TICK),a
++        ld (ROW_TICK_HI),a
++        ret
++process_tick_keep:
+         ret
+ 
+ parse_row:
+         ; Clear row-local effects and expire delayed actions from a malformed prior row.
+         xor a
++        ld (MOD_PAT_DELAY),a
++        ld (PENDING_TEMPO_F),a
+         ld hl,CMD1
+         ld de,CMD1+1
+         ld bc,96-1
+@@ -203,7 +271,7 @@
+         jp z,stream_end
+         ld (ROW_COUNT_TMP),a
+         or a
+-        ret z
++        jr z,parse_row_setup_done
+ parse_event_loop:
+         call read_stream_byte
+         jp c,stream_end
+@@ -243,6 +311,22 @@
+         dec a
+         ld (ROW_COUNT_TMP),a
+         jr nz,parse_event_loop
++parse_row_setup_done:
++        call update_row_limit
++        ret
++
++update_row_limit:
++        ld a,(MOD_PAT_DELAY)
++        inc a
++        ld b,a
++        ld a,(SPEED)
++        ld e,a
++        ld d,0
++        ld hl,0
++update_row_limit_loop:
++        add hl,de
++        djnz update_row_limit_loop
++        ld (ROW_LIMIT),hl
+         ret
+ 
+ parse_note:
+@@ -257,6 +341,10 @@
+         jr z,parse_note_porta
+         cp 081h
+         jr z,parse_note_delayed_porta
++        cp 082h
++        jr z,parse_note_porta_swap
++        cp 083h
++        jr z,parse_note_sample_swap
+         ; Stream v4: 00 normal / 40 delayed normal, followed by a
+         ; separate custom-wave index (0..127 => OPL4 384..511).
+         ; Keep the descriptor in B; read_stream_byte preserves BC.
+@@ -294,6 +382,16 @@
+         ret c
+         ld (EV_DELAY),a
+         ret
++parse_note_porta_swap:
++        call read_stream_byte
++        ret c
++        ld (EV_TONE),a
++        jr read_word_to_ev_period
++parse_note_sample_swap:
++        call read_stream_byte
++        ret c
++        ld (EV_TONE),a
++        ret
+ parse_note_delayed_off:
+         call read_stream_byte
+         ret c
+@@ -319,14 +417,13 @@
+ parse_effects:
+         xor a
+         ld (FX_SLOT),a
++parse_effect_loop:
+         call parse_one_effect
+         ret c
+         ld a,(SECOND_FX)
+         or a
+         ret z
+-        ld a,1
+-        ld (FX_SLOT),a
+-        jp parse_one_effect
++        jr parse_effect_loop
+ 
+ parse_one_effect:
+         call read_stream_byte
+@@ -357,6 +454,15 @@
+         ret c
+         ld l,a
+         ld h,0
++        ld a,(MOD_FLAGS)
++        and 1
++        jr z,fx_tempo_immediate
++        ld (PENDING_TEMPO),hl
++        ld a,1
++        ld (PENDING_TEMPO_F),a
++        or a
++        ret
++fx_tempo_immediate:
+         ld (TEMPO),hl
+         or a
+         ret
+@@ -368,9 +474,51 @@
+         or a
+         ret
+ fx_not_pan:
++        cp CMD_MOD_INSTR
++        jp z,mod_parse_instr_state
++        cp CMD_MOD_FINETUNE
++        jp z,mod_parse_finetune_state
++        cp CMD_MOD_PATDELAY
++        jr nz,fx_not_patdelay
++        ld a,e
++        and 0Fh
++        ld (MOD_PAT_DELAY),a
++        or a
++        ret
++fx_not_patdelay:
++        cp CMD_MOD_GLISS
++        jr nz,fx_not_gliss
++        ld a,e
++        and 0Fh
++        ld hl,GLISS
++        call ptr8_cur
++        ld (hl),a
++        or a
++        ret
++fx_not_gliss:
++        cp CMD_MOD_VIBWAVE
++        jr nz,fx_not_vibwave
++        ld a,e
++        and 07h
++        ld hl,VIBWAVE
++        call ptr8_cur
++        ld (hl),a
++        or a
++        ret
++fx_not_vibwave:
++        cp CMD_MOD_TREMWAVE
++        jr nz,fx_not_tremwave
++        ld a,e
++        and 07h
++        ld hl,TREMWAVE
++        call ptr8_cur
++        ld (hl),a
++        or a
++        ret
++fx_not_tremwave:
+         ; H updates nibble memory immediately; its resolved parameter already has both nibbles.
+         cp CMD_H
+-        jr nz,fx_store
++        jr nz,fx_not_tremolo
+         ld a,e
+         and 0F0h
+         rrca
+@@ -385,24 +533,55 @@
+         push de
+         call store_vib_depth
+         pop de
++        jr fx_store
++fx_not_tremolo:
++        cp CMD_MOD_TREMOLO
++        jr nz,fx_store
++        ld a,e
++        and 0F0h
++        jr z,fx_trem_no_speed
++        rrca
++        rrca
++        rrca
++        rrca
++        push de
++        ld hl,TREMSPD
++        call ptr8_cur
++        ld (hl),a
++        pop de
++fx_trem_no_speed:
++        ld a,e
++        and 00Fh
++        jr z,fx_store
++        push de
++        ld hl,TREMDEP
++        call ptr8_cur
++        ld (hl),a
++        pop de
+ fx_store:
+         ld a,(FX_SLOT)
+         or a
+-        jr nz,fx_store_2
++        jr nz,fx_store_2_check
+         ld hl,CMD1
+         call ptr8_cur
+         ld (hl),d
+         ld hl,PAR1
+         call ptr8_cur
+         ld (hl),e
++        ld a,1
++        ld (FX_SLOT),a
+         jr fx_extra
+-fx_store_2:
++fx_store_2_check:
++        cp 1
++        jr nz,fx_extra             ; consume chained payload but no third realtime slot
+         ld hl,CMD2
+         call ptr8_cur
+         ld (hl),d
+         ld hl,PAR2
+         call ptr8_cur
+         ld (hl),e
++        ld a,2
++        ld (FX_SLOT),a
+ fx_extra:
+         ld a,d
+         cp CMD_J
+@@ -447,9 +626,13 @@
+         jr z,do_porta_target
+         cp 081h
+         jr z,queue_delayed_note
++        cp 082h
++        jp z,do_porta_swap
++        cp 083h
++        jp z,do_sample_swap
+         and 040h
+         jr nz,queue_delayed_note
+-        jr do_normal_note
++        jp do_normal_note
+ finish_no_note:
+         ret
+ 
+@@ -462,6 +645,7 @@
+         ld (hl),d
+         ret
+ 
++
+ do_note_off:
+         jp keyoff_current
+ 
+@@ -511,14 +695,34 @@
+         ld (hl),e
+         inc hl
+         ld (hl),d
++        ld hl,GLISS_OUT
++        call ptr16_cur
++        ld (hl),e
++        inc hl
++        ld (hl),d
+         ld a,(EV_TONE)
+         ld hl,WAVE
+         call ptr8_cur
+         ld (hl),a
++        ; E4x/E7x types 4..7 keep oscillator phase across new notes.
++        ld hl,VIBWAVE
++        call ptr8_cur
++        bit 2,(hl)
++        jr nz,note_keep_vib_phase
+         xor a
+         ld hl,VIBPH
+         call ptr8_cur
+         ld (hl),a
++note_keep_vib_phase:
++        ld hl,TREMWAVE
++        call ptr8_cur
++        bit 2,(hl)
++        jr nz,note_keep_trem_phase
++        xor a
++        ld hl,TREMPH
++        call ptr8_cur
++        ld (hl),a
++note_keep_trem_phase:
+         call keyoff_current
+         ; Exact host-computed base pitch and wave number 384+tone.
+         ld a,(CUR_CH)
+@@ -548,6 +752,9 @@
+         ld (CUR_CH),a
+ process_ch_loop:
+         call process_delayed
++        ld a,(TICK_NOW)
++        or a
++        call nz,mod_invert_tick
+         ld hl,PERIOD_Q
+         call ptr16_cur
+         ld e,(hl)
+@@ -707,90 +914,42 @@
+         jp z,effect_arpeggio
+         cp CMD_Q
+         jp z,effect_retrig
++        cp CMD_MOD_TREMOLO
++        jp z,effect_mod_tremolo
++        cp CMD_MOD_FINE_UP
++        jp z,effect_mod_fine_up
++        cp CMD_MOD_FINE_DN
++        jp z,effect_mod_fine_down
++        cp CMD_MOD_FINEVOLUP
++        jp z,effect_mod_fine_vol_up
++        cp CMD_MOD_FINEVOLDN
++        jp z,effect_mod_fine_vol_down
++        cp CMD_MOD_INVERT
++        jp z,effect_mod_invert
+         cp CMD_CUT
+         jp z,effect_note_cut
+         ret
+ 
+ effect_volume_slide:
+-        ; E=parameter. Fine forms happen on tick zero, ordinary forms afterwards.
+-        ld a,e
+-        and 0F0h
+-        ld b,a
+-        ld a,e
+-        and 00Fh
+-        ld c,a
+-        ld a,b
+-        cp 0F0h
+-        jr nz,vol_not_fine_down
+-        ld a,c
+-        or a
+-        ret z
+-        cp 0Fh
+-        ret z
++        ; ProTracker Axy / 5xy / 6xy: no tick-0 slide, no parameter-00
++        ; memory. Host has already applied high-nibble priority.
+         ld a,(TICK_NOW)
+         or a
+-        ret nz
+-        ld a,c
+-        jp volume_sub_a
+-vol_not_fine_down:
+-        ld a,c
+-        cp 0Fh
+-        jr nz,vol_regular
+-        ld a,b
+-        or a
+         ret z
+-        cp 0F0h
+-        ret z
+-        ld a,(TICK_NOW)
+-        or a
+-        ret nz
+-        ld a,b
+-        rrca
+-        rrca
+-        rrca
+-        rrca
+-        and 0Fh
+-        jp volume_add_a
+-vol_regular:
+-        ld a,(TICK_NOW)
+-        or a
+-        jr nz,vol_regular_do
+-        ld a,(FAST_VOL)
++        ld a,e
+         or a
+         ret z
+-        ; fast-slide compatibility only makes D0F/DF0 active on tick zero.
+-        ld a,b
+-        or a
+-        jr nz,vol_fast_up_test
+-        ld a,c
+-        cp 0Fh
+-        ret nz
+-        ld a,c
+-        jp volume_sub_a
+-vol_fast_up_test:
+-        cp 0F0h
+-        ret nz
+-        ld a,c
+-        or a
+-        ret nz
+-        ld a,0Fh
+-        jp volume_add_a
+-vol_regular_do:
+-        ld a,b
+-        or a
+-        jr z,vol_slide_down
+-        ld a,c
+-        or a
+-        jr nz,vol_slide_down
+-        ld a,b
++        and 0F0h
++        jr z,mod_vol_slide_down
+         rrca
+         rrca
+         rrca
+         rrca
+         and 0Fh
+         jp volume_add_a
+-vol_slide_down:
+-        ld a,c
++mod_vol_slide_down:
++        ld a,e
++        and 0Fh
+         or a
+         ret z
+         jp volume_sub_a
+@@ -866,52 +1025,28 @@
+         call store_period_hl
+         ret
+ 
+-; Input A=slide parameter, output HL=quarter-period delta, CF=0 when active.
+-; CF=1 means no slide on this tick.
++; Input A=ProTracker 1xx/2xx parameter. Output HL=quarter-period delta.
++; MOD has no 1xx/2xx parameter memory and values Ex/Fx are ordinary speeds.
+ slide_delta_q:
+         ld b,a
+-        and 0F0h
+-        cp 0F0h
+-        jr z,slide_fine
+-        cp 0E0h
+-        jr z,slide_extra_fine
+         ld a,(TICK_NOW)
+         or a
+         jr z,slide_inactive
+         ld a,b
+-        ld l,a
+-        ld h,0
+-        add hl,hl
+-        add hl,hl
+         or a
+-        ret
+-slide_fine:
+-        ld a,(TICK_NOW)
+-        or a
+-        jr nz,slide_inactive
+-        ld a,b
+-        and 0Fh
++        jr z,slide_inactive
+         ld l,a
+         ld h,0
+         add hl,hl
+         add hl,hl
+         or a
+         ret
+-slide_extra_fine:
+-        ld a,(TICK_NOW)
+-        or a
+-        jr nz,slide_inactive
+-        ld a,b
+-        and 0Fh
+-        ld l,a
+-        ld h,0
+-        or a
+-        ret
+ slide_inactive:
+         scf
+         ret
+ 
+ store_period_hl:
++        call mod_clamp_period_hl
+         ld (OUT_PERIOD),hl
+         push hl
+         ex de,hl
+@@ -980,168 +1115,10 @@
+         ld h,b
+         ld l,c
+ porta_store:
+-        call store_period_hl
++        call store_porta_period_hl
+ porta_done:
+         ret
+ 
+-effect_vibrato:
+-        ld a,(TICK_NOW)
+-        or a
+-        ret z
+-        ld a,(LINEAR_XM)
+-        or a
+-        jr z,effect_vibrato_legacy
+-
+-        ; FastTracker II vibrato: 8-bit phase, table index=(phase>>2)&31,
+-        ; speed memory is the high nibble but the phase increment is x*4.
+-        ld hl,VIBPH
+-        call ptr8_cur
+-        ld a,(hl)
+-        ld c,a                    ; C=full signed phase
+-        srl a
+-        srl a
+-        and 1Fh
+-        ld e,a
+-        ld d,0
+-        ld hl,FT2_VIB_TAB
+-        add hl,de
+-        ld e,(hl)                 ; unsigned amplitude 0..255
+-        ld hl,VIBDEP
+-        call ptr8_cur
+-        ld b,(hl)                 ; depth 0..15
+-        ld hl,0
+-ft2_vib_mul:
+-        ld a,b
+-        or a
+-        jr z,ft2_vib_mul_done
+-        ld d,0
+-        add hl,de
+-        dec b
+-        jr ft2_vib_mul
+-ft2_vib_mul_done:
+-        ; logical >>5 exactly like FT2
+-        srl h
+-        rr l
+-        srl h
+-        rr l
+-        srl h
+-        rr l
+-        srl h
+-        rr l
+-        srl h
+-        rr l
+-        ex de,hl                  ; DE=period delta
+-        ld hl,(OUT_PERIOD)
+-        bit 7,c
+-        jr nz,ft2_vib_negative_phase
+-        add hl,de
+-        jr ft2_vib_store
+-ft2_vib_negative_phase:
+-        or a
+-        sbc hl,de
+-        jr nc,ft2_vib_store
+-        ld hl,1
+-ft2_vib_store:
+-        ld (OUT_PERIOD),hl
+-        ld a,d
+-        or e
+-        jr z,ft2_vib_advance
+-        ld a,1
+-        ld (PITCH_DIRTY),a
+-ft2_vib_advance:
+-        ld hl,VIBSPD
+-        call ptr8_cur
+-        ld a,(hl)
+-        add a,a
+-        add a,a                   ; speed nibble * 4
+-        add a,c                   ; 8-bit wrap is intentional
+-        ld hl,VIBPH
+-        call ptr8_cur
+-        ld (hl),a
+-        ret
+-
+-effect_vibrato_legacy:
+-        ; S3M/MOD legacy 64-step signed vibrato.
+-        ld hl,VIBPH
+-        call ptr8_cur
+-        ld a,(hl)
+-        and 3Fh
+-        ld e,a
+-        ld d,0
+-        ld hl,SINE_TABLE
+-        add hl,de
+-        ld a,(hl)
+-        ld b,a
+-        ld hl,VIBPH
+-        call ptr8_cur
+-        ld a,(hl)
+-        ld c,a
+-        ld hl,VIBSPD
+-        call ptr8_cur
+-        ld a,(hl)
+-        add a,c
+-        and 3Fh
+-        ld hl,VIBPH
+-        call ptr8_cur
+-        ld (hl),a
+-        ld a,b
+-        or a
+-        ret z
+-        jp p,vib_positive
+-        neg
+-        ld b,1
+-        jr vib_abs_ready
+-vib_positive:
+-        ld b,0
+-vib_abs_ready:
+-        ld e,a
+-        ld d,0
+-        push bc
+-        ld hl,VIBDEP
+-        call ptr8_cur
+-        ld a,(hl)
+-        ld c,a
+-        ld hl,0
+-        ld b,0
+-vib_mul_loop:
+-        ld a,c
+-        or a
+-        jr z,vib_mul_done
+-        add hl,de
+-        dec c
+-        jr vib_mul_loop
+-vib_mul_done:
+-        srl h
+-        rr l
+-        srl h
+-        rr l
+-        srl h
+-        rr l
+-        srl h
+-        rr l
+-        ld e,l
+-        ld d,0
+-        pop bc
+-        ld hl,(OUT_PERIOD)
+-        ld a,b
+-        or a
+-        jr nz,vib_sub
+-        add hl,de
+-        jr vib_store_out
+-vib_sub:
+-        or a
+-        sbc hl,de
+-        jr nc,vib_store_out
+-        ld hl,1
+-vib_store_out:
+-        ld (OUT_PERIOD),hl
+-        ld a,e
+-        or d
+-        ret z
+-        ld a,1
+-        ld (PITCH_DIRTY),a
+-        ret
+-
+ effect_arpeggio:
+         ld a,(TICK_NOW)
+ arp_mod3:
+@@ -1320,7 +1297,13 @@
+ emit_volume_current:
+         ld hl,VOLUME
+         call ptr8_cur
+-        ld e,(hl)
++        ld a,(hl)
++emit_volume_a:
++        cp 65
++        jr c,emit_volume_a_ok
++        ld a,64
++emit_volume_a_ok:
++        ld e,a
+         ld d,0
+         ld hl,VOL_LUT
+         add hl,de
+@@ -1418,6 +1401,7 @@
+ 
+ emit_pitch_approx:
+         ld hl,(OUT_PERIOD)
++        call mod_clamp_period_hl
+         ld a,0FDh                ; signed octave -3
+ pitch_norm_low:
+         ld de,2574
+@@ -1576,7 +1560,7 @@
+ ;
+ ; Dynamic materialization replaces 4000h..7FFFh, including our RAM state.
+ ; Store only state that must survive between rows in reserved MoonSound RAM
+-; 2FFE00h..2FFFFFh. 301 bytes are used; the converter never places MWK sample
++; 2FFE00h..2FFFFFh. 421 bytes are used; the converter never places MWK sample
+ ; payload in this final 512-byte window. CMD/PAR/delay/ARP scratch is row-local
+ ; and deliberately not persisted because page changes only occur between rows.
+ ; ---------------------------------------------------------------------------
+@@ -1615,6 +1599,9 @@
+         ld hl,PAN
+         ld bc,24
+         call state_write_block
++        ld hl,MOD_FINETUNE
++        ld bc,120              ; finetune + EFx speed/delay/24 word offsets
++        call state_write_block
+         ld d,02h
+         ld e,010h              ; leave MoonSound RAM write disabled
+         jp opl4_write_de
+@@ -1653,6 +1640,9 @@
+         ld hl,PAN
+         ld bc,24
+         call state_read_block
++        ld hl,MOD_FINETUNE
++        ld bc,120
++        call state_read_block
+         ld d,02h
+         ld e,010h              ; return MoonSound to normal wave-table mode
+         jp opl4_write_de
+@@ -1704,6 +1694,8 @@
+         djnz silence_key
+         ret
+ 
++        defs 15,0
++
+ SINE_TABLE:
+         db 0,12,25,37,49,60,71,81,90,98,106,112,117,122,125,126
+         db 127,126,125,122,117,112,106,98,90,81,71,60,49,37,25,12
+@@ -2056,7 +2048,7 @@
+ ; Resident gap 6288h..63FBh is outside mutable tracker state and below the
+ ; dynamic stream window. Generic S3M/MOD/non-linear-XM engine uses it for the
+ ; one-time shared-payload header alias installer.
+-        org 06288h
++        org 06380h
+ 
+ ; Apply converter-generated OPL4 wave-header aliases once at INIT.
+ ; Stream v3 appends N records after the 39-byte base header:
+@@ -2112,3 +2104,919 @@
+         ld e,010h              ; normal wave-table mode / write disabled
+         jp opl4_write_de
+ 
++; Extended MOD-only effect code lives in the otherwise unused resident gap
++; 6400h..67FFh. Keeping it here preserves the legacy PITCH_LUT address and
++; prevents the runtime state at 5F00h+ from overwriting a larger part of it.
++        org 06400h
++
++store_porta_period_hl:
++        call mod_clamp_period_hl
++        ; Keep the real sliding period separate from E3 glissando's audible
++        ; semitone-snapped output. Input HL = new real quarter-period.
++        push hl
++        ex de,hl
++        ld hl,PERIOD_Q
++        call ptr16_cur
++        ld (hl),e
++        inc hl
++        ld (hl),d
++        pop hl
++        ld a,1
++        ld (PITCH_DIRTY),a
++        push hl
++        ld hl,GLISS
++        call ptr8_cur
++        ld a,(hl)
++        pop hl
++        or a
++        jr nz,porta_gliss_active
++        ld (OUT_PERIOD),hl
++        ex de,hl
++        ld hl,GLISS_OUT
++        call ptr16_cur
++        ld (hl),e
++        inc hl
++        ld (hl),d
++        ret
++porta_gliss_active:
++        push hl                    ; real period
++        ld hl,GLISS_OUT
++        call ptr16_cur
++        ld e,(hl)
++        inc hl
++        ld d,(hl)                  ; DE=last snapped period
++        pop hl                     ; HL=real period
++        ld a,d
++        or e
++        jr nz,porta_gliss_have_prev
++        ld e,l
++        ld d,h
++porta_gliss_have_prev:
++        ; Determine slide direction relative to previous snapped value.
++        push hl
++        or a
++        sbc hl,de
++        pop hl
++        jp z,porta_gliss_emit_de
++        jr c,porta_gliss_pitch_up
++
++porta_gliss_pitch_down:
++        ; Generate the next semitone-sized period above DE. Clamp to target.
++        push hl                    ; real
++        ex de,hl                   ; HL=prev
++        call mod_semidown_hl       ; HL=next (>prev)
++        ex de,hl                   ; DE=next
++        ld hl,TARGET_Q
++        call ptr16_cur
++        ld c,(hl)
++        inc hl
++        ld b,(hl)                  ; BC=target
++        ; If target is between prev and next, use target as next.
++        push de
++        ex de,hl                   ; HL=next
++        or a
++        sbc hl,bc
++        pop de
++        jr c,porta_gliss_down_next_ok
++        jr z,porta_gliss_down_next_ok
++        ld d,b
++        ld e,c
++porta_gliss_down_next_ok:
++        ; threshold = prev + (next-prev)/2. Previous snapped value is reloaded.
++        ld hl,GLISS_OUT
++        call ptr16_cur
++        ld c,(hl)
++        inc hl
++        ld b,(hl)                  ; BC=prev
++        push de                    ; next
++        ex de,hl                   ; HL=next
++        or a
++        sbc hl,bc                  ; difference
++        srl h
++        rr l
++        add hl,bc                  ; midpoint
++        ex de,hl                   ; DE=midpoint
++        pop bc                     ; BC=next
++        pop hl                     ; HL=real
++        push hl
++        or a
++        sbc hl,de                  ; real-midpoint
++        pop hl
++        jr c,porta_gliss_emit_prev
++        ; crossed midpoint: store next and continue in case speed skipped notes
++        ld d,b
++        ld e,c
++        call porta_gliss_store_de
++        ld a,d
++        cp b                       ; harmless flag reset below
++        ; exact target reached by snapped output => no need to step further
++        push hl
++        ld hl,TARGET_Q
++        call ptr16_cur
++        ld c,(hl)
++        inc hl
++        ld b,(hl)
++        pop hl
++        ld a,d
++        cp b
++        jr nz,porta_gliss_pitch_down
++        ld a,e
++        cp c
++        jr nz,porta_gliss_pitch_down
++        jr porta_gliss_emit_de
++
++porta_gliss_pitch_up:
++        ; Generate next lower period semitone, clamped to target.
++        push hl                    ; real
++        ex de,hl                   ; HL=prev
++        call mod_semiup_hl         ; HL=next (<prev)
++        ex de,hl                   ; DE=next
++        ld hl,TARGET_Q
++        call ptr16_cur
++        ld c,(hl)
++        inc hl
++        ld b,(hl)                  ; BC=target
++        ; If next has crossed below target, clamp to target.
++        push de
++        ex de,hl
++        or a
++        sbc hl,bc                  ; next-target
++        pop de
++        jr nc,porta_gliss_up_next_ok
++        ld d,b
++        ld e,c
++porta_gliss_up_next_ok:
++        ; threshold = next + (prev-next)/2.
++        ld hl,GLISS_OUT
++        call ptr16_cur
++        ld c,(hl)
++        inc hl
++        ld b,(hl)                  ; BC=prev
++        push de                    ; next
++        ld h,b
++        ld l,c
++        or a
++        sbc hl,de                  ; prev-next
++        srl h
++        rr l
++        add hl,de                  ; midpoint
++        ex de,hl                   ; DE=midpoint
++        pop bc                     ; BC=next
++        pop hl                     ; HL=real
++        push hl
++        or a
++        sbc hl,de                  ; real-midpoint
++        pop hl
++        jr nc,porta_gliss_emit_prev
++        ld d,b
++        ld e,c
++        call porta_gliss_store_de
++        push hl
++        ld hl,TARGET_Q
++        call ptr16_cur
++        ld c,(hl)
++        inc hl
++        ld b,(hl)
++        pop hl
++        ld a,d
++        cp b
++        jr nz,porta_gliss_pitch_up
++        ld a,e
++        cp c
++        jr nz,porta_gliss_pitch_up
++        jr porta_gliss_emit_de
++
++porta_gliss_emit_prev:
++        ld hl,GLISS_OUT
++        call ptr16_cur
++        ld e,(hl)
++        inc hl
++        ld d,(hl)
++porta_gliss_emit_de:
++        ld (OUT_PERIOD),de
++        ret
++
++porta_gliss_store_de:
++        push hl
++        ld hl,GLISS_OUT
++        call ptr16_cur
++        ld (hl),e
++        inc hl
++        ld (hl),d
++        pop hl
++        ret
++
++; Approximate exact 2^(+/-1/12) using shifts. Errors are well below one cent
++; per step and the target note itself is always clamped exactly.
++mod_semiup_hl:
++        ; period * 0.94384765625 = p - p/16 + p/128 - p/1024 - p/2048
++        ld (GLISS_TMP),hl
++        ld (GLISS_ACC),hl
++        ld a,4
++        call mod_shr_hl_a
++        ex de,hl
++        ld hl,(GLISS_ACC)
++        or a
++        sbc hl,de
++        ld (GLISS_ACC),hl
++        ld hl,(GLISS_TMP)
++        ld a,7
++        call mod_shr_hl_a
++        ld de,(GLISS_ACC)
++        add hl,de
++        ld (GLISS_ACC),hl
++        ld hl,(GLISS_TMP)
++        ld a,10
++        call mod_shr_hl_a
++        ex de,hl
++        ld hl,(GLISS_ACC)
++        or a
++        sbc hl,de
++        ld (GLISS_ACC),hl
++        ld hl,(GLISS_TMP)
++        ld a,11
++        call mod_shr_hl_a
++        ex de,hl
++        ld hl,(GLISS_ACC)
++        or a
++        sbc hl,de
++        ret
++
++mod_semidown_hl:
++        ; period * 1.0595703125 = p + p/16 - p/256 + p/1024
++        ld (GLISS_TMP),hl
++        ld (GLISS_ACC),hl
++        ld a,4
++        call mod_shr_hl_a
++        ld de,(GLISS_ACC)
++        add hl,de
++        ld (GLISS_ACC),hl
++        ld hl,(GLISS_TMP)
++        ld a,8
++        call mod_shr_hl_a
++        ex de,hl
++        ld hl,(GLISS_ACC)
++        or a
++        sbc hl,de
++        ld (GLISS_ACC),hl
++        ld hl,(GLISS_TMP)
++        ld a,10
++        call mod_shr_hl_a
++        ld de,(GLISS_ACC)
++        add hl,de
++        ret
++
++mod_shr_hl_a:
++        or a
++        ret z
++mod_shr_hl_loop:
++        srl h
++        rr l
++        dec a
++        jr nz,mod_shr_hl_loop
++        ret
++
++effect_vibrato:
++        ; ProTracker does not apply or advance vibrato on tick 0.
++        ld a,(TICK_NOW)
++        or a
++        ret z
++        ld hl,VIBPH
++        call ptr8_cur
++        ld a,(hl)
++        and 3Fh
++        ld c,a
++        ld hl,VIBWAVE
++        call ptr8_cur
++        ld b,(hl)
++        call mod_wave_delta       ; signed A
++        ld c,a
++        or a
++        jr z,mod_vib_advance
++        jp p,mod_vib_positive
++        neg
++        ld b,1
++        jr mod_vib_abs
++mod_vib_positive:
++        ld b,0
++mod_vib_abs:
++        ld e,a
++        ld d,0
++        push bc
++        ld hl,VIBDEP
++        call ptr8_cur
++        ld a,(hl)
++        ld c,a
++        ld hl,0
++mod_vib_mul:
++        ld a,c
++        or a
++        jr z,mod_vib_mul_done
++        add hl,de
++        dec c
++        jr mod_vib_mul
++mod_vib_mul_done:
++        ; delta * depthNibble / 16 in quarter-period units.
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        ex de,hl
++        pop bc
++        ld hl,(OUT_PERIOD)
++        ld a,b
++        or a
++        jr nz,mod_vib_sub
++        add hl,de
++        jr mod_vib_store
++mod_vib_sub:
++        or a
++        sbc hl,de
++        jr nc,mod_vib_store
++        ld hl,1
++mod_vib_store:
++        ld (OUT_PERIOD),hl
++        ld a,d
++        or e
++        jr z,mod_vib_advance
++        ld a,1
++        ld (PITCH_DIRTY),a
++mod_vib_advance:
++        ld hl,VIBSPD
++        call ptr8_cur
++        ld b,(hl)
++        ld hl,VIBPH
++        call ptr8_cur
++        ld a,(hl)
++        add a,b
++        and 3Fh
++        ld (hl),a
++        ret
++
++; Input A=phase 0..63, B=waveform 0..7. Output signed A.
++; bit2 only controls phase reset and is ignored for shape selection.
++mod_wave_delta:
++        ld c,a
++        ld a,b
++        and 03h
++        jr z,mod_wave_sine
++        cp 1
++        jr z,mod_wave_ramp
++        cp 2
++        jr z,mod_wave_square
++        ; deterministic ProTracker random table
++        ld e,c
++        ld d,0
++        ld hl,MOD_RANDOM_TABLE
++        add hl,de
++        ld a,(hl)
++        ret
++mod_wave_sine:
++        ld e,c
++        ld d,0
++        ld hl,SINE_TABLE
++        add hl,de
++        ld a,(hl)
++        ret
++mod_wave_ramp:
++        ; MOD vibrato ramp is the inverted legacy ramp used by OpenMPT.
++        ld a,c
++        cp 32
++        jr nc,mod_wave_ramp_neg
++        add a,a
++        add a,a
++        ret
++mod_wave_ramp_neg:
++        add a,a
++        add a,a
++        cpl
++        inc a
++        inc a                    ; -(255 - phase*4)
++        ret
++mod_wave_square:
++        ld a,c
++        cp 32
++        ld a,127
++        ret c
++        ld a,129                 ; -127
++        ret
++
++; OpenMPT compatibility for multichannel/M!K! MODs: FT2's tremolo ramp
++; implementation accidentally depends on vibrato phase. Input C=tremolo phase,
++; output signed A.
++mod_ft2_trem_ramp:
++        ld a,c
++        add a,a
++        add a,a
++        and 07Fh
++        ld e,a                    ; ramp magnitude
++        ; If vibrato is active this row, FT2 tests the advanced vibrato phase.
++        ld a,0
++        ld hl,CMD1
++        call ptr8_cur
++        ld a,(hl)
++        cp CMD_H
++        jr z,mod_ft2_trem_has_vib
++        ld hl,CMD2
++        call ptr8_cur
++        ld a,(hl)
++        cp CMD_H
++        jr nz,mod_ft2_trem_vib_phase
++mod_ft2_trem_has_vib:
++        ld hl,VIBSPD
++        call ptr8_cur
++        ld a,(hl)
++        ld d,a
++        jr mod_ft2_trem_vib_load
++mod_ft2_trem_vib_phase:
++        ld d,0
++mod_ft2_trem_vib_load:
++        ld hl,VIBPH
++        call ptr8_cur
++        ld a,(hl)
++        add a,d
++        and 03Fh
++        cp 32
++        jr c,mod_ft2_trem_no_xor
++        ld a,e
++        xor 07Fh
++        ld e,a
++mod_ft2_trem_no_xor:
++        ld a,c
++        and 03Fh
++        cp 32
++        ld a,e
++        ret c
++        neg
++        ret
++
++effect_mod_tremolo:
++        ld a,(TICK_NOW)
++        or a
++        ret z
++        ld hl,TREMPH
++        call ptr8_cur
++        ld a,(hl)
++        and 3Fh
++        ld c,a
++        ld hl,TREMWAVE
++        call ptr8_cur
++        ld b,(hl)
++        ld a,b
++        and 03h
++        cp 1
++        jr nz,mod_trem_regular_wave
++        ld a,(MOD_FLAGS)
++        bit 1,a
++        jr z,mod_trem_regular_wave
++        call mod_ft2_trem_ramp
++        jr mod_trem_wave_done
++mod_trem_regular_wave:
++        ld a,c
++        call mod_wave_delta
++mod_trem_wave_done:
++        ld c,a
++        or a
++        jr z,mod_trem_emit_base
++        jp p,mod_trem_positive
++        neg
++        ld b,1
++        jr mod_trem_abs
++mod_trem_positive:
++        ld b,0
++mod_trem_abs:
++        ld e,a
++        ld d,0
++        push bc
++        ld hl,TREMDEP
++        call ptr8_cur
++        ld a,(hl)
++        ld c,a
++        ld hl,0
++mod_trem_mul:
++        ld a,c
++        or a
++        jr z,mod_trem_mul_done
++        add hl,de
++        dec c
++        jr mod_trem_mul
++mod_trem_mul_done:
++        ; Convert OpenMPT's internal tremolo to our 0..64 volume domain:
++        ; delta * depthNibble / 32.
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        ld e,l
++        pop bc
++        ld hl,VOLUME
++        call ptr8_cur
++        ld a,(hl)
++        ld d,a
++        ld a,b
++        or a
++        ld a,d
++        jr nz,mod_trem_sub
++        add a,e
++        cp 65
++        jr c,mod_trem_emit
++        ld a,64
++        jr mod_trem_emit
++mod_trem_sub:
++        cp e
++        jr nc,mod_trem_sub_ok
++        xor a
++        jr mod_trem_emit
++mod_trem_sub_ok:
++        sub e
++        jr mod_trem_emit
++mod_trem_emit_base:
++        ld hl,VOLUME
++        call ptr8_cur
++        ld a,(hl)
++mod_trem_emit:
++        push af
++        ld hl,TREMSPD
++        call ptr8_cur
++        ld b,(hl)
++        ld hl,TREMPH
++        call ptr8_cur
++        ld a,(hl)
++        add a,b
++        and 3Fh
++        ld (hl),a
++        pop af
++        jp emit_volume_a
++
++effect_mod_invert:
++        ; EFx sets the ongoing funk speed. The compiler already translates the
++        ; nibble through ProTracker's ModEFxTable (0,5,6,...,128).
++        ld a,e
++        ld hl,EFX_SPEED
++        call ptr8_cur
++        ld (hl),a
++        ld a,(TICK_NOW)
++        or a
++        ret nz
++        jp mod_invert_tick
++
++; ProTracker EFx / invert-loop. Mutate the active custom-wave payload directly
++; in MoonSound RAM at tracker tick cadence, matching Paula's in-place sample XOR.
++mod_invert_tick:
++        ld hl,EFX_SPEED
++        call ptr8_cur
++        ld a,(hl)
++        or a
++        ret z
++        ld b,a
++        ld hl,EFX_DELAY
++        call ptr8_cur
++        ld a,(hl)
++        add a,b
++        cp 128
++        jr nc,mod_invert_due
++        ld (hl),a
++        ret
++mod_invert_due:
++        xor a
++        ld (hl),a
++
++        ; Read seven-byte OPL4 custom-wave header at 200000h + wave*12.
++        ld hl,WAVE
++        call ptr8_cur
++        ld a,(hl)
++        and 07Fh
++        ld l,a
++        ld h,0
++        add hl,hl               ; *2
++        ld d,h
++        ld e,l
++        add hl,hl               ; *4
++        add hl,de               ; *6
++        add hl,hl               ; *12
++        ld a,h
++        ld (EFX_ADDR+1),a
++        ld a,l
++        ld (EFX_ADDR+2),a
++        ld a,020h
++        ld (EFX_ADDR),a
++        ld d,02h
++        ld e,011h
++        call opl4_write_de
++        call efx_set_mem_addr
++        ld a,006h
++        out (07Eh),a
++        call opl4_wait
++        ld hl,EFX_HDR
++        ld b,7
++mod_invert_hdr_read:
++        in a,(07Fh)
++        ld (hl),a
++        inc hl
++        djnz mod_invert_hdr_read
++
++        ; loop_len = (-endComplement) - loopStart. Non-looped OPL4 aliases
++        ; use a one-byte silent tail; do not funk those.
++        ld a,(EFX_HDR+5)
++        cpl
++        ld h,a
++        ld a,(EFX_HDR+6)
++        cpl
++        ld l,a
++        inc hl                   ; HL = play_len
++        ld a,(EFX_HDR+3)
++        ld d,a
++        ld a,(EFX_HDR+4)
++        ld e,a
++        or a
++        sbc hl,de
++        ld (EFX_LOOPLEN),hl
++        ld a,h
++        or a
++        jr nz,mod_invert_have_loop
++        ld a,l
++        cp 2
++        jr c,mod_invert_disable
++mod_invert_have_loop:
++        ; ++offset; wrap at loop length (PT increments before touching byte).
++        ld hl,EFX_OFFSET
++        call ptr16_cur
++        ld e,(hl)
++        inc hl
++        ld d,(hl)
++        inc de
++        push hl
++        ld hl,(EFX_LOOPLEN)
++        ex de,hl                 ; HL=offset, DE=looplen
++        or a
++        sbc hl,de
++        jr c,mod_invert_offset_ok_sub
++        ld hl,0
++        jr mod_invert_offset_store
++mod_invert_offset_ok_sub:
++        add hl,de                ; restore offset
++mod_invert_offset_store:
++        ex de,hl                 ; DE=offset
++        pop hl                   ; points at high byte of EFX_OFFSET
++        ld (hl),d
++        dec hl
++        ld (hl),e
++
++        ; Physical payload address = header.start + loopStart + offset.
++        ld a,(EFX_HDR+4)
++        add a,e
++        ld l,a
++        ld a,(EFX_HDR+3)
++        adc a,d
++        ld h,a                   ; HL = loopStart + offset
++        ld a,(EFX_HDR+2)
++        add a,l
++        ld (EFX_ADDR+2),a
++        ld a,(EFX_HDR+1)
++        adc a,h
++        ld (EFX_ADDR+1),a
++        ld a,(EFX_HDR)
++        adc a,0
++        and 03Fh
++        ld (EFX_ADDR),a
++
++        ; Read byte, complement it, reset address (read auto-increments), write back.
++        call efx_set_mem_addr
++        ld a,006h
++        out (07Eh),a
++        call opl4_wait
++        in a,(07Fh)
++        cpl
++        ld c,a
++        call efx_set_mem_addr
++        ld a,006h
++        out (07Eh),a
++        call opl4_wait
++        ld a,c
++        out (07Fh),a
++mod_invert_disable:
++        ld d,02h
++        ld e,010h
++        jp opl4_write_de
++
++; Program OPL4 external-memory pointer from EFX_ADDR high/mid/low.
++efx_set_mem_addr:
++        ld d,03h
++        ld a,(EFX_ADDR)
++        ld e,a
++        call opl4_write_de
++        ld d,04h
++        ld a,(EFX_ADDR+1)
++        ld e,a
++        call opl4_write_de
++        ld d,05h
++        ld a,(EFX_ADDR+2)
++        ld e,a
++        jp opl4_write_de
++
++effect_mod_fine_vol_up:
++        ld a,(TICK_NOW)
++        or a
++        ret nz
++        ld a,e
++        and 0Fh
++        or a
++        ret z
++        jp volume_add_a
++
++effect_mod_fine_vol_down:
++        ld a,(TICK_NOW)
++        or a
++        ret nz
++        ld a,e
++        and 0Fh
++        or a
++        ret z
++        jp volume_sub_a
++
++
++MOD_RANDOM_TABLE:
++        db 98,129,213,88,102,41,191,162,125,20,185,170,186,224,240,160
++        db 17,72,107,251,116,187,194,216,10,195,65,109,238,218,243,180
++        db 233,88,21,162,8,106,21,144,6,109,20,168,226,9,129,118
++        db 42,222,89,252,205,184,21,227,112,123,84,155,164,98,202,161
++mod_clamp_period_hl:
++        ; Exact ProTracker finetune-dependent Amiga bounds used by OpenMPT:
++        ; low=max(tuned[B-3]/2,113*4), high=tuned[C-1]*2.
++        ld a,(MOD_FLAGS)
++        bit 0,a
++        ret z
++        push hl
++        ld hl,MOD_FINETUNE
++        call ptr8_cur
++        ld a,(hl)
++        and 0Fh
++        add a,a
++        ld e,a
++        ld d,0
++        ld hl,MOD_LIMIT_LOW
++        add hl,de
++        ld c,(hl)
++        inc hl
++        ld b,(hl)
++        pop hl
++        push hl
++        or a
++        sbc hl,bc
++        pop hl
++        jr nc,mod_clamp_exact_high
++        ld h,b
++        ld l,c
++        ret
++mod_clamp_exact_high:
++        push hl
++        ld hl,MOD_FINETUNE
++        call ptr8_cur
++        ld a,(hl)
++        and 0Fh
++        add a,a
++        ld e,a
++        ld d,0
++        ld hl,MOD_LIMIT_HIGH
++        add hl,de
++        ld c,(hl)
++        inc hl
++        ld b,(hl)
++        pop hl
++        push hl
++        or a
++        sbc hl,bc
++        pop hl
++        ret c
++        ret z
++        ld h,b
++        ld l,c
++        ret
++
++MOD_LIMIT_LOW:
++        dw 453,452,452,452,452,452,452,452,480,477,474,470,467,463,460,457
++MOD_LIMIT_HIGH:
++        dw 3424,3400,3376,3352,3328,3304,3280,3256,3628,3600,3576,3548,3524,3500,3472,3448
++
++effect_mod_fine_up:
++        ld a,(TICK_NOW)
++        or a
++        ret nz
++        ld a,e
++        and 0Fh
++        or a
++        ret z
++        ld l,a
++        ld h,0
++        add hl,hl
++        add hl,hl
++        ex de,hl
++        ld hl,PERIOD_Q
++        call ptr16_cur
++        ld c,(hl)
++        inc hl
++        ld b,(hl)
++        ld h,b
++        ld l,c
++        or a
++        sbc hl,de
++        jr nc,mod_fine_up_nonzero
++        ld hl,1
++mod_fine_up_nonzero:
++        ld a,h
++        or l
++        jr nz,mod_fine_up_store
++        inc hl
++mod_fine_up_store:
++        jp store_period_hl
++
++effect_mod_fine_down:
++        ld a,(TICK_NOW)
++        or a
++        ret nz
++        ld a,e
++        and 0Fh
++        or a
++        ret z
++        ld l,a
++        ld h,0
++        add hl,hl
++        add hl,hl
++        ex de,hl
++        ld hl,PERIOD_Q
++        call ptr16_cur
++        ld c,(hl)
++        inc hl
++        ld b,(hl)
++        ld h,b
++        ld l,c
++        add hl,de
++        jr nc,mod_fine_down_store
++        ld hl,0FFFFh
++mod_fine_down_store:
++        jp store_period_hl
++
++
++
++; ---------------------------------------------------------------------------
++; Relocated MOD parser/runtime helpers. Kept after the legacy pitch LUT/state
++; boundary so the historical LUT addresses remain stable.
++; ---------------------------------------------------------------------------
++mod_parse_instr_state:
++        ld a,e
++        and 0Fh
++        ld hl,MOD_FINETUNE
++        call ptr8_cur
++        ld (hl),a
++        ld hl,EFX_OFFSET
++        call ptr16_cur
++        xor a
++        ld (hl),a
++        inc hl
++        ld (hl),a
++        or a
++        ret
++
++mod_parse_finetune_state:
++        ld a,e
++        and 0Fh
++        ld hl,MOD_FINETUNE
++        call ptr8_cur
++        ld (hl),a
++        or a
++        ret
++
++do_porta_swap:
++        call do_porta_target
++        ; fall through: target changes, active sample changes without pitch reset
++do_sample_swap:
++        ld a,(EV_TONE)
++        ld b,a
++        and 07Fh
++        ld hl,WAVE
++        call ptr8_cur
++        ld (hl),a
++        add a,080h
++        ld e,a
++        ld a,(CUR_CH)
++        add a,008h
++        ld d,a
++        call opl4_write_de
++        bit 7,b
++        ret z
++        ld hl,KEYSTATE
++        call ptr8_cur
++        ld a,(hl)
++        or a
++        ret nz
++        jp keyon_current
+--- /dev/null	2026-08-22 15:00:37.378126536 +0000
++++ tests/test_mod_v048.py	2026-08-22 17:29:40.569963831 +0000
+@@ -0,0 +1,173 @@
++#!/usr/bin/env python3
++from pathlib import Path
++import tempfile
++import module_formats as mf
++import compact_stream as cs
++import _s3m2opl4_backend as core
++import tracker2ksp as t2k
++
++ROOT=Path(__file__).resolve().parents[1]
++
++def make_mod(path:Path, sig=b'M.K.', channels=4, pattern_bytes=None, sample1_len=0, sample_payload=b'', restart=0, orders=None, sample1_loop_words=1):
++    h=bytearray(1084)
++    h[:20]=b'MOD v0.4.8 test'.ljust(20,b'\0')
++    # 31 sample headers
++    if sample1_len:
++        o=20
++        h[o:o+8]=b'Sample01'
++        h[o+22:o+24]=(sample1_len//2).to_bytes(2,'big')
++        h[o+25]=64
++        h[o+28:o+30]=(sample1_loop_words).to_bytes(2,'big')
++    orders=[0] if orders is None else list(orders)
++    h[950]=min(128,len(orders)); h[951]=restart; h[952:952+len(orders[:128])]=bytes(orders[:128]); h[1080:1084]=sig
++    if pattern_bytes is None:
++        physical_ch=4 if sig in (b'FLT8',b'EXO8') else channels
++        physical_patterns=2 if sig in (b'FLT8',b'EXO8') else 1
++        pattern_bytes=bytes(64*physical_ch*4*physical_patterns)
++    path.write_bytes(h+pattern_bytes+sample_payload)
++
++
++def mod_cell(period=0, ins=0, eff=0, param=0):
++    return bytes((((ins&0xF0)|((period>>8)&0x0F)),period&0xFF,((ins&0x0F)<<4)|(eff&0x0F),param&0xFF))
++
++def pattern4(rows):
++    data=bytearray()
++    for r in range(64):
++        row=rows.get(r,{})
++        for ch in range(4): data += row.get(ch,mod_cell())
++    return bytes(data)
++
++def test_effect_mapping_and_memory(tmp):
++    p=tmp/'a.mod'; make_mod(p)
++    m=mf.parse_mod(p); c=cs.CompactCompiler(m,'MOD'); st=cs.ResolveState()
++    assert mf._mod_effect(1,0xE1)[0:2]==(cs.CMD_F,0xE1)
++    assert c._resolve(st,cs.CMD_F,0xE1)==0xE1
++    assert c._resolve(st,cs.CMD_F,0)==0                 # 1xx has no memory
++    assert c._resolve(st,cs.CMD_D,0x34)==0x34
++    assert c._resolve(st,cs.CMD_D,0)==0                 # Axy has no memory
++    assert c._resolve(st,cs.CMD_G,0x12)==0x12
++    assert c._resolve(st,cs.CMD_G,0)==0x12              # 3xx does
++    assert c._resolve(st,cs.CMD_H,0x34)==0x34
++    assert c._resolve(st,cs.CMD_H,0x05)==0x35           # nibble memory
++    assert c._resolve(st,cs.CMD_O,0x22)==0x22
++    assert c._resolve(st,cs.CMD_O,0)==0x22              # 9xx memory
++    assert mf._mod_effect(0xE,0x1A)[0:2]==(cs.CMD_MOD_FINE_UP,0x0A)
++    assert mf._mod_effect(0xE,0x2B)[0:2]==(cs.CMD_MOD_FINE_DOWN,0x0B)
++    assert mf._mod_effect(0xE,0x31)[0]==cs.CMD_MOD_GLISS
++    assert mf._mod_effect(0xE,0x42)[0]==cs.CMD_MOD_VIBWAVE
++    assert mf._mod_effect(0xE,0x53)[0]==cs.CMD_MOD_FINETUNE
++    assert mf._mod_effect(0xE,0x64)[0]==cs.CMD_MOD_PATLOOP
++    assert mf._mod_effect(0xE,0x75)[0]==cs.CMD_MOD_TREMWAVE
++    assert mf._mod_effect(0xE,0x86)[0]==cs.CMD_MOD_PAN4
++    assert mf._mod_effect(0xE,0xEA)[0]==cs.CMD_MOD_PATDELAY
++    assert mf._mod_effect(0xE,0xF7)[0]==cs.CMD_MOD_INVERT
++    assert cs.MOD_EFX_SPEED[1]==5 and cs.MOD_EFX_SPEED[15]==128
++    assert mf._mod_effect(0xF,0x1F)[0]==cs.CMD_A
++    assert mf._mod_effect(0xF,0x20)[0]==cs.CMD_T
++    assert mf._mod_effect(0xF,0x40,vblank=True)[0:2]==(cs.CMD_A,0x40)
++    assert mf._mod_effect(0xF,0x40,vblank=True,startrekker=True)[0:2]==(cs.CMD_A,31)
++
++def test_exact_periods(tmp):
++    p=tmp/'period.mod'; make_mod(p)
++    m=mf.parse_mod(p)
++    # Add a real sample metadata object so _mod_period can use its native finetune.
++    smp=core.Sample(1,'s',2,0,2,64,0,8363,0,b'\0\0'); smp.mod_finetune=0
++    m.samples[1]=smp
++    c=cs.CompactCompiler(m,'MOD')
++    assert mf._mod_note_index(428)==48
++    assert c._mod_period(1,48,0)==428
++    assert c._mod_period(1,48,1)==425
++    assert c._mod_period(1,36,0)==856
++
++def test_signatures_and_flt8(tmp):
++    p=tmp/'flt8.mod'; make_mod(p,b'FLT8',8)
++    m=mf.parse_mod(p)
++    assert m.mod_profile=='STARTREKKER' and len(m.active_channels)==8
++    assert len(m.patterns)==1 and len(m.patterns[0])==64
++    assert m.mod_vblank and m.mod_startrekker
++    p2=tmp/'32.mod'; make_mod(p2,b'32CH',32)
++    try: mf.parse_mod(p2)
++    except ValueError as e: assert 'at most 24' in str(e)
++    else: raise AssertionError('32-channel MOD was not rejected')
++
++def test_adpcm_and_profiles(tmp):
++    # 8 output bytes: delta table[1]=+1; nibbles all 1 => 1..8.
++    p=tmp/'adpcm.mod'; table=bytes([0,1]+[0]*14); packed=bytes([0x11]*4)
++    make_mod(p,b'M.K.',4,sample1_len=8,sample_payload=b'ADPCM'+table+packed)
++    m=mf.parse_mod(p)
++    assert m.mod_adpcm and m.samples[1].data[:8]==bytes(range(1,9))
++    assert m.mod_pt_mode and m.mod_sample_swap and m.mod_out_of_range_delay
++    # Generic multichannel profile must not inherit strict PT-mode timing.
++    q=tmp/'8chn.mod'; make_mod(q,b'8CHN',8)
++    mg=mf.parse_mod(q)
++    assert mg.mod_profile=='GENERIC_MOD' and not mg.mod_pt_mode
++
++def test_sample_swap_and_one_shot(tmp):
++    # Four consecutive instrument-only changes enable OpenMPT's MOD sample-swap quirk.
++    rows={0:{0:mod_cell(ins=1)},1:{0:mod_cell(ins=2)},2:{0:mod_cell(ins=3)},3:{0:mod_cell(ins=4)},4:{0:mod_cell(ins=5)}}
++    p=tmp/'swap.mod'; make_mod(p,b'M.K.',4,pattern_bytes=pattern4(rows))
++    m=mf.parse_mod(p)
++    assert m.mod_sample_swap_detected and m.mod_sample_swap
++
++    # Canonical PT loop-at-zero is a one-shot tail followed by the original loop.
++    q=tmp/'oneshot.mod'
++    payload=bytes(range(8))
++    make_mod(q,b'M.K.',4,sample1_len=8,sample_payload=payload,sample1_loop_words=2,restart=0)
++    mo=mf.parse_mod(q)
++    assert mo.mod_one_shot_loops and mo.samples[1].loop_begin==0 and mo.samples[1].loop_end==4
++    v=core.WaveVariant(core.WaveKey(1,0),384,'s',8)
++    out,lp,end=t2k.variant_payload(mo,v)
++    assert out==payload+payload[:4] and lp==8 and end==12
++
++def test_vblank_probe(tmp):
++    # Ambiguous M.K.: speed 31 followed by low CIA tempo 32. Repeated orders make
++    # the CIA interpretation >8 min, while VBlank speed interpretation is shorter.
++    rows={0:{0:mod_cell(eff=0xF,param=0x1F)},1:{0:mod_cell(eff=0xF,param=0x20)}}
++    p=tmp/'vblank.mod'; make_mod(p,b'M.K.',4,pattern_bytes=pattern4(rows),orders=[0]*128)
++    m=mf.parse_mod(p)
++    assert m.mod_vblank and m.mod_profile=='PROTRACKER_VBLANK'
++    assert m.mod_cia_duration_probe>=480 and m.mod_vblank_duration_probe < m.mod_cia_duration_probe
++    # F20 is remapped to speed in VBlank mode.
++    ev=[e for e in m.patterns[0][1] if e.ch==0][0]
++    assert ev.cmd==cs.CMD_A and ev.param==0x20
++
++def test_finetune_limits_and_swap_stream():
++    mp=(ROOT/'source/compact_engine_mod.map').read_text().lower()
++    assert 'mod_finetune = 0x5f64' in mp and 'efx_speed = 0x5f7c' in mp
++    asm=(ROOT/'source/compact_engine_mod.asm').read_text().lower()
++    assert 'dw 453,452,452,452,452,452,452,452,480,477,474,470,467,463,460,457' in asm
++    assert 'dw 3424,3400,3376,3352,3328,3304,3280,3256,3628,3600,3576,3548,3524,3500,3472,3448' in asm
++    assert 'mod_invert_tick:' in asm and 'in a,(07fh)' in asm and 'out (07fh),a' in asm
++    # 0x83 is variable-length sample-swap note kind and must carry its wave byte.
++    a=cs.Action(0,note_kind='sample_swap',tone=0x85)
++    enc=cs.CompactCompiler._encode_action(None,a)
++    assert enc[0]&0x20 and enc[1:3]==bytes((0x83,0x85))
++
++def test_engine_layout():
++    mp=(ROOT/'source/compact_engine_mod.map').read_text().lower()
++    expected={'sine_table':'0x4a6c','vol_lut':'0x4ab0','ft2_vib_tab':'0x4af1','pitch_lut':'0x4b11','pitch_lut_end':'0x5f63'}
++    for name,val in expected.items(): assert f'{name} = {val}' in mp, (name,val)
++    # Extended code must remain below the semantic stream window.
++    syms={}
++    for line in mp.splitlines():
++        if ' = 0x' in line:
++            k,v=line.split(' = '); syms[k]=int(v,16)
++    assert syms['effect_mod_fine_down'] < 0x6A00
++    assert syms['do_sample_swap'] < 0x6A00
++    assert (ROOT/'source/compact_engine_mod.bin').stat().st_size <= 0x2A00
++    assert syms['pitch_lut_end']==0x5F63 and syms['mod_finetune']==0x5F64
++
++def main():
++    with tempfile.TemporaryDirectory() as td:
++        tmp=Path(td)
++        test_effect_mapping_and_memory(tmp)
++        test_exact_periods(tmp)
++        test_signatures_and_flt8(tmp)
++        test_adpcm_and_profiles(tmp)
++        test_sample_swap_and_one_shot(tmp)
++        test_vblank_probe(tmp)
++    test_finetune_limits_and_swap_stream()
++    test_engine_layout()
++    print('PASS 8 MOD v0.4.8 generic regression groups')
++
++if __name__=='__main__': main()

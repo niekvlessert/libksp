@@ -1,0 +1,2490 @@
+4000  AF                                      xor a
+4001  21 00 5F                                ld hl,STATE_CLEAR
+4004  11 01 5F                                ld de,STATE_CLEAR+1
+4007  01 4F 04                                ld bc,STATE_CLEAR_END-STATE_CLEAR-1
+400A  77                                      ld (hl),a
+400B  ED B0                                   ldir
+400D  21 C8 61                                ld hl,DELAY_TICK
+4010  06 18                                   ld b,24
+4012  3E FF                                   ld a,0FFh
+4014  77                                      ld (hl),a
+4015  23                                      inc hl
+4016  10 FC                                   djnz init_delay_ff
+4018  21 00 00                                ld hl,0000h
+401B  22 04 5F                                ld (PAGE_INDEX),hl
+401E  21 29 6A                                ld hl,STREAM_DATA+HEADER_SIZE
+4021  22 00 5F                                ld (PTR),hl
+4024  CD 60 49                                call set_page_end
+4027  3A 08 6A                                ld a,(STREAM_DATA+6)
+402A  B7                                      or a
+402B  20 01                                   jr nz,init_speed_ok
+402D  3C                                      inc a
+402E  32 0A 5F                                ld (SPEED),a
+4031  3A 09 6A                                ld a,(STREAM_DATA+7)
+4034  32 21 5F                                ld (MOD_FLAGS),a
+4037  AF                                      xor a
+4038  32 1E 5F                                ld (FAST_VOL),a
+403B  2A 0A 6A                                ld hl,(STREAM_DATA+8)
+403E  22 06 5F                                ld (TEMPO),hl
+4041  CD 8E 41                                call update_row_limit
+4044  21 10 6A                                ld hl,STREAM_DATA+14
+4047  11 B0 61                                ld de,PAN
+404A  01 18 00                                ld bc,24
+404D  ED B0                                   ldir
+404F  CD 80 63                                call apply_init_aliases
+4052  16 02                                   ld d,02h
+4054  1E 10                                   ld e,10h
+4056  CD 2F 4A                                call opl4_write_de
+4059  16 F8                                   ld d,0F8h
+405B  1E 00                                   ld e,00h
+405D  CD 2F 4A                                call opl4_write_de
+4060  16 F9                                   ld d,0F9h
+4062  1E 00                                   ld e,00h
+4064  CD 2F 4A                                call opl4_write_de
+4067  C9                                      ret
+4068  3A 0C 5F                                ld a,(ENDED)
+406B  B7                                      or a
+406C  C0                                      ret nz
+406D  2A 08 5F                                ld hl,(ACCUM)
+4070  ED 5B 06 5F                             ld de,(TEMPO)
+4074  19                                      add hl,de
+4075  22 08 5F                                ld (ACCUM),hl
+4078  2A 08 5F                                ld hl,(ACCUM)
+407B  11 96 00                                ld de,150
+407E  B7                                      or a
+407F  ED 52                                   sbc hl,de
+4081  38 0D                                   jr c,play_done
+4083  22 08 5F                                ld (ACCUM),hl
+4086  CD 9A 40                                call process_tick
+4089  3A 0C 5F                                ld a,(ENDED)
+408C  B7                                      or a
+408D  C0                                      ret nz
+408E  18 E8                                   jr play_loop
+4090  C9                                      ret
+4091  3E 01                                   ld a,1
+4093  32 0C 5F                                ld (ENDED),a
+4096  CD 44 4A                                call silence
+4099  C9                                      ret
+409A  3A 0B 5F                                ld a,(ROW_TICK)
+409D  47                                      ld b,a
+409E  3A 19 63                                ld a,(ROW_TICK_HI)
+40A1  B0                                      or b
+40A2  20 08                                   jr nz,process_have_row
+40A4  CD 00 41                                call parse_row
+40A7  3A 0C 5F                                ld a,(ENDED)
+40AA  B7                                      or a
+40AB  C0                                      ret nz
+40AC  3A 19 63                                ld a,(ROW_TICK_HI)
+40AF  B7                                      or a
+40B0  20 17                                   jr nz,process_no_pending_tempo
+40B2  3A 0B 5F                                ld a,(ROW_TICK)
+40B5  FE 01                                   cp 1
+40B7  20 10                                   jr nz,process_no_pending_tempo
+40B9  3A 1E 63                                ld a,(PENDING_TEMPO_F)
+40BC  B7                                      or a
+40BD  28 0A                                   jr z,process_no_pending_tempo
+40BF  2A 1C 63                                ld hl,(PENDING_TEMPO)
+40C2  22 06 5F                                ld (TEMPO),hl
+40C5  AF                                      xor a
+40C6  32 1E 63                                ld (PENDING_TEMPO_F),a
+40C9  3A 0B 5F                                ld a,(ROW_TICK)
+40CC  32 0E 5F                                ld (TICK_NOW),a
+40CF  CD 74 44                                call process_all_channels
+40D2  3A 0B 5F                                ld a,(ROW_TICK)
+40D5  3C                                      inc a
+40D6  32 0B 5F                                ld (ROW_TICK),a
+40D9  20 07                                   jr nz,process_tick_no_carry
+40DB  3A 19 63                                ld a,(ROW_TICK_HI)
+40DE  3C                                      inc a
+40DF  32 19 63                                ld (ROW_TICK_HI),a
+40E2  3A 19 63                                ld a,(ROW_TICK_HI)
+40E5  47                                      ld b,a
+40E6  3A 0B 5F                                ld a,(ROW_TICK)
+40E9  4F                                      ld c,a
+40EA  2A 1A 63                                ld hl,(ROW_LIMIT)
+40ED  78                                      ld a,b
+40EE  BC                                      cp h
+40EF  38 0E                                   jr c,process_tick_keep
+40F1  20 04                                   jr nz,process_row_done
+40F3  79                                      ld a,c
+40F4  BD                                      cp l
+40F5  38 08                                   jr c,process_tick_keep
+40F7  AF                                      xor a
+40F8  32 0B 5F                                ld (ROW_TICK),a
+40FB  32 19 63                                ld (ROW_TICK_HI),a
+40FE  C9                                      ret
+40FF  C9                                      ret
+4100  AF                                      xor a
+4101  32 18 63                                ld (MOD_PAT_DELAY),a
+4104  32 1E 63                                ld (PENDING_TEMPO_F),a
+4107  21 A8 60                                ld hl,CMD1
+410A  11 A9 60                                ld de,CMD1+1
+410D  01 5F 00                                ld bc,96-1
+4110  77                                      ld (hl),a
+4111  ED B0                                   ldir
+4113  21 C8 61                                ld hl,DELAY_TICK
+4116  06 18                                   ld b,24
+4118  3E FF                                   ld a,0FFh
+411A  77                                      ld (hl),a
+411B  23                                      inc hl
+411C  10 FC                                   djnz parse_delay_ff
+411E  CD 0E 49                                call read_stream_byte
+4121  DA EC 48                                jp c,stream_end
+4124  FE FF                                   cp 0FFh
+4126  CA EC 48                                jp z,stream_end
+4129  32 1F 5F                                ld (ROW_COUNT_TMP),a
+412C  B7                                      or a
+412D  28 5B                                   jr z,parse_row_setup_done
+412F  CD 0E 49                                call read_stream_byte
+4132  DA EC 48                                jp c,stream_end
+4135  32 1A 5F                                ld (EV_TOKEN),a
+4138  E6 1F                                   and 01Fh
+413A  32 0D 5F                                ld (CUR_CH),a
+413D  AF                                      xor a
+413E  32 12 5F                                ld (EV_NOTE_KIND),a
+4141  32 1B 5F                                ld (EV_HAS_VOL),a
+4144  32 20 5F                                ld (EV_NOTE_PRESENT),a
+4147  3E FF                                   ld a,0FFh
+4149  32 18 5F                                ld (EV_DVOL),a
+414C  3A 1A 5F                                ld a,(EV_TOKEN)
+414F  E6 20                                   and 020h
+4151  28 0B                                   jr z,parse_no_note
+4153  3E 01                                   ld a,1
+4155  32 20 5F                                ld (EV_NOTE_PRESENT),a
+4158  CD A3 41                                call parse_note
+415B  DA EC 48                                jp c,stream_end
+415E  3A 1A 5F                                ld a,(EV_TOKEN)
+4161  E6 40                                   and 040h
+4163  28 0C                                   jr z,parse_no_volume
+4165  CD 0E 49                                call read_stream_byte
+4168  DA EC 48                                jp c,stream_end
+416B  32 1B 5F                                ld (EV_HAS_VOL),a
+416E  CD D8 47                                call set_volume_a
+4171  3A 1A 5F                                ld a,(EV_TOKEN)
+4174  E6 80                                   and 080h
+4176  28 06                                   jr z,parse_no_effect
+4178  CD 33 42                                call parse_effects
+417B  DA EC 48                                jp c,stream_end
+417E  CD 70 43                                call finish_event_note
+4181  3A 1F 5F                                ld a,(ROW_COUNT_TMP)
+4184  3D                                      dec a
+4185  32 1F 5F                                ld (ROW_COUNT_TMP),a
+4188  20 A5                                   jr nz,parse_event_loop
+418A  CD 8E 41                                call update_row_limit
+418D  C9                                      ret
+418E  3A 18 63                                ld a,(MOD_PAT_DELAY)
+4191  3C                                      inc a
+4192  47                                      ld b,a
+4193  3A 0A 5F                                ld a,(SPEED)
+4196  5F                                      ld e,a
+4197  16 00                                   ld d,0
+4199  21 00 00                                ld hl,0
+419C  19                                      add hl,de
+419D  10 FD                                   djnz update_row_limit_loop
+419F  22 1A 63                                ld (ROW_LIMIT),hl
+41A2  C9                                      ret
+41A3  CD 0E 49                                call read_stream_byte
+41A6  D8                                      ret c
+41A7  32 12 5F                                ld (EV_NOTE_KIND),a
+41AA  FE FE                                   cp 0FEh
+41AC  C8                                      ret z
+41AD  FE FF                                   cp 0FFh
+41AF  28 63                                   jr z,parse_note_delayed_off
+41B1  FE 80                                   cp 080h
+41B3  28 39                                   jr z,parse_note_porta
+41B5  FE 81                                   cp 081h
+41B7  28 37                                   jr z,parse_note_delayed_porta
+41B9  FE 82                                   cp 082h
+41BB  28 46                                   jr z,parse_note_porta_swap
+41BD  FE 83                                   cp 083h
+41BF  28 4B                                   jr z,parse_note_sample_swap
+41C1  47                                      ld b,a
+41C2  CD 0E 49                                call read_stream_byte
+41C5  D8                                      ret c
+41C6  32 13 5F                                ld (EV_TONE),a
+41C9  CD 23 42                                call read_word_to_ev_period
+41CC  D8                                      ret c
+41CD  CD 0E 49                                call read_stream_byte
+41D0  D8                                      ret c
+41D1  32 16 5F                                ld (EV_PLO),a
+41D4  CD 0E 49                                call read_stream_byte
+41D7  D8                                      ret c
+41D8  32 17 5F                                ld (EV_PHI),a
+41DB  78                                      ld a,b
+41DC  E6 40                                   and 040h
+41DE  C8                                      ret z
+41DF  CD 0E 49                                call read_stream_byte
+41E2  D8                                      ret c
+41E3  32 18 5F                                ld (EV_DVOL),a
+41E6  CD 0E 49                                call read_stream_byte
+41E9  D8                                      ret c
+41EA  32 19 5F                                ld (EV_DELAY),a
+41ED  C9                                      ret
+41EE  18 33                                   jr read_word_to_ev_period
+41F0  CD 23 42                                call read_word_to_ev_period
+41F3  D8                                      ret c
+41F4  CD 0E 49                                call read_stream_byte
+41F7  D8                                      ret c
+41F8  32 18 5F                                ld (EV_DVOL),a
+41FB  CD 0E 49                                call read_stream_byte
+41FE  D8                                      ret c
+41FF  32 19 5F                                ld (EV_DELAY),a
+4202  C9                                      ret
+4203  CD 0E 49                                call read_stream_byte
+4206  D8                                      ret c
+4207  32 13 5F                                ld (EV_TONE),a
+420A  18 17                                   jr read_word_to_ev_period
+420C  CD 0E 49                                call read_stream_byte
+420F  D8                                      ret c
+4210  32 13 5F                                ld (EV_TONE),a
+4213  C9                                      ret
+4214  CD 0E 49                                call read_stream_byte
+4217  D8                                      ret c
+4218  32 18 5F                                ld (EV_DVOL),a
+421B  CD 0E 49                                call read_stream_byte
+421E  D8                                      ret c
+421F  32 19 5F                                ld (EV_DELAY),a
+4222  C9                                      ret
+4223  CD 0E 49                                call read_stream_byte
+4226  D8                                      ret c
+4227  5F                                      ld e,a
+4228  CD 0E 49                                call read_stream_byte
+422B  D8                                      ret c
+422C  57                                      ld d,a
+422D  ED 53 14 5F                             ld (EV_PERIOD),de
+4231  B7                                      or a
+4232  C9                                      ret
+4233  AF                                      xor a
+4234  32 1D 5F                                ld (FX_SLOT),a
+4237  CD 42 42                                call parse_one_effect
+423A  D8                                      ret c
+423B  3A 1C 5F                                ld a,(SECOND_FX)
+423E  B7                                      or a
+423F  C8                                      ret z
+4240  18 F5                                   jr parse_effect_loop
+4242  CD 0E 49                                call read_stream_byte
+4245  D8                                      ret c
+4246  47                                      ld b,a
+4247  E6 80                                   and 080h
+4249  32 1C 5F                                ld (SECOND_FX),a
+424C  78                                      ld a,b
+424D  E6 7F                                   and 07Fh
+424F  57                                      ld d,a
+4250  CD 0E 49                                call read_stream_byte
+4253  D8                                      ret c
+4254  5F                                      ld e,a
+4255  7A                                      ld a,d
+4256  FE 01                                   cp CMD_A
+4258  20 08                                   jr nz,fx_not_speed
+425A  7B                                      ld a,e
+425B  B7                                      or a
+425C  C8                                      ret z
+425D  32 0A 5F                                ld (SPEED),a
+4260  B7                                      or a
+4261  C9                                      ret
+4262  FE 14                                   cp CMD_T
+4264  20 1D                                   jr nz,fx_not_tempo
+4266  7B                                      ld a,e
+4267  FE 20                                   cp 32
+4269  D8                                      ret c
+426A  6F                                      ld l,a
+426B  26 00                                   ld h,0
+426D  3A 21 5F                                ld a,(MOD_FLAGS)
+4270  E6 01                                   and 1
+4272  28 0A                                   jr z,fx_tempo_immediate
+4274  22 1C 63                                ld (PENDING_TEMPO),hl
+4277  3E 01                                   ld a,1
+4279  32 1E 63                                ld (PENDING_TEMPO_F),a
+427C  B7                                      or a
+427D  C9                                      ret
+427E  22 06 5F                                ld (TEMPO),hl
+4281  B7                                      or a
+4282  C9                                      ret
+4283  FE 18                                   cp CMD_X
+4285  20 06                                   jr nz,fx_not_pan
+4287  7B                                      ld a,e
+4288  CD 06 48                                call set_pan_from_tracker
+428B  B7                                      or a
+428C  C9                                      ret
+428D  FE 55                                   cp CMD_MOD_INSTR
+428F  CA 65 69                                jp z,mod_parse_instr_state
+4292  FE 4D                                   cp CMD_MOD_FINETUNE
+4294  CA 7B 69                                jp z,mod_parse_finetune_state
+4297  FE 53                                   cp CMD_MOD_PATDELAY
+4299  20 08                                   jr nz,fx_not_patdelay
+429B  7B                                      ld a,e
+429C  E6 0F                                   and 0Fh
+429E  32 18 63                                ld (MOD_PAT_DELAY),a
+42A1  B7                                      or a
+42A2  C9                                      ret
+42A3  FE 4B                                   cp CMD_MOD_GLISS
+42A5  20 0C                                   jr nz,fx_not_gliss
+42A7  7B                                      ld a,e
+42A8  E6 0F                                   and 0Fh
+42AA  21 00 63                                ld hl,GLISS
+42AD  CD F5 48                                call ptr8_cur
+42B0  77                                      ld (hl),a
+42B1  B7                                      or a
+42B2  C9                                      ret
+42B3  FE 4C                                   cp CMD_MOD_VIBWAVE
+42B5  20 0C                                   jr nz,fx_not_vibwave
+42B7  7B                                      ld a,e
+42B8  E6 07                                   and 07h
+42BA  21 D0 62                                ld hl,VIBWAVE
+42BD  CD F5 48                                call ptr8_cur
+42C0  77                                      ld (hl),a
+42C1  B7                                      or a
+42C2  C9                                      ret
+42C3  FE 4F                                   cp CMD_MOD_TREMWAVE
+42C5  20 0C                                   jr nz,fx_not_tremwave
+42C7  7B                                      ld a,e
+42C8  E6 07                                   and 07h
+42CA  21 E8 62                                ld hl,TREMWAVE
+42CD  CD F5 48                                call ptr8_cur
+42D0  77                                      ld (hl),a
+42D1  B7                                      or a
+42D2  C9                                      ret
+42D3  FE 08                                   cp CMD_H
+42D5  20 16                                   jr nz,fx_not_tremolo
+42D7  7B                                      ld a,e
+42D8  E6 F0                                   and 0F0h
+42DA  0F                                      rrca
+42DB  0F                                      rrca
+42DC  0F                                      rrca
+42DD  0F                                      rrca
+42DE  D5                                      push de
+42DF  CD 46 48                                call store_vib_speed
+42E2  D1                                      pop de
+42E3  7B                                      ld a,e
+42E4  E6 0F                                   and 00Fh
+42E6  D5                                      push de
+42E7  CD 4E 48                                call store_vib_depth
+42EA  D1                                      pop de
+42EB  18 24                                   jr fx_store
+42ED  FE 28                                   cp CMD_MOD_TREMOLO
+42EF  20 20                                   jr nz,fx_store
+42F1  7B                                      ld a,e
+42F2  E6 F0                                   and 0F0h
+42F4  28 0D                                   jr z,fx_trem_no_speed
+42F6  0F                                      rrca
+42F7  0F                                      rrca
+42F8  0F                                      rrca
+42F9  0F                                      rrca
+42FA  D5                                      push de
+42FB  21 88 62                                ld hl,TREMSPD
+42FE  CD F5 48                                call ptr8_cur
+4301  77                                      ld (hl),a
+4302  D1                                      pop de
+4303  7B                                      ld a,e
+4304  E6 0F                                   and 00Fh
+4306  28 09                                   jr z,fx_store
+4308  D5                                      push de
+4309  21 A0 62                                ld hl,TREMDEP
+430C  CD F5 48                                call ptr8_cur
+430F  77                                      ld (hl),a
+4310  D1                                      pop de
+4311  3A 1D 5F                                ld a,(FX_SLOT)
+4314  B7                                      or a
+4315  20 15                                   jr nz,fx_store_2_check
+4317  21 A8 60                                ld hl,CMD1
+431A  CD F5 48                                call ptr8_cur
+431D  72                                      ld (hl),d
+431E  21 C0 60                                ld hl,PAR1
+4321  CD F5 48                                call ptr8_cur
+4324  73                                      ld (hl),e
+4325  3E 01                                   ld a,1
+4327  32 1D 5F                                ld (FX_SLOT),a
+432A  18 17                                   jr fx_extra
+432C  FE 01                                   cp 1
+432E  20 13                                   jr nz,fx_extra
+4330  21 D8 60                                ld hl,CMD2
+4333  CD F5 48                                call ptr8_cur
+4336  72                                      ld (hl),d
+4337  21 F0 60                                ld hl,PAR2
+433A  CD F5 48                                call ptr8_cur
+433D  73                                      ld (hl),e
+433E  3E 02                                   ld a,2
+4340  32 1D 5F                                ld (FX_SLOT),a
+4343  7A                                      ld a,d
+4344  FE 0A                                   cp CMD_J
+4346  20 26                                   jr nz,fx_done
+4348  CD 0E 49                                call read_stream_byte
+434B  D8                                      ret c
+434C  5F                                      ld e,a
+434D  CD 0E 49                                call read_stream_byte
+4350  D8                                      ret c
+4351  57                                      ld d,a
+4352  21 50 61                                ld hl,ARP1
+4355  CD 01 49                                call ptr16_cur
+4358  73                                      ld (hl),e
+4359  23                                      inc hl
+435A  72                                      ld (hl),d
+435B  CD 0E 49                                call read_stream_byte
+435E  D8                                      ret c
+435F  5F                                      ld e,a
+4360  CD 0E 49                                call read_stream_byte
+4363  D8                                      ret c
+4364  57                                      ld d,a
+4365  21 80 61                                ld hl,ARP2
+4368  CD 01 49                                call ptr16_cur
+436B  73                                      ld (hl),e
+436C  23                                      inc hl
+436D  72                                      ld (hl),d
+436E  B7                                      or a
+436F  C9                                      ret
+4370  3A 20 5F                                ld a,(EV_NOTE_PRESENT)
+4373  B7                                      or a
+4374  28 24                                   jr z,finish_no_note
+4376  3A 12 5F                                ld a,(EV_NOTE_KIND)
+4379  FE FE                                   cp 0FEh
+437B  28 2C                                   jr z,do_note_off
+437D  FE FF                                   cp 0FFh
+437F  28 2B                                   jr z,queue_delayed_note
+4381  FE 80                                   cp 080h
+4383  28 16                                   jr z,do_porta_target
+4385  FE 81                                   cp 081h
+4387  28 23                                   jr z,queue_delayed_note
+4389  FE 82                                   cp 082h
+438B  CA 87 69                                jp z,do_porta_swap
+438E  FE 83                                   cp 083h
+4390  CA 8A 69                                jp z,do_sample_swap
+4393  E6 40                                   and 040h
+4395  20 15                                   jr nz,queue_delayed_note
+4397  C3 F6 43                                jp do_normal_note
+439A  C9                                      ret
+439B  21 30 60                                ld hl,TARGET_Q
+439E  CD 01 49                                call ptr16_cur
+43A1  ED 5B 14 5F                             ld de,(EV_PERIOD)
+43A5  73                                      ld (hl),e
+43A6  23                                      inc hl
+43A7  72                                      ld (hl),d
+43A8  C9                                      ret
+43A9  C3 56 48                                jp keyoff_current
+43AC  3A 19 5F                                ld a,(EV_DELAY)
+43AF  21 C8 61                                ld hl,DELAY_TICK
+43B2  CD F5 48                                call ptr8_cur
+43B5  77                                      ld (hl),a
+43B6  3A 12 5F                                ld a,(EV_NOTE_KIND)
+43B9  21 E0 61                                ld hl,PEND_KIND
+43BC  CD F5 48                                call ptr8_cur
+43BF  77                                      ld (hl),a
+43C0  3A 13 5F                                ld a,(EV_TONE)
+43C3  21 F8 61                                ld hl,PEND_TONE
+43C6  CD F5 48                                call ptr8_cur
+43C9  77                                      ld (hl),a
+43CA  ED 5B 14 5F                             ld de,(EV_PERIOD)
+43CE  21 10 62                                ld hl,PEND_PERIOD
+43D1  CD 01 49                                call ptr16_cur
+43D4  73                                      ld (hl),e
+43D5  23                                      inc hl
+43D6  72                                      ld (hl),d
+43D7  3A 16 5F                                ld a,(EV_PLO)
+43DA  21 40 62                                ld hl,PEND_PLO
+43DD  CD F5 48                                call ptr8_cur
+43E0  77                                      ld (hl),a
+43E1  3A 17 5F                                ld a,(EV_PHI)
+43E4  21 58 62                                ld hl,PEND_PHI
+43E7  CD F5 48                                call ptr8_cur
+43EA  77                                      ld (hl),a
+43EB  3A 18 5F                                ld a,(EV_DVOL)
+43EE  21 70 62                                ld hl,PEND_VOL
+43F1  CD F5 48                                call ptr8_cur
+43F4  77                                      ld (hl),a
+43F5  C9                                      ret
+43F6  ED 5B 14 5F                             ld de,(EV_PERIOD)
+43FA  21 00 60                                ld hl,PERIOD_Q
+43FD  CD 01 49                                call ptr16_cur
+4400  73                                      ld (hl),e
+4401  23                                      inc hl
+4402  72                                      ld (hl),d
+4403  21 30 60                                ld hl,TARGET_Q
+4406  CD 01 49                                call ptr16_cur
+4409  73                                      ld (hl),e
+440A  23                                      inc hl
+440B  72                                      ld (hl),d
+440C  21 20 63                                ld hl,GLISS_OUT
+440F  CD 01 49                                call ptr16_cur
+4412  73                                      ld (hl),e
+4413  23                                      inc hl
+4414  72                                      ld (hl),d
+4415  3A 13 5F                                ld a,(EV_TONE)
+4418  21 78 60                                ld hl,WAVE
+441B  CD F5 48                                call ptr8_cur
+441E  77                                      ld (hl),a
+441F  21 D0 62                                ld hl,VIBWAVE
+4422  CD F5 48                                call ptr8_cur
+4425  CB 56                                   bit 2,(hl)
+4427  20 08                                   jr nz,note_keep_vib_phase
+4429  AF                                      xor a
+442A  21 38 61                                ld hl,VIBPH
+442D  CD F5 48                                call ptr8_cur
+4430  77                                      ld (hl),a
+4431  21 E8 62                                ld hl,TREMWAVE
+4434  CD F5 48                                call ptr8_cur
+4437  CB 56                                   bit 2,(hl)
+4439  20 08                                   jr nz,note_keep_trem_phase
+443B  AF                                      xor a
+443C  21 B8 62                                ld hl,TREMPH
+443F  CD F5 48                                call ptr8_cur
+4442  77                                      ld (hl),a
+4443  CD 56 48                                call keyoff_current
+4446  3A 0D 5F                                ld a,(CUR_CH)
+4449  C6 20                                   add a,020h
+444B  57                                      ld d,a
+444C  3A 16 5F                                ld a,(EV_PLO)
+444F  F6 01                                   or 1
+4451  5F                                      ld e,a
+4452  CD 2F 4A                                call opl4_write_de
+4455  3A 0D 5F                                ld a,(CUR_CH)
+4458  C6 08                                   add a,008h
+445A  57                                      ld d,a
+445B  3A 13 5F                                ld a,(EV_TONE)
+445E  C6 80                                   add a,080h
+4460  5F                                      ld e,a
+4461  CD 2F 4A                                call opl4_write_de
+4464  3A 0D 5F                                ld a,(CUR_CH)
+4467  C6 38                                   add a,038h
+4469  57                                      ld d,a
+446A  3A 17 5F                                ld a,(EV_PHI)
+446D  5F                                      ld e,a
+446E  CD 2F 4A                                call opl4_write_de
+4471  C3 6F 48                                jp keyon_current
+4474  AF                                      xor a
+4475  32 0D 5F                                ld (CUR_CH),a
+4478  CD 19 45                                call process_delayed
+447B  3A 0E 5F                                ld a,(TICK_NOW)
+447E  B7                                      or a
+447F  C4 41 67                                call nz,mod_invert_tick
+4482  21 00 60                                ld hl,PERIOD_Q
+4485  CD 01 49                                call ptr16_cur
+4488  5E                                      ld e,(hl)
+4489  23                                      inc hl
+448A  56                                      ld d,(hl)
+448B  ED 53 10 5F                             ld (OUT_PERIOD),de
+448F  AF                                      xor a
+4490  32 0F 5F                                ld (PITCH_DIRTY),a
+4493  CD CB 44                                call row_pitch_reset_check
+4496  21 A8 60                                ld hl,CMD1
+4499  CD F5 48                                call ptr8_cur
+449C  56                                      ld d,(hl)
+449D  21 C0 60                                ld hl,PAR1
+44A0  CD F5 48                                call ptr8_cur
+44A3  5E                                      ld e,(hl)
+44A4  CD 8A 45                                call apply_effect_de
+44A7  21 D8 60                                ld hl,CMD2
+44AA  CD F5 48                                call ptr8_cur
+44AD  56                                      ld d,(hl)
+44AE  21 F0 60                                ld hl,PAR2
+44B1  CD F5 48                                call ptr8_cur
+44B4  5E                                      ld e,(hl)
+44B5  CD 8A 45                                call apply_effect_de
+44B8  3A 0F 5F                                ld a,(PITCH_DIRTY)
+44BB  B7                                      or a
+44BC  C4 8C 48                                call nz,emit_pitch_approx
+44BF  3A 0D 5F                                ld a,(CUR_CH)
+44C2  3C                                      inc a
+44C3  32 0D 5F                                ld (CUR_CH),a
+44C6  FE 18                                   cp 24
+44C8  38 AE                                   jr c,process_ch_loop
+44CA  C9                                      ret
+44CB  3A 0E 5F                                ld a,(TICK_NOW)
+44CE  B7                                      or a
+44CF  C0                                      ret nz
+44D0  21 22 5F                                ld hl,PREV_PFX
+44D3  CD F5 48                                call ptr8_cur
+44D6  46                                      ld b,(hl)
+44D7  0E 00                                   ld c,0
+44D9  21 A8 60                                ld hl,CMD1
+44DC  CD F5 48                                call ptr8_cur
+44DF  7E                                      ld a,(hl)
+44E0  FE 0A                                   cp CMD_J
+44E2  20 02                                   jr nz,row_pfx_cmd1_not_j
+44E4  CB C1                                   set 0,c
+44E6  FE 08                                   cp CMD_H
+44E8  20 02                                   jr nz,row_pfx_cmd2
+44EA  CB C9                                   set 1,c
+44EC  21 D8 60                                ld hl,CMD2
+44EF  CD F5 48                                call ptr8_cur
+44F2  7E                                      ld a,(hl)
+44F3  FE 0A                                   cp CMD_J
+44F5  20 02                                   jr nz,row_pfx_cmd2_not_j
+44F7  CB C1                                   set 0,c
+44F9  FE 08                                   cp CMD_H
+44FB  20 02                                   jr nz,row_pfx_decide
+44FD  CB C9                                   set 1,c
+44FF  CB 40                                   bit 0,b
+4501  20 08                                   jr nz,row_pfx_restore
+4503  CB 48                                   bit 1,b
+4505  28 09                                   jr z,row_pfx_store
+4507  CB 49                                   bit 1,c
+4509  20 05                                   jr nz,row_pfx_store
+450B  3E 01                                   ld a,1
+450D  32 0F 5F                                ld (PITCH_DIRTY),a
+4510  79                                      ld a,c
+4511  21 22 5F                                ld hl,PREV_PFX
+4514  CD F5 48                                call ptr8_cur
+4517  77                                      ld (hl),a
+4518  C9                                      ret
+4519  21 C8 61                                ld hl,DELAY_TICK
+451C  CD F5 48                                call ptr8_cur
+451F  7E                                      ld a,(hl)
+4520  FE FF                                   cp 0FFh
+4522  C8                                      ret z
+4523  47                                      ld b,a
+4524  3A 0E 5F                                ld a,(TICK_NOW)
+4527  B8                                      cp b
+4528  C0                                      ret nz
+4529  36 FF                                   ld (hl),0FFh
+452B  21 70 62                                ld hl,PEND_VOL
+452E  CD F5 48                                call ptr8_cur
+4531  7E                                      ld a,(hl)
+4532  FE FF                                   cp 0FFh
+4534  28 03                                   jr z,delay_no_vol
+4536  CD D8 47                                call set_volume_a
+4539  21 E0 61                                ld hl,PEND_KIND
+453C  CD F5 48                                call ptr8_cur
+453F  7E                                      ld a,(hl)
+4540  FE FF                                   cp 0FFh
+4542  CA 56 48                                jp z,keyoff_current
+4545  FE 81                                   cp 081h
+4547  28 2E                                   jr z,delay_porta
+4549  21 F8 61                                ld hl,PEND_TONE
+454C  CD F5 48                                call ptr8_cur
+454F  7E                                      ld a,(hl)
+4550  32 13 5F                                ld (EV_TONE),a
+4553  21 10 62                                ld hl,PEND_PERIOD
+4556  CD 01 49                                call ptr16_cur
+4559  5E                                      ld e,(hl)
+455A  23                                      inc hl
+455B  56                                      ld d,(hl)
+455C  ED 53 14 5F                             ld (EV_PERIOD),de
+4560  21 40 62                                ld hl,PEND_PLO
+4563  CD F5 48                                call ptr8_cur
+4566  7E                                      ld a,(hl)
+4567  32 16 5F                                ld (EV_PLO),a
+456A  21 58 62                                ld hl,PEND_PHI
+456D  CD F5 48                                call ptr8_cur
+4570  7E                                      ld a,(hl)
+4571  32 17 5F                                ld (EV_PHI),a
+4574  C3 F6 43                                jp do_normal_note
+4577  21 10 62                                ld hl,PEND_PERIOD
+457A  CD 01 49                                call ptr16_cur
+457D  5E                                      ld e,(hl)
+457E  23                                      inc hl
+457F  56                                      ld d,(hl)
+4580  21 30 60                                ld hl,TARGET_Q
+4583  CD 01 49                                call ptr16_cur
+4586  73                                      ld (hl),e
+4587  23                                      inc hl
+4588  72                                      ld (hl),d
+4589  C9                                      ret
+458A  7A                                      ld a,d
+458B  B7                                      or a
+458C  C8                                      ret z
+458D  FE 04                                   cp CMD_D
+458F  CA D4 45                                jp z,effect_volume_slide
+4592  FE 05                                   cp CMD_E
+4594  CA 15 46                                jp z,effect_pitch_down
+4597  FE 06                                   cp CMD_F
+4599  CA 32 46                                jp z,effect_pitch_up
+459C  FE 07                                   cp CMD_G
+459E  CA 80 46                                jp z,effect_porta
+45A1  FE 08                                   cp CMD_H
+45A3  CA 8C 65                                jp z,effect_vibrato
+45A6  FE 0A                                   cp CMD_J
+45A8  CA CA 46                                jp z,effect_arpeggio
+45AB  FE 11                                   cp CMD_Q
+45AD  CA F6 46                                jp z,effect_retrig
+45B0  FE 28                                   cp CMD_MOD_TREMOLO
+45B2  CA 8B 66                                jp z,effect_mod_tremolo
+45B5  FE 49                                   cp CMD_MOD_FINE_UP
+45B7  CA 16 69                                jp z,effect_mod_fine_up
+45BA  FE 4A                                   cp CMD_MOD_FINE_DN
+45BC  CA 41 69                                jp z,effect_mod_fine_down
+45BF  FE 51                                   cp CMD_MOD_FINEVOLUP
+45C1  CA 36 68                                jp z,effect_mod_fine_vol_up
+45C4  FE 52                                   cp CMD_MOD_FINEVOLDN
+45C6  CA 43 68                                jp z,effect_mod_fine_vol_down
+45C9  FE 54                                   cp CMD_MOD_INVERT
+45CB  CA 31 67                                jp z,effect_mod_invert
+45CE  FE 1B                                   cp CMD_CUT
+45D0  CA CC 47                                jp z,effect_note_cut
+45D3  C9                                      ret
+45D4  3A 0E 5F                                ld a,(TICK_NOW)
+45D7  B7                                      or a
+45D8  C8                                      ret z
+45D9  7B                                      ld a,e
+45DA  B7                                      or a
+45DB  C8                                      ret z
+45DC  E6 F0                                   and 0F0h
+45DE  28 09                                   jr z,mod_vol_slide_down
+45E0  0F                                      rrca
+45E1  0F                                      rrca
+45E2  0F                                      rrca
+45E3  0F                                      rrca
+45E4  E6 0F                                   and 0Fh
+45E6  C3 F1 45                                jp volume_add_a
+45E9  7B                                      ld a,e
+45EA  E6 0F                                   and 0Fh
+45EC  B7                                      or a
+45ED  C8                                      ret z
+45EE  C3 04 46                                jp volume_sub_a
+45F1  47                                      ld b,a
+45F2  21 60 60                                ld hl,VOLUME
+45F5  CD F5 48                                call ptr8_cur
+45F8  7E                                      ld a,(hl)
+45F9  80                                      add a,b
+45FA  FE 41                                   cp 65
+45FC  38 02                                   jr c,volume_store
+45FE  3E 40                                   ld a,64
+4600  77                                      ld (hl),a
+4601  C3 E8 47                                jp emit_volume_current
+4604  47                                      ld b,a
+4605  21 60 60                                ld hl,VOLUME
+4608  CD F5 48                                call ptr8_cur
+460B  7E                                      ld a,(hl)
+460C  B8                                      cp b
+460D  30 03                                   jr nc,volume_sub_ok
+460F  AF                                      xor a
+4610  18 EE                                   jr volume_store
+4612  90                                      sub b
+4613  18 EB                                   jr volume_store
+4615  7B                                      ld a,e
+4616  CD 54 46                                call slide_delta_q
+4619  D8                                      ret c
+461A  EB                                      ex de,hl
+461B  21 00 60                                ld hl,PERIOD_Q
+461E  CD 01 49                                call ptr16_cur
+4621  7E                                      ld a,(hl)
+4622  4F                                      ld c,a
+4623  23                                      inc hl
+4624  7E                                      ld a,(hl)
+4625  47                                      ld b,a
+4626  60                                      ld h,b
+4627  69                                      ld l,c
+4628  19                                      add hl,de
+4629  30 03                                   jr nc,pitch_down_store
+462B  21 FF FF                                ld hl,0FFFFh
+462E  CD 68 46                                call store_period_hl
+4631  C9                                      ret
+4632  7B                                      ld a,e
+4633  CD 54 46                                call slide_delta_q
+4636  D8                                      ret c
+4637  EB                                      ex de,hl
+4638  21 00 60                                ld hl,PERIOD_Q
+463B  CD 01 49                                call ptr16_cur
+463E  4E                                      ld c,(hl)
+463F  23                                      inc hl
+4640  46                                      ld b,(hl)
+4641  60                                      ld h,b
+4642  69                                      ld l,c
+4643  B7                                      or a
+4644  ED 52                                   sbc hl,de
+4646  30 03                                   jr nc,pitch_up_nonzero
+4648  21 01 00                                ld hl,1
+464B  7C                                      ld a,h
+464C  B5                                      or l
+464D  20 01                                   jr nz,pitch_up_store
+464F  23                                      inc hl
+4650  CD 68 46                                call store_period_hl
+4653  C9                                      ret
+4654  47                                      ld b,a
+4655  3A 0E 5F                                ld a,(TICK_NOW)
+4658  B7                                      or a
+4659  28 0B                                   jr z,slide_inactive
+465B  78                                      ld a,b
+465C  B7                                      or a
+465D  28 07                                   jr z,slide_inactive
+465F  6F                                      ld l,a
+4660  26 00                                   ld h,0
+4662  29                                      add hl,hl
+4663  29                                      add hl,hl
+4664  B7                                      or a
+4665  C9                                      ret
+4666  37                                      scf
+4667  C9                                      ret
+4668  CD 90 68                                call mod_clamp_period_hl
+466B  22 10 5F                                ld (OUT_PERIOD),hl
+466E  E5                                      push hl
+466F  EB                                      ex de,hl
+4670  21 00 60                                ld hl,PERIOD_Q
+4673  CD 01 49                                call ptr16_cur
+4676  73                                      ld (hl),e
+4677  23                                      inc hl
+4678  72                                      ld (hl),d
+4679  E1                                      pop hl
+467A  3E 01                                   ld a,1
+467C  32 0F 5F                                ld (PITCH_DIRTY),a
+467F  C9                                      ret
+4680  3A 0E 5F                                ld a,(TICK_NOW)
+4683  B7                                      or a
+4684  C8                                      ret z
+4685  7B                                      ld a,e
+4686  B7                                      or a
+4687  C8                                      ret z
+4688  6F                                      ld l,a
+4689  26 00                                   ld h,0
+468B  29                                      add hl,hl
+468C  29                                      add hl,hl
+468D  E5                                      push hl
+468E  21 00 60                                ld hl,PERIOD_Q
+4691  CD 01 49                                call ptr16_cur
+4694  5E                                      ld e,(hl)
+4695  23                                      inc hl
+4696  56                                      ld d,(hl)
+4697  21 30 60                                ld hl,TARGET_Q
+469A  CD 01 49                                call ptr16_cur
+469D  4E                                      ld c,(hl)
+469E  23                                      inc hl
+469F  46                                      ld b,(hl)
+46A0  62                                      ld h,d
+46A1  6B                                      ld l,e
+46A2  B7                                      or a
+46A3  ED 42                                   sbc hl,bc
+46A5  E1                                      pop hl
+46A6  28 21                                   jr z,porta_done
+46A8  38 0F                                   jr c,porta_current_lower
+46AA  EB                                      ex de,hl
+46AB  B7                                      or a
+46AC  ED 52                                   sbc hl,de
+46AE  E5                                      push hl
+46AF  B7                                      or a
+46B0  ED 42                                   sbc hl,bc
+46B2  E1                                      pop hl
+46B3  30 11                                   jr nc,porta_store
+46B5  60                                      ld h,b
+46B6  69                                      ld l,c
+46B7  18 0D                                   jr porta_store
+46B9  EB                                      ex de,hl
+46BA  19                                      add hl,de
+46BB  E5                                      push hl
+46BC  B7                                      or a
+46BD  ED 42                                   sbc hl,bc
+46BF  E1                                      pop hl
+46C0  38 04                                   jr c,porta_store
+46C2  28 02                                   jr z,porta_store
+46C4  60                                      ld h,b
+46C5  69                                      ld l,c
+46C6  CD 00 64                                call store_porta_period_hl
+46C9  C9                                      ret
+46CA  3A 0E 5F                                ld a,(TICK_NOW)
+46CD  FE 03                                   cp 3
+46CF  38 04                                   jr c,arp_mod_done
+46D1  D6 03                                   sub 3
+46D3  18 F8                                   jr arp_mod3
+46D5  B7                                      or a
+46D6  C8                                      ret z
+46D7  FE 01                                   cp 1
+46D9  20 05                                   jr nz,arp_use_2
+46DB  21 50 61                                ld hl,ARP1
+46DE  18 03                                   jr arp_load
+46E0  21 80 61                                ld hl,ARP2
+46E3  CD 01 49                                call ptr16_cur
+46E6  5E                                      ld e,(hl)
+46E7  23                                      inc hl
+46E8  56                                      ld d,(hl)
+46E9  7A                                      ld a,d
+46EA  B3                                      or e
+46EB  C8                                      ret z
+46EC  ED 53 10 5F                             ld (OUT_PERIOD),de
+46F0  3E 01                                   ld a,1
+46F2  32 0F 5F                                ld (PITCH_DIRTY),a
+46F5  C9                                      ret
+46F6  3A 0E 5F                                ld a,(TICK_NOW)
+46F9  B7                                      or a
+46FA  C8                                      ret z
+46FB  7B                                      ld a,e
+46FC  E6 0F                                   and 0Fh
+46FE  C8                                      ret z
+46FF  47                                      ld b,a
+4700  3A 0E 5F                                ld a,(TICK_NOW)
+4703  B8                                      cp b
+4704  38 03                                   jr c,retrig_mod_done
+4706  90                                      sub b
+4707  18 FA                                   jr retrig_mod
+4709  B7                                      or a
+470A  C0                                      ret nz
+470B  7B                                      ld a,e
+470C  E6 F0                                   and 0F0h
+470E  0F                                      rrca
+470F  0F                                      rrca
+4710  0F                                      rrca
+4711  0F                                      rrca
+4712  E6 0F                                   and 0Fh
+4714  CD 1D 47                                call retrig_adjust_volume
+4717  CD 56 48                                call keyoff_current
+471A  C3 6F 48                                jp keyon_current
+471D  FE 00                                   cp 0
+471F  C8                                      ret z
+4720  FE 08                                   cp 8
+4722  C8                                      ret z
+4723  FE 01                                   cp 1
+4725  28 6F                                   jr z,retrig_sub1
+4727  FE 02                                   cp 2
+4729  28 6F                                   jr z,retrig_sub2
+472B  FE 03                                   cp 3
+472D  28 6F                                   jr z,retrig_sub4
+472F  FE 04                                   cp 4
+4731  28 6F                                   jr z,retrig_sub8
+4733  FE 05                                   cp 5
+4735  28 6F                                   jr z,retrig_sub16
+4737  FE 07                                   cp 7
+4739  28 40                                   jr z,retrig_half
+473B  FE 09                                   cp 9
+473D  28 6D                                   jr z,retrig_add1
+473F  FE 0A                                   cp 10
+4741  28 6D                                   jr z,retrig_add2
+4743  FE 0B                                   cp 11
+4745  28 6D                                   jr z,retrig_add4
+4747  FE 0C                                   cp 12
+4749  28 6D                                   jr z,retrig_add8
+474B  FE 0D                                   cp 13
+474D  28 6D                                   jr z,retrig_add16
+474F  FE 0F                                   cp 15
+4751  28 33                                   jr z,retrig_double
+4753  FE 06                                   cp 6
+4755  28 13                                   jr z,retrig_twothirds
+4757  21 60 60                                ld hl,VOLUME
+475A  CD F5 48                                call ptr8_cur
+475D  7E                                      ld a,(hl)
+475E  47                                      ld b,a
+475F  CB 3F                                   srl a
+4761  80                                      add a,b
+4762  FE 41                                   cp 65
+4764  38 5C                                   jr c,retrig_store_a
+4766  3E 40                                   ld a,64
+4768  18 58                                   jr retrig_store_a
+476A  21 60 60                                ld hl,VOLUME
+476D  CD F5 48                                call ptr8_cur
+4770  7E                                      ld a,(hl)
+4771  47                                      ld b,a
+4772  CB 3F                                   srl a
+4774  CB 3F                                   srl a
+4776  4F                                      ld c,a
+4777  78                                      ld a,b
+4778  91                                      sub c
+4779  18 47                                   jr retrig_store_a
+477B  21 60 60                                ld hl,VOLUME
+477E  CD F5 48                                call ptr8_cur
+4781  7E                                      ld a,(hl)
+4782  CB 3F                                   srl a
+4784  18 3C                                   jr retrig_store_a
+4786  21 60 60                                ld hl,VOLUME
+4789  CD F5 48                                call ptr8_cur
+478C  7E                                      ld a,(hl)
+478D  87                                      add a,a
+478E  FE 41                                   cp 65
+4790  38 30                                   jr c,retrig_store_a
+4792  3E 40                                   ld a,64
+4794  18 2C                                   jr retrig_store_a
+4796  3E 01                           retrig_sub1: ld a,1
+4798  18 0E                                   jr retrig_sub
+479A  3E 02                           retrig_sub2: ld a,2
+479C  18 0A                                   jr retrig_sub
+479E  3E 04                           retrig_sub4: ld a,4
+47A0  18 06                                   jr retrig_sub
+47A2  3E 08                           retrig_sub8: ld a,8
+47A4  18 02                                   jr retrig_sub
+47A6  3E 10                           retrig_sub16: ld a,16
+47A8  CD 04 46                                call volume_sub_a
+47AB  C9                                      ret
+47AC  3E 01                           retrig_add1: ld a,1
+47AE  18 0E                                   jr retrig_add
+47B0  3E 02                           retrig_add2: ld a,2
+47B2  18 0A                                   jr retrig_add
+47B4  3E 04                           retrig_add4: ld a,4
+47B6  18 06                                   jr retrig_add
+47B8  3E 08                           retrig_add8: ld a,8
+47BA  18 02                                   jr retrig_add
+47BC  3E 10                           retrig_add16: ld a,16
+47BE  CD F1 45                                call volume_add_a
+47C1  C9                                      ret
+47C2  21 60 60                                ld hl,VOLUME
+47C5  CD F5 48                                call ptr8_cur
+47C8  77                                      ld (hl),a
+47C9  C3 E8 47                                jp emit_volume_current
+47CC  3A 0E 5F                                ld a,(TICK_NOW)
+47CF  BB                                      cp e
+47D0  C0                                      ret nz
+47D1  AF                                      xor a
+47D2  CD D8 47                                call set_volume_a
+47D5  C3 56 48                                jp keyoff_current
+47D8  FE 41                                   cp 65
+47DA  38 02                                   jr c,set_volume_ok
+47DC  3E 40                                   ld a,64
+47DE  21 60 60                                ld hl,VOLUME
+47E1  CD F5 48                                call ptr8_cur
+47E4  77                                      ld (hl),a
+47E5  C3 E8 47                                jp emit_volume_current
+47E8  21 60 60                                ld hl,VOLUME
+47EB  CD F5 48                                call ptr8_cur
+47EE  7E                                      ld a,(hl)
+47EF  FE 41                                   cp 65
+47F1  38 02                                   jr c,emit_volume_a_ok
+47F3  3E 40                                   ld a,64
+47F5  5F                                      ld e,a
+47F6  16 00                                   ld d,0
+47F8  21 B0 4A                                ld hl,VOL_LUT
+47FB  19                                      add hl,de
+47FC  5E                                      ld e,(hl)
+47FD  3A 0D 5F                                ld a,(CUR_CH)
+4800  C6 50                                   add a,050h
+4802  57                                      ld d,a
+4803  C3 2F 4A                                jp opl4_write_de
+4806  FE 80                                   cp 128
+4808  30 10                                   jr nc,pan_right
+480A  0F                                      rrca
+480B  0F                                      rrca
+480C  0F                                      rrca
+480D  0F                                      rrca
+480E  E6 07                                   and 07h
+4810  47                                      ld b,a
+4811  3E 07                                   ld a,7
+4813  90                                      sub b
+4814  28 10                                   jr z,pan_center
+4816  C6 08                                   add a,8
+4818  18 0D                                   jr pan_store
+481A  D6 80                                   sub 128
+481C  0F                                      rrca
+481D  0F                                      rrca
+481E  0F                                      rrca
+481F  0F                                      rrca
+4820  E6 07                                   and 07h
+4822  28 02                                   jr z,pan_center
+4824  18 01                                   jr pan_store
+4826  AF                                      xor a
+4827  21 B0 61                                ld hl,PAN
+482A  CD F5 48                                call ptr8_cur
+482D  77                                      ld (hl),a
+482E  5F                                      ld e,a
+482F  21 90 60                                ld hl,KEYSTATE
+4832  CD F5 48                                call ptr8_cur
+4835  7E                                      ld a,(hl)
+4836  B7                                      or a
+4837  28 04                                   jr z,pan_no_key
+4839  7B                                      ld a,e
+483A  F6 80                                   or 080h
+483C  5F                                      ld e,a
+483D  3A 0D 5F                                ld a,(CUR_CH)
+4840  C6 68                                   add a,068h
+4842  57                                      ld d,a
+4843  C3 2F 4A                                jp opl4_write_de
+4846  21 08 61                                ld hl,VIBSPD
+4849  CD F5 48                                call ptr8_cur
+484C  77                                      ld (hl),a
+484D  C9                                      ret
+484E  21 20 61                                ld hl,VIBDEP
+4851  CD F5 48                                call ptr8_cur
+4854  77                                      ld (hl),a
+4855  C9                                      ret
+4856  21 B0 61                                ld hl,PAN
+4859  CD F5 48                                call ptr8_cur
+485C  5E                                      ld e,(hl)
+485D  3A 0D 5F                                ld a,(CUR_CH)
+4860  C6 68                                   add a,068h
+4862  57                                      ld d,a
+4863  CD 2F 4A                                call opl4_write_de
+4866  AF                                      xor a
+4867  21 90 60                                ld hl,KEYSTATE
+486A  CD F5 48                                call ptr8_cur
+486D  77                                      ld (hl),a
+486E  C9                                      ret
+486F  21 B0 61                                ld hl,PAN
+4872  CD F5 48                                call ptr8_cur
+4875  7E                                      ld a,(hl)
+4876  F6 80                                   or 080h
+4878  5F                                      ld e,a
+4879  3A 0D 5F                                ld a,(CUR_CH)
+487C  C6 68                                   add a,068h
+487E  57                                      ld d,a
+487F  CD 2F 4A                                call opl4_write_de
+4882  3E 01                                   ld a,1
+4884  21 90 60                                ld hl,KEYSTATE
+4887  CD F5 48                                call ptr8_cur
+488A  77                                      ld (hl),a
+488B  C9                                      ret
+488C  2A 10 5F                                ld hl,(OUT_PERIOD)
+488F  CD 90 68                                call mod_clamp_period_hl
+4892  3E FD                                   ld a,0FDh
+4894  11 0E 0A                                ld de,2574
+4897  E5                                      push hl
+4898  B7                                      or a
+4899  ED 52                                   sbc hl,de
+489B  E1                                      pop hl
+489C  30 06                                   jr nc,pitch_norm_high
+489E  29                                      add hl,hl
+489F  3C                                      inc a
+48A0  FE 08                                   cp 8
+48A2  20 F0                                   jr nz,pitch_norm_low
+48A4  11 1C 14                                ld de,5148
+48A7  E5                                      push hl
+48A8  B7                                      or a
+48A9  ED 52                                   sbc hl,de
+48AB  E1                                      pop hl
+48AC  38 0A                                   jr c,pitch_norm_ready
+48AE  23                                      inc hl
+48AF  CB 3C                                   srl h
+48B1  CB 1D                                   rr l
+48B3  3D                                      dec a
+48B4  FE F8                                   cp 0F8h
+48B6  20 EC                                   jr nz,pitch_norm_high
+48B8  32 17 5F                                ld (EV_PHI),a
+48BB  11 00 0A                                ld de,2560
+48BE  B7                                      or a
+48BF  ED 52                                   sbc hl,de
+48C1  29                                      add hl,hl
+48C2  11 11 4B                                ld de,PITCH_LUT
+48C5  19                                      add hl,de
+48C6  5E                                      ld e,(hl)
+48C7  23                                      inc hl
+48C8  46                                      ld b,(hl)
+48C9  7B                                      ld a,e
+48CA  F6 01                                   or 1
+48CC  5F                                      ld e,a
+48CD  3A 0D 5F                                ld a,(CUR_CH)
+48D0  C6 20                                   add a,020h
+48D2  57                                      ld d,a
+48D3  C5                                      push bc
+48D4  CD 2F 4A                                call opl4_write_de
+48D7  C1                                      pop bc
+48D8  3A 17 5F                                ld a,(EV_PHI)
+48DB  E6 0F                                   and 0Fh
+48DD  87                                      add a,a
+48DE  87                                      add a,a
+48DF  87                                      add a,a
+48E0  87                                      add a,a
+48E1  B0                                      or b
+48E2  5F                                      ld e,a
+48E3  3A 0D 5F                                ld a,(CUR_CH)
+48E6  C6 38                                   add a,038h
+48E8  57                                      ld d,a
+48E9  C3 2F 4A                                jp opl4_write_de
+48EC  3E 01                                   ld a,1
+48EE  32 0C 5F                                ld (ENDED),a
+48F1  CD 44 4A                                call silence
+48F4  C9                                      ret
+48F5  F5                                      push af
+48F6  D5                                      push de
+48F7  3A 0D 5F                                ld a,(CUR_CH)
+48FA  5F                                      ld e,a
+48FB  16 00                                   ld d,0
+48FD  19                                      add hl,de
+48FE  D1                                      pop de
+48FF  F1                                      pop af
+4900  C9                                      ret
+4901  F5                                      push af
+4902  D5                                      push de
+4903  3A 0D 5F                                ld a,(CUR_CH)
+4906  87                                      add a,a
+4907  5F                                      ld e,a
+4908  16 00                                   ld d,0
+490A  19                                      add hl,de
+490B  D1                                      pop de
+490C  F1                                      pop af
+490D  C9                                      ret
+490E  D5                                      push de
+490F  2A 00 5F                                ld hl,(PTR)
+4912  ED 5B 02 5F                             ld de,(PAGE_END)
+4916  B7                                      or a
+4917  ED 52                                   sbc hl,de
+4919  38 05                                   jr c,read_have
+491B  CD 2E 49                                call load_next_page
+491E  38 0B                                   jr c,read_fail
+4920  2A 00 5F                                ld hl,(PTR)
+4923  7E                                      ld a,(hl)
+4924  23                                      inc hl
+4925  22 00 5F                                ld (PTR),hl
+4928  B7                                      or a
+4929  D1                                      pop de
+492A  C9                                      ret
+492B  D1                                      pop de
+492C  37                                      scf
+492D  C9                                      ret
+492E  2A 04 5F                                ld hl,(PAGE_INDEX)
+4931  23                                      inc hl
+4932  22 04 5F                                ld (PAGE_INDEX),hl
+4935  E5                                      push hl
+4936  ED 5B FC 63                             ld de,(PAGE_TOTAL_CFG)
+493A  B7                                      or a
+493B  ED 52                                   sbc hl,de
+493D  E1                                      pop hl
+493E  30 1E                                   jr nc,no_more_pages
+4940  B7                                      or a
+4941  E5                                      push hl
+4942  CD 87 49                                call save_persistent_state
+4945  E1                                      pop hl
+4946  CD F0 7F                                call DYNAMIC_GATEWAY
+4949  38 0E                                   jr c,load_page_gateway_failed
+494B  CD DB 49                                call restore_persistent_state
+494E  21 02 6A                                ld hl,STREAM_DATA
+4951  22 00 5F                                ld (PTR),hl
+4954  CD 60 49                                call set_page_end
+4957  B7                                      or a
+4958  C9                                      ret
+4959  CD DB 49                                call restore_persistent_state
+495C  37                                      scf
+495D  C9                                      ret
+495E  37                                      scf
+495F  C9                                      ret
+4960  2A 00 6A                                ld hl,(STREAM_PAGE)
+4963  11 02 6A                                ld de,STREAM_DATA
+4966  19                                      add hl,de
+4967  22 02 5F                                ld (PAGE_END),hl
+496A  C9                                      ret
+496B  16 03                                   ld d,03h
+496D  1E 2F                                   ld e,02Fh
+496F  CD 2F 4A                                call opl4_write_de
+4972  16 04                                   ld d,04h
+4974  1E FE                                   ld e,0FEh
+4976  CD 2F 4A                                call opl4_write_de
+4979  16 05                                   ld d,05h
+497B  1E 00                                   ld e,000h
+497D  CD 2F 4A                                call opl4_write_de
+4980  3E 06                                   ld a,006h
+4982  D3 7E                                   out (07Eh),a
+4984  C3 3B 4A                                jp opl4_wait
+4987  16 02                                   ld d,02h
+4989  1E 11                                   ld e,011h
+498B  CD 2F 4A                                call opl4_write_de
+498E  CD 6B 49                                call state_mem_address
+4991  21 04 5F                                ld hl,PAGE_INDEX
+4994  01 09 00                                ld bc,9
+4997  CD CE 49                                call state_write_block
+499A  21 1E 5F                                ld hl,FAST_VOL
+499D  01 1C 00                                ld bc,28
+49A0  CD CE 49                                call state_write_block
+49A3  21 00 60                                ld hl,PERIOD_Q
+49A6  01 A8 00                                ld bc,CMD1-PERIOD_Q
+49A9  CD CE 49                                call state_write_block
+49AC  21 08 61                                ld hl,VIBSPD
+49AF  01 48 00                                ld bc,ARP1-VIBSPD
+49B2  CD CE 49                                call state_write_block
+49B5  21 B0 61                                ld hl,PAN
+49B8  01 18 00                                ld bc,24
+49BB  CD CE 49                                call state_write_block
+49BE  21 64 5F                                ld hl,MOD_FINETUNE
+49C1  01 78 00                                ld bc,120
+49C4  CD CE 49                                call state_write_block
+49C7  16 02                                   ld d,02h
+49C9  1E 10                                   ld e,010h
+49CB  C3 2F 4A                                jp opl4_write_de
+49CE  78                                      ld a,b
+49CF  B1                                      or c
+49D0  C8                                      ret z
+49D1  7E                                      ld a,(hl)
+49D2  D3 7F                                   out (07Fh),a
+49D4  23                                      inc hl
+49D5  0B                                      dec bc
+49D6  78                                      ld a,b
+49D7  B1                                      or c
+49D8  20 F7                                   jr nz,state_write_loop
+49DA  C9                                      ret
+49DB  16 02                                   ld d,02h
+49DD  1E 11                                   ld e,011h
+49DF  CD 2F 4A                                call opl4_write_de
+49E2  CD 6B 49                                call state_mem_address
+49E5  21 04 5F                                ld hl,PAGE_INDEX
+49E8  01 09 00                                ld bc,9
+49EB  CD 22 4A                                call state_read_block
+49EE  21 1E 5F                                ld hl,FAST_VOL
+49F1  01 1C 00                                ld bc,28
+49F4  CD 22 4A                                call state_read_block
+49F7  21 00 60                                ld hl,PERIOD_Q
+49FA  01 A8 00                                ld bc,CMD1-PERIOD_Q
+49FD  CD 22 4A                                call state_read_block
+4A00  21 08 61                                ld hl,VIBSPD
+4A03  01 48 00                                ld bc,ARP1-VIBSPD
+4A06  CD 22 4A                                call state_read_block
+4A09  21 B0 61                                ld hl,PAN
+4A0C  01 18 00                                ld bc,24
+4A0F  CD 22 4A                                call state_read_block
+4A12  21 64 5F                                ld hl,MOD_FINETUNE
+4A15  01 78 00                                ld bc,120
+4A18  CD 22 4A                                call state_read_block
+4A1B  16 02                                   ld d,02h
+4A1D  1E 10                                   ld e,010h
+4A1F  C3 2F 4A                                jp opl4_write_de
+4A22  78                                      ld a,b
+4A23  B1                                      or c
+4A24  C8                                      ret z
+4A25  DB 7F                                   in a,(07Fh)
+4A27  77                                      ld (hl),a
+4A28  23                                      inc hl
+4A29  0B                                      dec bc
+4A2A  78                                      ld a,b
+4A2B  B1                                      or c
+4A2C  20 F7                                   jr nz,state_read_loop
+4A2E  C9                                      ret
+4A2F  7A                                      ld a,d
+4A30  D3 7E                                   out (07Eh),a
+4A32  CD 3B 4A                                call opl4_wait
+4A35  7B                                      ld a,e
+4A36  D3 7F                                   out (07Fh),a
+4A38  C3 3B 4A                                jp opl4_wait
+4A3B  C5                                      push bc
+4A3C  06 10                                   ld b,16
+4A3E  DB 7E                                   in a,(07Eh)
+4A40  10 FC                                   djnz opl4_wait_loop
+4A42  C1                                      pop bc
+4A43  C9                                      ret
+4A44  16 50                                   ld d,050h
+4A46  1E FF                                   ld e,0FFh
+4A48  06 18                                   ld b,24
+4A4A  CD 2F 4A                                call opl4_write_de
+4A4D  14                                      inc d
+4A4E  10 FA                                   djnz silence_level
+4A50  16 68                                   ld d,068h
+4A52  1E 40                                   ld e,040h
+4A54  06 18                                   ld b,24
+4A56  CD 2F 4A                                call opl4_write_de
+4A59  14                                      inc d
+4A5A  10 FA                                   djnz silence_key
+4A5C  C9                                      ret
+4A5D  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00          defs 15,0
+4A6C  00 0C 19 25 31 3C 47 51 5A 62 6A 70 75 7A 7D 7E          db 0,12,25,37,49,60,71,81,90,98,106,112,117,122,125,126
+4A7C  7F 7E 7D 7A 75 70 6A 62 5A 51 47 3C 31 25 19 0C          db 127,126,125,122,117,112,106,98,90,81,71,60,49,37,25,12
+4A8C  00 F4 E7 DB CF C4 B9 AF A6 9E 96 90 8B 86 83 82          db 0,244,231,219,207,196,185,175,166,158,150,144,139,134,131,130
+4A9C  81 82 83 86 8B 90 96 9E A6 AF B9 C4 CF DB E7 F4          db 129,130,131,134,139,144,150,158,166,175,185,196,207,219,231,244
+4AAC  00 00 00 00                             defs 4,0
+4AB0  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00          defs 65,0
+4AF1  00 18 31 4A 61 78 8D A1 B4 C5 D4 E0 EB F4 FA FD          db 0,24,49,74,97,120,141,161,180,197,212,224,235,244,250,253
+4B01  FF FD FA F4 EB E0 D4 C5 B4 A1 8D 78 61 4A 31 18          db 255,253,250,244,235,224,212,197,180,161,141,120,97,74,49,24
+4B11  FE 07 FE 07 FE 07 FE 07 FE 07 FE 07 FE 07 FE 07          db FEh,07h,FEh,07h,FEh,07h,FEh,07h,FEh,07h,FEh,07h,FEh,07h,FEh,07h
+4B21  FE 07 FE 07 FE 07 FE 07 FE 07 FE 07 FE 07 FE 07          db FEh,07h,FEh,07h,FEh,07h,FEh,07h,FEh,07h,FEh,07h,FEh,07h,FEh,07h
+4B31  FC 07 FA 07 FA 07 F8 07 F6 07 F4 07 F2 07 F2 07          db FCh,07h,FAh,07h,FAh,07h,F8h,07h,F6h,07h,F4h,07h,F2h,07h,F2h,07h
+4B41  F0 07 EE 07 EC 07 EA 07 EA 07 E8 07 E6 07 E4 07          db F0h,07h,EEh,07h,ECh,07h,EAh,07h,EAh,07h,E8h,07h,E6h,07h,E4h,07h
+4B51  E4 07 E2 07 E0 07 DE 07 DC 07 DC 07 DA 07 D8 07          db E4h,07h,E2h,07h,E0h,07h,DEh,07h,DCh,07h,DCh,07h,DAh,07h,D8h,07h
+4B61  D6 07 D6 07 D4 07 D2 07 D0 07 CE 07 CE 07 CC 07          db D6h,07h,D6h,07h,D4h,07h,D2h,07h,D0h,07h,CEh,07h,CEh,07h,CCh,07h
+4B71  CA 07 C8 07 C8 07 C6 07 C4 07 C2 07 C0 07 C0 07          db CAh,07h,C8h,07h,C8h,07h,C6h,07h,C4h,07h,C2h,07h,C0h,07h,C0h,07h
+4B81  BE 07 BC 07 BA 07 BA 07 B8 07 B6 07 B4 07 B4 07          db BEh,07h,BCh,07h,BAh,07h,BAh,07h,B8h,07h,B6h,07h,B4h,07h,B4h,07h
+4B91  B2 07 B0 07 AE 07 AC 07 AC 07 AA 07 A8 07 A6 07          db B2h,07h,B0h,07h,AEh,07h,ACh,07h,ACh,07h,AAh,07h,A8h,07h,A6h,07h
+4BA1  A6 07 A4 07 A2 07 A0 07 A0 07 9E 07 9C 07 9A 07          db A6h,07h,A4h,07h,A2h,07h,A0h,07h,A0h,07h,9Eh,07h,9Ch,07h,9Ah,07h
+4BB1  9A 07 98 07 96 07 94 07 94 07 92 07 90 07 8E 07          db 9Ah,07h,98h,07h,96h,07h,94h,07h,94h,07h,92h,07h,90h,07h,8Eh,07h
+4BC1  8E 07 8C 07 8A 07 88 07 88 07 86 07 84 07 82 07          db 8Eh,07h,8Ch,07h,8Ah,07h,88h,07h,88h,07h,86h,07h,84h,07h,82h,07h
+4BD1  82 07 80 07 7E 07 7C 07 7C 07 7A 07 78 07 76 07          db 82h,07h,80h,07h,7Eh,07h,7Ch,07h,7Ch,07h,7Ah,07h,78h,07h,76h,07h
+4BE1  76 07 74 07 72 07 70 07 70 07 6E 07 6C 07 6A 07          db 76h,07h,74h,07h,72h,07h,70h,07h,70h,07h,6Eh,07h,6Ch,07h,6Ah,07h
+4BF1  6A 07 68 07 66 07 64 07 64 07 62 07 60 07 60 07          db 6Ah,07h,68h,07h,66h,07h,64h,07h,64h,07h,62h,07h,60h,07h,60h,07h
+4C01  5E 07 5C 07 5A 07 5A 07 58 07 56 07 54 07 54 07          db 5Eh,07h,5Ch,07h,5Ah,07h,5Ah,07h,58h,07h,56h,07h,54h,07h,54h,07h
+4C11  52 07 50 07 4E 07 4E 07 4C 07 4A 07 4A 07 48 07          db 52h,07h,50h,07h,4Eh,07h,4Eh,07h,4Ch,07h,4Ah,07h,4Ah,07h,48h,07h
+4C21  46 07 44 07 44 07 42 07 40 07 3E 07 3E 07 3C 07          db 46h,07h,44h,07h,44h,07h,42h,07h,40h,07h,3Eh,07h,3Eh,07h,3Ch,07h
+4C31  3A 07 3A 07 38 07 36 07 34 07 34 07 32 07 30 07          db 3Ah,07h,3Ah,07h,38h,07h,36h,07h,34h,07h,34h,07h,32h,07h,30h,07h
+4C41  30 07 2E 07 2C 07 2A 07 2A 07 28 07 26 07 26 07          db 30h,07h,2Eh,07h,2Ch,07h,2Ah,07h,2Ah,07h,28h,07h,26h,07h,26h,07h
+4C51  24 07 22 07 20 07 20 07 1E 07 1C 07 1C 07 1A 07          db 24h,07h,22h,07h,20h,07h,20h,07h,1Eh,07h,1Ch,07h,1Ch,07h,1Ah,07h
+4C61  18 07 16 07 16 07 14 07 12 07 12 07 10 07 0E 07          db 18h,07h,16h,07h,16h,07h,14h,07h,12h,07h,12h,07h,10h,07h,0Eh,07h
+4C71  0E 07 0C 07 0A 07 08 07 08 07 06 07 04 07 04 07          db 0Eh,07h,0Ch,07h,0Ah,07h,08h,07h,08h,07h,06h,07h,04h,07h,04h,07h
+4C81  02 07 00 07 00 07 FE 06 FC 06 FA 06 FA 06 F8 06          db 02h,07h,00h,07h,00h,07h,FEh,06h,FCh,06h,FAh,06h,FAh,06h,F8h,06h
+4C91  F6 06 F6 06 F4 06 F2 06 F2 06 F0 06 EE 06 EC 06          db F6h,06h,F6h,06h,F4h,06h,F2h,06h,F2h,06h,F0h,06h,EEh,06h,ECh,06h
+4CA1  EC 06 EA 06 E8 06 E8 06 E6 06 E4 06 E4 06 E2 06          db ECh,06h,EAh,06h,E8h,06h,E8h,06h,E6h,06h,E4h,06h,E4h,06h,E2h,06h
+4CB1  E0 06 E0 06 DE 06 DC 06 DC 06 DA 06 D8 06 D6 06          db E0h,06h,E0h,06h,DEh,06h,DCh,06h,DCh,06h,DAh,06h,D8h,06h,D6h,06h
+4CC1  D6 06 D4 06 D2 06 D2 06 D0 06 CE 06 CE 06 CC 06          db D6h,06h,D4h,06h,D2h,06h,D2h,06h,D0h,06h,CEh,06h,CEh,06h,CCh,06h
+4CD1  CA 06 CA 06 C8 06 C6 06 C6 06 C4 06 C2 06 C2 06          db CAh,06h,CAh,06h,C8h,06h,C6h,06h,C6h,06h,C4h,06h,C2h,06h,C2h,06h
+4CE1  C0 06 BE 06 BE 06 BC 06 BA 06 BA 06 B8 06 B6 06          db C0h,06h,BEh,06h,BEh,06h,BCh,06h,BAh,06h,BAh,06h,B8h,06h,B6h,06h
+4CF1  B4 06 B4 06 B2 06 B0 06 B0 06 AE 06 AC 06 AC 06          db B4h,06h,B4h,06h,B2h,06h,B0h,06h,B0h,06h,AEh,06h,ACh,06h,ACh,06h
+4D01  AA 06 A8 06 A8 06 A6 06 A4 06 A4 06 A2 06 A0 06          db AAh,06h,A8h,06h,A8h,06h,A6h,06h,A4h,06h,A4h,06h,A2h,06h,A0h,06h
+4D11  A0 06 9E 06 9C 06 9C 06 9A 06 98 06 98 06 96 06          db A0h,06h,9Eh,06h,9Ch,06h,9Ch,06h,9Ah,06h,98h,06h,98h,06h,96h,06h
+4D21  94 06 94 06 92 06 92 06 90 06 8E 06 8E 06 8C 06          db 94h,06h,94h,06h,92h,06h,92h,06h,90h,06h,8Eh,06h,8Eh,06h,8Ch,06h
+4D31  8A 06 8A 06 88 06 86 06 86 06 84 06 82 06 82 06          db 8Ah,06h,8Ah,06h,88h,06h,86h,06h,86h,06h,84h,06h,82h,06h,82h,06h
+4D41  80 06 7E 06 7E 06 7C 06 7A 06 7A 06 78 06 76 06          db 80h,06h,7Eh,06h,7Eh,06h,7Ch,06h,7Ah,06h,7Ah,06h,78h,06h,76h,06h
+4D51  76 06 74 06 72 06 72 06 70 06 70 06 6E 06 6C 06          db 76h,06h,74h,06h,72h,06h,72h,06h,70h,06h,70h,06h,6Eh,06h,6Ch,06h
+4D61  6C 06 6A 06 68 06 68 06 66 06 64 06 64 06 62 06          db 6Ch,06h,6Ah,06h,68h,06h,68h,06h,66h,06h,64h,06h,64h,06h,62h,06h
+4D71  60 06 60 06 5E 06 5C 06 5C 06 5A 06 5A 06 58 06          db 60h,06h,60h,06h,5Eh,06h,5Ch,06h,5Ch,06h,5Ah,06h,5Ah,06h,58h,06h
+4D81  56 06 56 06 54 06 52 06 52 06 50 06 4E 06 4E 06          db 56h,06h,56h,06h,54h,06h,52h,06h,52h,06h,50h,06h,4Eh,06h,4Eh,06h
+4D91  4C 06 4C 06 4A 06 48 06 48 06 46 06 44 06 44 06          db 4Ch,06h,4Ch,06h,4Ah,06h,48h,06h,48h,06h,46h,06h,44h,06h,44h,06h
+4DA1  42 06 40 06 40 06 3E 06 3E 06 3C 06 3A 06 3A 06          db 42h,06h,40h,06h,40h,06h,3Eh,06h,3Eh,06h,3Ch,06h,3Ah,06h,3Ah,06h
+4DB1  38 06 36 06 36 06 34 06 34 06 32 06 30 06 30 06          db 38h,06h,36h,06h,36h,06h,34h,06h,34h,06h,32h,06h,30h,06h,30h,06h
+4DC1  2E 06 2C 06 2C 06 2A 06 2A 06 28 06 26 06 26 06          db 2Eh,06h,2Ch,06h,2Ch,06h,2Ah,06h,2Ah,06h,28h,06h,26h,06h,26h,06h
+4DD1  24 06 22 06 22 06 20 06 20 06 1E 06 1C 06 1C 06          db 24h,06h,22h,06h,22h,06h,20h,06h,20h,06h,1Eh,06h,1Ch,06h,1Ch,06h
+4DE1  1A 06 1A 06 18 06 16 06 16 06 14 06 12 06 12 06          db 1Ah,06h,1Ah,06h,18h,06h,16h,06h,16h,06h,14h,06h,12h,06h,12h,06h
+4DF1  10 06 10 06 0E 06 0C 06 0C 06 0A 06 0A 06 08 06          db 10h,06h,10h,06h,0Eh,06h,0Ch,06h,0Ch,06h,0Ah,06h,0Ah,06h,08h,06h
+4E01  06 06 06 06 04 06 02 06 02 06 00 06 00 06 FE 05          db 06h,06h,06h,06h,04h,06h,02h,06h,02h,06h,00h,06h,00h,06h,FEh,05h
+4E11  FC 05 FC 05 FA 05 FA 05 F8 05 F6 05 F6 05 F4 05          db FCh,05h,FCh,05h,FAh,05h,FAh,05h,F8h,05h,F6h,05h,F6h,05h,F4h,05h
+4E21  F4 05 F2 05 F0 05 F0 05 EE 05 EE 05 EC 05 EA 05          db F4h,05h,F2h,05h,F0h,05h,F0h,05h,EEh,05h,EEh,05h,ECh,05h,EAh,05h
+4E31  EA 05 E8 05 E8 05 E6 05 E4 05 E4 05 E2 05 E2 05          db EAh,05h,E8h,05h,E8h,05h,E6h,05h,E4h,05h,E4h,05h,E2h,05h,E2h,05h
+4E41  E0 05 DE 05 DE 05 DC 05 DC 05 DA 05 D8 05 D8 05          db E0h,05h,DEh,05h,DEh,05h,DCh,05h,DCh,05h,DAh,05h,D8h,05h,D8h,05h
+4E51  D6 05 D6 05 D4 05 D2 05 D2 05 D0 05 D0 05 CE 05          db D6h,05h,D6h,05h,D4h,05h,D2h,05h,D2h,05h,D0h,05h,D0h,05h,CEh,05h
+4E61  CC 05 CC 05 CA 05 CA 05 C8 05 C6 05 C6 05 C4 05          db CCh,05h,CCh,05h,CAh,05h,CAh,05h,C8h,05h,C6h,05h,C6h,05h,C4h,05h
+4E71  C4 05 C2 05 C2 05 C0 05 BE 05 BE 05 BC 05 BC 05          db C4h,05h,C2h,05h,C2h,05h,C0h,05h,BEh,05h,BEh,05h,BCh,05h,BCh,05h
+4E81  BA 05 B8 05 B8 05 B6 05 B6 05 B4 05 B2 05 B2 05          db BAh,05h,B8h,05h,B8h,05h,B6h,05h,B6h,05h,B4h,05h,B2h,05h,B2h,05h
+4E91  B0 05 B0 05 AE 05 AE 05 AC 05 AA 05 AA 05 A8 05          db B0h,05h,B0h,05h,AEh,05h,AEh,05h,ACh,05h,AAh,05h,AAh,05h,A8h,05h
+4EA1  A8 05 A6 05 A6 05 A4 05 A2 05 A2 05 A0 05 A0 05          db A8h,05h,A6h,05h,A6h,05h,A4h,05h,A2h,05h,A2h,05h,A0h,05h,A0h,05h
+4EB1  9E 05 9C 05 9C 05 9A 05 9A 05 98 05 98 05 96 05          db 9Eh,05h,9Ch,05h,9Ch,05h,9Ah,05h,9Ah,05h,98h,05h,98h,05h,96h,05h
+4EC1  94 05 94 05 92 05 92 05 90 05 90 05 8E 05 8C 05          db 94h,05h,94h,05h,92h,05h,92h,05h,90h,05h,90h,05h,8Eh,05h,8Ch,05h
+4ED1  8C 05 8A 05 8A 05 88 05 88 05 86 05 84 05 84 05          db 8Ch,05h,8Ah,05h,8Ah,05h,88h,05h,88h,05h,86h,05h,84h,05h,84h,05h
+4EE1  82 05 82 05 80 05 80 05 7E 05 7C 05 7C 05 7A 05          db 82h,05h,82h,05h,80h,05h,80h,05h,7Eh,05h,7Ch,05h,7Ch,05h,7Ah,05h
+4EF1  7A 05 78 05 78 05 76 05 76 05 74 05 72 05 72 05          db 7Ah,05h,78h,05h,78h,05h,76h,05h,76h,05h,74h,05h,72h,05h,72h,05h
+4F01  70 05 70 05 6E 05 6E 05 6C 05 6A 05 6A 05 68 05          db 70h,05h,70h,05h,6Eh,05h,6Eh,05h,6Ch,05h,6Ah,05h,6Ah,05h,68h,05h
+4F11  68 05 66 05 66 05 64 05 64 05 62 05 60 05 60 05          db 68h,05h,66h,05h,66h,05h,64h,05h,64h,05h,62h,05h,60h,05h,60h,05h
+4F21  5E 05 5E 05 5C 05 5C 05 5A 05 5A 05 58 05 56 05          db 5Eh,05h,5Eh,05h,5Ch,05h,5Ch,05h,5Ah,05h,5Ah,05h,58h,05h,56h,05h
+4F31  56 05 54 05 54 05 52 05 52 05 50 05 50 05 4E 05          db 56h,05h,54h,05h,54h,05h,52h,05h,52h,05h,50h,05h,50h,05h,4Eh,05h
+4F41  4E 05 4C 05 4A 05 4A 05 48 05 48 05 46 05 46 05          db 4Eh,05h,4Ch,05h,4Ah,05h,4Ah,05h,48h,05h,48h,05h,46h,05h,46h,05h
+4F51  44 05 44 05 42 05 40 05 40 05 3E 05 3E 05 3C 05          db 44h,05h,44h,05h,42h,05h,40h,05h,40h,05h,3Eh,05h,3Eh,05h,3Ch,05h
+4F61  3C 05 3A 05 3A 05 38 05 38 05 36 05 34 05 34 05          db 3Ch,05h,3Ah,05h,3Ah,05h,38h,05h,38h,05h,36h,05h,34h,05h,34h,05h
+4F71  32 05 32 05 30 05 30 05 2E 05 2E 05 2C 05 2C 05          db 32h,05h,32h,05h,30h,05h,30h,05h,2Eh,05h,2Eh,05h,2Ch,05h,2Ch,05h
+4F81  2A 05 2A 05 28 05 26 05 26 05 24 05 24 05 22 05          db 2Ah,05h,2Ah,05h,28h,05h,26h,05h,26h,05h,24h,05h,24h,05h,22h,05h
+4F91  22 05 20 05 20 05 1E 05 1E 05 1C 05 1C 05 1A 05          db 22h,05h,20h,05h,20h,05h,1Eh,05h,1Eh,05h,1Ch,05h,1Ch,05h,1Ah,05h
+4FA1  1A 05 18 05 16 05 16 05 14 05 14 05 12 05 12 05          db 1Ah,05h,18h,05h,16h,05h,16h,05h,14h,05h,14h,05h,12h,05h,12h,05h
+4FB1  10 05 10 05 0E 05 0E 05 0C 05 0C 05 0A 05 0A 05          db 10h,05h,10h,05h,0Eh,05h,0Eh,05h,0Ch,05h,0Ch,05h,0Ah,05h,0Ah,05h
+4FC1  08 05 06 05 06 05 04 05 04 05 02 05 02 05 00 05          db 08h,05h,06h,05h,06h,05h,04h,05h,04h,05h,02h,05h,02h,05h,00h,05h
+4FD1  00 05 FE 04 FE 04 FC 04 FC 04 FA 04 FA 04 F8 04          db 00h,05h,FEh,04h,FEh,04h,FCh,04h,FCh,04h,FAh,04h,FAh,04h,F8h,04h
+4FE1  F8 04 F6 04 F6 04 F4 04 F4 04 F2 04 F0 04 F0 04          db F8h,04h,F6h,04h,F6h,04h,F4h,04h,F4h,04h,F2h,04h,F0h,04h,F0h,04h
+4FF1  EE 04 EE 04 EC 04 EC 04 EA 04 EA 04 E8 04 E8 04          db EEh,04h,EEh,04h,ECh,04h,ECh,04h,EAh,04h,EAh,04h,E8h,04h,E8h,04h
+5001  E6 04 E6 04 E4 04 E4 04 E2 04 E2 04 E0 04 E0 04          db E6h,04h,E6h,04h,E4h,04h,E4h,04h,E2h,04h,E2h,04h,E0h,04h,E0h,04h
+5011  DE 04 DE 04 DC 04 DC 04 DA 04 DA 04 D8 04 D8 04          db DEh,04h,DEh,04h,DCh,04h,DCh,04h,DAh,04h,DAh,04h,D8h,04h,D8h,04h
+5021  D6 04 D6 04 D4 04 D4 04 D2 04 D2 04 D0 04 CE 04          db D6h,04h,D6h,04h,D4h,04h,D4h,04h,D2h,04h,D2h,04h,D0h,04h,CEh,04h
+5031  CE 04 CC 04 CC 04 CA 04 CA 04 C8 04 C8 04 C6 04          db CEh,04h,CCh,04h,CCh,04h,CAh,04h,CAh,04h,C8h,04h,C8h,04h,C6h,04h
+5041  C6 04 C4 04 C4 04 C2 04 C2 04 C0 04 C0 04 BE 04          db C6h,04h,C4h,04h,C4h,04h,C2h,04h,C2h,04h,C0h,04h,C0h,04h,BEh,04h
+5051  BE 04 BC 04 BC 04 BA 04 BA 04 B8 04 B8 04 B6 04          db BEh,04h,BCh,04h,BCh,04h,BAh,04h,BAh,04h,B8h,04h,B8h,04h,B6h,04h
+5061  B6 04 B4 04 B4 04 B2 04 B2 04 B0 04 B0 04 AE 04          db B6h,04h,B4h,04h,B4h,04h,B2h,04h,B2h,04h,B0h,04h,B0h,04h,AEh,04h
+5071  AE 04 AC 04 AC 04 AA 04 AA 04 A8 04 A8 04 A6 04          db AEh,04h,ACh,04h,ACh,04h,AAh,04h,AAh,04h,A8h,04h,A8h,04h,A6h,04h
+5081  A6 04 A4 04 A4 04 A2 04 A2 04 A0 04 A0 04 9E 04          db A6h,04h,A4h,04h,A4h,04h,A2h,04h,A2h,04h,A0h,04h,A0h,04h,9Eh,04h
+5091  9E 04 9C 04 9C 04 9A 04 9A 04 98 04 98 04 96 04          db 9Eh,04h,9Ch,04h,9Ch,04h,9Ah,04h,9Ah,04h,98h,04h,98h,04h,96h,04h
+50A1  96 04 94 04 94 04 92 04 92 04 90 04 90 04 8E 04          db 96h,04h,94h,04h,94h,04h,92h,04h,92h,04h,90h,04h,90h,04h,8Eh,04h
+50B1  8E 04 8E 04 8C 04 8C 04 8A 04 8A 04 88 04 88 04          db 8Eh,04h,8Eh,04h,8Ch,04h,8Ch,04h,8Ah,04h,8Ah,04h,88h,04h,88h,04h
+50C1  86 04 86 04 84 04 84 04 82 04 82 04 80 04 80 04          db 86h,04h,86h,04h,84h,04h,84h,04h,82h,04h,82h,04h,80h,04h,80h,04h
+50D1  7E 04 7E 04 7C 04 7C 04 7A 04 7A 04 78 04 78 04          db 7Eh,04h,7Eh,04h,7Ch,04h,7Ch,04h,7Ah,04h,7Ah,04h,78h,04h,78h,04h
+50E1  76 04 76 04 74 04 74 04 72 04 72 04 70 04 70 04          db 76h,04h,76h,04h,74h,04h,74h,04h,72h,04h,72h,04h,70h,04h,70h,04h
+50F1  6E 04 6E 04 6E 04 6C 04 6C 04 6A 04 6A 04 68 04          db 6Eh,04h,6Eh,04h,6Eh,04h,6Ch,04h,6Ch,04h,6Ah,04h,6Ah,04h,68h,04h
+5101  68 04 66 04 66 04 64 04 64 04 62 04 62 04 60 04          db 68h,04h,66h,04h,66h,04h,64h,04h,64h,04h,62h,04h,62h,04h,60h,04h
+5111  60 04 5E 04 5E 04 5C 04 5C 04 5A 04 5A 04 58 04          db 60h,04h,5Eh,04h,5Eh,04h,5Ch,04h,5Ch,04h,5Ah,04h,5Ah,04h,58h,04h
+5121  58 04 58 04 56 04 56 04 54 04 54 04 52 04 52 04          db 58h,04h,58h,04h,56h,04h,56h,04h,54h,04h,54h,04h,52h,04h,52h,04h
+5131  50 04 50 04 4E 04 4E 04 4C 04 4C 04 4A 04 4A 04          db 50h,04h,50h,04h,4Eh,04h,4Eh,04h,4Ch,04h,4Ch,04h,4Ah,04h,4Ah,04h
+5141  48 04 48 04 48 04 46 04 46 04 44 04 44 04 42 04          db 48h,04h,48h,04h,48h,04h,46h,04h,46h,04h,44h,04h,44h,04h,42h,04h
+5151  42 04 40 04 40 04 3E 04 3E 04 3C 04 3C 04 3A 04          db 42h,04h,40h,04h,40h,04h,3Eh,04h,3Eh,04h,3Ch,04h,3Ch,04h,3Ah,04h
+5161  3A 04 3A 04 38 04 38 04 36 04 36 04 34 04 34 04          db 3Ah,04h,3Ah,04h,38h,04h,38h,04h,36h,04h,36h,04h,34h,04h,34h,04h
+5171  32 04 32 04 30 04 30 04 2E 04 2E 04 2E 04 2C 04          db 32h,04h,32h,04h,30h,04h,30h,04h,2Eh,04h,2Eh,04h,2Eh,04h,2Ch,04h
+5181  2C 04 2A 04 2A 04 28 04 28 04 26 04 26 04 24 04          db 2Ch,04h,2Ah,04h,2Ah,04h,28h,04h,28h,04h,26h,04h,26h,04h,24h,04h
+5191  24 04 22 04 22 04 22 04 20 04 20 04 1E 04 1E 04          db 24h,04h,22h,04h,22h,04h,22h,04h,20h,04h,20h,04h,1Eh,04h,1Eh,04h
+51A1  1C 04 1C 04 1A 04 1A 04 18 04 18 04 18 04 16 04          db 1Ch,04h,1Ch,04h,1Ah,04h,1Ah,04h,18h,04h,18h,04h,18h,04h,16h,04h
+51B1  16 04 14 04 14 04 12 04 12 04 10 04 10 04 0E 04          db 16h,04h,14h,04h,14h,04h,12h,04h,12h,04h,10h,04h,10h,04h,0Eh,04h
+51C1  0E 04 0E 04 0C 04 0C 04 0A 04 0A 04 08 04 08 04          db 0Eh,04h,0Eh,04h,0Ch,04h,0Ch,04h,0Ah,04h,0Ah,04h,08h,04h,08h,04h
+51D1  06 04 06 04 06 04 04 04 04 04 02 04 02 04 00 04          db 06h,04h,06h,04h,06h,04h,04h,04h,04h,04h,02h,04h,02h,04h,00h,04h
+51E1  00 04 FE 03 FE 03 FC 03 FC 03 FC 03 FA 03 FA 03          db 00h,04h,FEh,03h,FEh,03h,FCh,03h,FCh,03h,FCh,03h,FAh,03h,FAh,03h
+51F1  F8 03 F8 03 F6 03 F6 03 F4 03 F4 03 F4 03 F2 03          db F8h,03h,F8h,03h,F6h,03h,F6h,03h,F4h,03h,F4h,03h,F4h,03h,F2h,03h
+5201  F2 03 F0 03 F0 03 EE 03 EE 03 EC 03 EC 03 EC 03          db F2h,03h,F0h,03h,F0h,03h,EEh,03h,EEh,03h,ECh,03h,ECh,03h,ECh,03h
+5211  EA 03 EA 03 E8 03 E8 03 E6 03 E6 03 E6 03 E4 03          db EAh,03h,EAh,03h,E8h,03h,E8h,03h,E6h,03h,E6h,03h,E6h,03h,E4h,03h
+5221  E4 03 E2 03 E2 03 E0 03 E0 03 DE 03 DE 03 DE 03          db E4h,03h,E2h,03h,E2h,03h,E0h,03h,E0h,03h,DEh,03h,DEh,03h,DEh,03h
+5231  DC 03 DC 03 DA 03 DA 03 D8 03 D8 03 D8 03 D6 03          db DCh,03h,DCh,03h,DAh,03h,DAh,03h,D8h,03h,D8h,03h,D8h,03h,D6h,03h
+5241  D6 03 D4 03 D4 03 D2 03 D2 03 D0 03 D0 03 D0 03          db D6h,03h,D4h,03h,D4h,03h,D2h,03h,D2h,03h,D0h,03h,D0h,03h,D0h,03h
+5251  CE 03 CE 03 CC 03 CC 03 CA 03 CA 03 CA 03 C8 03          db CEh,03h,CEh,03h,CCh,03h,CCh,03h,CAh,03h,CAh,03h,CAh,03h,C8h,03h
+5261  C8 03 C6 03 C6 03 C4 03 C4 03 C4 03 C2 03 C2 03          db C8h,03h,C6h,03h,C6h,03h,C4h,03h,C4h,03h,C4h,03h,C2h,03h,C2h,03h
+5271  C0 03 C0 03 BE 03 BE 03 BE 03 BC 03 BC 03 BA 03          db C0h,03h,C0h,03h,BEh,03h,BEh,03h,BEh,03h,BCh,03h,BCh,03h,BAh,03h
+5281  BA 03 B8 03 B8 03 B8 03 B6 03 B6 03 B4 03 B4 03          db BAh,03h,B8h,03h,B8h,03h,B8h,03h,B6h,03h,B6h,03h,B4h,03h,B4h,03h
+5291  B2 03 B2 03 B2 03 B0 03 B0 03 AE 03 AE 03 AC 03          db B2h,03h,B2h,03h,B2h,03h,B0h,03h,B0h,03h,AEh,03h,AEh,03h,ACh,03h
+52A1  AC 03 AC 03 AA 03 AA 03 A8 03 A8 03 A6 03 A6 03          db ACh,03h,ACh,03h,AAh,03h,AAh,03h,A8h,03h,A8h,03h,A6h,03h,A6h,03h
+52B1  A6 03 A4 03 A4 03 A2 03 A2 03 A2 03 A0 03 A0 03          db A6h,03h,A4h,03h,A4h,03h,A2h,03h,A2h,03h,A2h,03h,A0h,03h,A0h,03h
+52C1  9E 03 9E 03 9C 03 9C 03 9C 03 9A 03 9A 03 98 03          db 9Eh,03h,9Eh,03h,9Ch,03h,9Ch,03h,9Ch,03h,9Ah,03h,9Ah,03h,98h,03h
+52D1  98 03 98 03 96 03 96 03 94 03 94 03 92 03 92 03          db 98h,03h,98h,03h,96h,03h,96h,03h,94h,03h,94h,03h,92h,03h,92h,03h
+52E1  92 03 90 03 90 03 8E 03 8E 03 8E 03 8C 03 8C 03          db 92h,03h,90h,03h,90h,03h,8Eh,03h,8Eh,03h,8Eh,03h,8Ch,03h,8Ch,03h
+52F1  8A 03 8A 03 88 03 88 03 88 03 86 03 86 03 84 03          db 8Ah,03h,8Ah,03h,88h,03h,88h,03h,88h,03h,86h,03h,86h,03h,84h,03h
+5301  84 03 84 03 82 03 82 03 80 03 80 03 80 03 7E 03          db 84h,03h,84h,03h,82h,03h,82h,03h,80h,03h,80h,03h,80h,03h,7Eh,03h
+5311  7E 03 7C 03 7C 03 7A 03 7A 03 7A 03 78 03 78 03          db 7Eh,03h,7Ch,03h,7Ch,03h,7Ah,03h,7Ah,03h,7Ah,03h,78h,03h,78h,03h
+5321  76 03 76 03 76 03 74 03 74 03 72 03 72 03 72 03          db 76h,03h,76h,03h,76h,03h,74h,03h,74h,03h,72h,03h,72h,03h,72h,03h
+5331  70 03 70 03 6E 03 6E 03 6E 03 6C 03 6C 03 6A 03          db 70h,03h,70h,03h,6Eh,03h,6Eh,03h,6Eh,03h,6Ch,03h,6Ch,03h,6Ah,03h
+5341  6A 03 6A 03 68 03 68 03 66 03 66 03 64 03 64 03          db 6Ah,03h,6Ah,03h,68h,03h,68h,03h,66h,03h,66h,03h,64h,03h,64h,03h
+5351  64 03 62 03 62 03 60 03 60 03 60 03 5E 03 5E 03          db 64h,03h,62h,03h,62h,03h,60h,03h,60h,03h,60h,03h,5Eh,03h,5Eh,03h
+5361  5C 03 5C 03 5C 03 5A 03 5A 03 58 03 58 03 58 03          db 5Ch,03h,5Ch,03h,5Ch,03h,5Ah,03h,5Ah,03h,58h,03h,58h,03h,58h,03h
+5371  56 03 56 03 54 03 54 03 54 03 52 03 52 03 50 03          db 56h,03h,56h,03h,54h,03h,54h,03h,54h,03h,52h,03h,52h,03h,50h,03h
+5381  50 03 50 03 4E 03 4E 03 4C 03 4C 03 4C 03 4A 03          db 50h,03h,50h,03h,4Eh,03h,4Eh,03h,4Ch,03h,4Ch,03h,4Ch,03h,4Ah,03h
+5391  4A 03 48 03 48 03 48 03 46 03 46 03 46 03 44 03          db 4Ah,03h,48h,03h,48h,03h,48h,03h,46h,03h,46h,03h,46h,03h,44h,03h
+53A1  44 03 42 03 42 03 42 03 40 03 40 03 3E 03 3E 03          db 44h,03h,42h,03h,42h,03h,42h,03h,40h,03h,40h,03h,3Eh,03h,3Eh,03h
+53B1  3E 03 3C 03 3C 03 3A 03 3A 03 3A 03 38 03 38 03          db 3Eh,03h,3Ch,03h,3Ch,03h,3Ah,03h,3Ah,03h,3Ah,03h,38h,03h,38h,03h
+53C1  36 03 36 03 36 03 34 03 34 03 32 03 32 03 32 03          db 36h,03h,36h,03h,36h,03h,34h,03h,34h,03h,32h,03h,32h,03h,32h,03h
+53D1  30 03 30 03 30 03 2E 03 2E 03 2C 03 2C 03 2C 03          db 30h,03h,30h,03h,30h,03h,2Eh,03h,2Eh,03h,2Ch,03h,2Ch,03h,2Ch,03h
+53E1  2A 03 2A 03 28 03 28 03 28 03 26 03 26 03 26 03          db 2Ah,03h,2Ah,03h,28h,03h,28h,03h,28h,03h,26h,03h,26h,03h,26h,03h
+53F1  24 03 24 03 22 03 22 03 22 03 20 03 20 03 1E 03          db 24h,03h,24h,03h,22h,03h,22h,03h,22h,03h,20h,03h,20h,03h,1Eh,03h
+5401  1E 03 1E 03 1C 03 1C 03 1C 03 1A 03 1A 03 18 03          db 1Eh,03h,1Eh,03h,1Ch,03h,1Ch,03h,1Ch,03h,1Ah,03h,1Ah,03h,18h,03h
+5411  18 03 18 03 16 03 16 03 14 03 14 03 14 03 12 03          db 18h,03h,18h,03h,16h,03h,16h,03h,14h,03h,14h,03h,14h,03h,12h,03h
+5421  12 03 12 03 10 03 10 03 0E 03 0E 03 0E 03 0C 03          db 12h,03h,12h,03h,10h,03h,10h,03h,0Eh,03h,0Eh,03h,0Eh,03h,0Ch,03h
+5431  0C 03 0C 03 0A 03 0A 03 08 03 08 03 08 03 06 03          db 0Ch,03h,0Ch,03h,0Ah,03h,0Ah,03h,08h,03h,08h,03h,08h,03h,06h,03h
+5441  06 03 04 03 04 03 04 03 02 03 02 03 02 03 00 03          db 06h,03h,04h,03h,04h,03h,04h,03h,02h,03h,02h,03h,02h,03h,00h,03h
+5451  00 03 FE 02 FE 02 FE 02 FC 02 FC 02 FC 02 FA 02          db 00h,03h,FEh,02h,FEh,02h,FEh,02h,FCh,02h,FCh,02h,FCh,02h,FAh,02h
+5461  FA 02 F8 02 F8 02 F8 02 F6 02 F6 02 F6 02 F4 02          db FAh,02h,F8h,02h,F8h,02h,F8h,02h,F6h,02h,F6h,02h,F6h,02h,F4h,02h
+5471  F4 02 F2 02 F2 02 F2 02 F0 02 F0 02 F0 02 EE 02          db F4h,02h,F2h,02h,F2h,02h,F2h,02h,F0h,02h,F0h,02h,F0h,02h,EEh,02h
+5481  EE 02 EE 02 EC 02 EC 02 EA 02 EA 02 EA 02 E8 02          db EEh,02h,EEh,02h,ECh,02h,ECh,02h,EAh,02h,EAh,02h,EAh,02h,E8h,02h
+5491  E8 02 E8 02 E6 02 E6 02 E4 02 E4 02 E4 02 E2 02          db E8h,02h,E8h,02h,E6h,02h,E6h,02h,E4h,02h,E4h,02h,E4h,02h,E2h,02h
+54A1  E2 02 E2 02 E0 02 E0 02 DE 02 DE 02 DE 02 DC 02          db E2h,02h,E2h,02h,E0h,02h,E0h,02h,DEh,02h,DEh,02h,DEh,02h,DCh,02h
+54B1  DC 02 DC 02 DA 02 DA 02 DA 02 D8 02 D8 02 D6 02          db DCh,02h,DCh,02h,DAh,02h,DAh,02h,DAh,02h,D8h,02h,D8h,02h,D6h,02h
+54C1  D6 02 D6 02 D4 02 D4 02 D4 02 D2 02 D2 02 D2 02          db D6h,02h,D6h,02h,D4h,02h,D4h,02h,D4h,02h,D2h,02h,D2h,02h,D2h,02h
+54D1  D0 02 D0 02 CE 02 CE 02 CE 02 CC 02 CC 02 CC 02          db D0h,02h,D0h,02h,CEh,02h,CEh,02h,CEh,02h,CCh,02h,CCh,02h,CCh,02h
+54E1  CA 02 CA 02 CA 02 C8 02 C8 02 C6 02 C6 02 C6 02          db CAh,02h,CAh,02h,CAh,02h,C8h,02h,C8h,02h,C6h,02h,C6h,02h,C6h,02h
+54F1  C4 02 C4 02 C4 02 C2 02 C2 02 C2 02 C0 02 C0 02          db C4h,02h,C4h,02h,C4h,02h,C2h,02h,C2h,02h,C2h,02h,C0h,02h,C0h,02h
+5501  C0 02 BE 02 BE 02 BC 02 BC 02 BC 02 BA 02 BA 02          db C0h,02h,BEh,02h,BEh,02h,BCh,02h,BCh,02h,BCh,02h,BAh,02h,BAh,02h
+5511  BA 02 B8 02 B8 02 B8 02 B6 02 B6 02 B6 02 B4 02          db BAh,02h,B8h,02h,B8h,02h,B8h,02h,B6h,02h,B6h,02h,B6h,02h,B4h,02h
+5521  B4 02 B2 02 B2 02 B2 02 B0 02 B0 02 B0 02 AE 02          db B4h,02h,B2h,02h,B2h,02h,B2h,02h,B0h,02h,B0h,02h,B0h,02h,AEh,02h
+5531  AE 02 AE 02 AC 02 AC 02 AC 02 AA 02 AA 02 A8 02          db AEh,02h,AEh,02h,ACh,02h,ACh,02h,ACh,02h,AAh,02h,AAh,02h,A8h,02h
+5541  A8 02 A8 02 A6 02 A6 02 A6 02 A4 02 A4 02 A4 02          db A8h,02h,A8h,02h,A6h,02h,A6h,02h,A6h,02h,A4h,02h,A4h,02h,A4h,02h
+5551  A2 02 A2 02 A2 02 A0 02 A0 02 A0 02 9E 02 9E 02          db A2h,02h,A2h,02h,A2h,02h,A0h,02h,A0h,02h,A0h,02h,9Eh,02h,9Eh,02h
+5561  9C 02 9C 02 9C 02 9A 02 9A 02 9A 02 98 02 98 02          db 9Ch,02h,9Ch,02h,9Ch,02h,9Ah,02h,9Ah,02h,9Ah,02h,98h,02h,98h,02h
+5571  98 02 96 02 96 02 96 02 94 02 94 02 94 02 92 02          db 98h,02h,96h,02h,96h,02h,96h,02h,94h,02h,94h,02h,94h,02h,92h,02h
+5581  92 02 92 02 90 02 90 02 90 02 8E 02 8E 02 8C 02          db 92h,02h,92h,02h,90h,02h,90h,02h,90h,02h,8Eh,02h,8Eh,02h,8Ch,02h
+5591  8C 02 8C 02 8A 02 8A 02 8A 02 88 02 88 02 88 02          db 8Ch,02h,8Ch,02h,8Ah,02h,8Ah,02h,8Ah,02h,88h,02h,88h,02h,88h,02h
+55A1  86 02 86 02 86 02 84 02 84 02 84 02 82 02 82 02          db 86h,02h,86h,02h,86h,02h,84h,02h,84h,02h,84h,02h,82h,02h,82h,02h
+55B1  82 02 80 02 80 02 80 02 7E 02 7E 02 7E 02 7C 02          db 82h,02h,80h,02h,80h,02h,80h,02h,7Eh,02h,7Eh,02h,7Eh,02h,7Ch,02h
+55C1  7C 02 7C 02 7A 02 7A 02 7A 02 78 02 78 02 78 02          db 7Ch,02h,7Ch,02h,7Ah,02h,7Ah,02h,7Ah,02h,78h,02h,78h,02h,78h,02h
+55D1  76 02 76 02 74 02 74 02 74 02 72 02 72 02 72 02          db 76h,02h,76h,02h,74h,02h,74h,02h,74h,02h,72h,02h,72h,02h,72h,02h
+55E1  70 02 70 02 70 02 6E 02 6E 02 6E 02 6C 02 6C 02          db 70h,02h,70h,02h,70h,02h,6Eh,02h,6Eh,02h,6Eh,02h,6Ch,02h,6Ch,02h
+55F1  6C 02 6A 02 6A 02 6A 02 68 02 68 02 68 02 66 02          db 6Ch,02h,6Ah,02h,6Ah,02h,6Ah,02h,68h,02h,68h,02h,68h,02h,66h,02h
+5601  66 02 66 02 64 02 64 02 64 02 62 02 62 02 62 02          db 66h,02h,66h,02h,64h,02h,64h,02h,64h,02h,62h,02h,62h,02h,62h,02h
+5611  60 02 60 02 60 02 5E 02 5E 02 5E 02 5C 02 5C 02          db 60h,02h,60h,02h,60h,02h,5Eh,02h,5Eh,02h,5Eh,02h,5Ch,02h,5Ch,02h
+5621  5C 02 5A 02 5A 02 5A 02 58 02 58 02 58 02 56 02          db 5Ch,02h,5Ah,02h,5Ah,02h,5Ah,02h,58h,02h,58h,02h,58h,02h,56h,02h
+5631  56 02 56 02 54 02 54 02 54 02 52 02 52 02 52 02          db 56h,02h,56h,02h,54h,02h,54h,02h,54h,02h,52h,02h,52h,02h,52h,02h
+5641  50 02 50 02 50 02 4E 02 4E 02 4E 02 4C 02 4C 02          db 50h,02h,50h,02h,50h,02h,4Eh,02h,4Eh,02h,4Eh,02h,4Ch,02h,4Ch,02h
+5651  4C 02 4A 02 4A 02 4A 02 48 02 48 02 48 02 46 02          db 4Ch,02h,4Ah,02h,4Ah,02h,4Ah,02h,48h,02h,48h,02h,48h,02h,46h,02h
+5661  46 02 46 02 44 02 44 02 44 02 42 02 42 02 42 02          db 46h,02h,46h,02h,44h,02h,44h,02h,44h,02h,42h,02h,42h,02h,42h,02h
+5671  40 02 40 02 40 02 40 02 3E 02 3E 02 3E 02 3C 02          db 40h,02h,40h,02h,40h,02h,40h,02h,3Eh,02h,3Eh,02h,3Eh,02h,3Ch,02h
+5681  3C 02 3C 02 3A 02 3A 02 3A 02 38 02 38 02 38 02          db 3Ch,02h,3Ch,02h,3Ah,02h,3Ah,02h,3Ah,02h,38h,02h,38h,02h,38h,02h
+5691  36 02 36 02 36 02 34 02 34 02 34 02 32 02 32 02          db 36h,02h,36h,02h,36h,02h,34h,02h,34h,02h,34h,02h,32h,02h,32h,02h
+56A1  32 02 30 02 30 02 30 02 2E 02 2E 02 2E 02 2C 02          db 32h,02h,30h,02h,30h,02h,30h,02h,2Eh,02h,2Eh,02h,2Eh,02h,2Ch,02h
+56B1  2C 02 2C 02 2A 02 2A 02 2A 02 2A 02 28 02 28 02          db 2Ch,02h,2Ch,02h,2Ah,02h,2Ah,02h,2Ah,02h,2Ah,02h,28h,02h,28h,02h
+56C1  28 02 26 02 26 02 26 02 24 02 24 02 24 02 22 02          db 28h,02h,26h,02h,26h,02h,26h,02h,24h,02h,24h,02h,24h,02h,22h,02h
+56D1  22 02 22 02 20 02 20 02 20 02 1E 02 1E 02 1E 02          db 22h,02h,22h,02h,20h,02h,20h,02h,20h,02h,1Eh,02h,1Eh,02h,1Eh,02h
+56E1  1C 02 1C 02 1C 02 1A 02 1A 02 1A 02 1A 02 18 02          db 1Ch,02h,1Ch,02h,1Ch,02h,1Ah,02h,1Ah,02h,1Ah,02h,1Ah,02h,18h,02h
+56F1  18 02 18 02 16 02 16 02 16 02 14 02 14 02 14 02          db 18h,02h,18h,02h,16h,02h,16h,02h,16h,02h,14h,02h,14h,02h,14h,02h
+5701  12 02 12 02 12 02 10 02 10 02 10 02 0E 02 0E 02          db 12h,02h,12h,02h,12h,02h,10h,02h,10h,02h,10h,02h,0Eh,02h,0Eh,02h
+5711  0E 02 0E 02 0C 02 0C 02 0C 02 0A 02 0A 02 0A 02          db 0Eh,02h,0Eh,02h,0Ch,02h,0Ch,02h,0Ch,02h,0Ah,02h,0Ah,02h,0Ah,02h
+5721  08 02 08 02 08 02 06 02 06 02 06 02 04 02 04 02          db 08h,02h,08h,02h,08h,02h,06h,02h,06h,02h,06h,02h,04h,02h,04h,02h
+5731  04 02 04 02 02 02 02 02 02 02 00 02 00 02 00 02          db 04h,02h,04h,02h,02h,02h,02h,02h,02h,02h,00h,02h,00h,02h,00h,02h
+5741  FE 01 FE 01 FE 01 FC 01 FC 01 FC 01 FA 01 FA 01          db FEh,01h,FEh,01h,FEh,01h,FCh,01h,FCh,01h,FCh,01h,FAh,01h,FAh,01h
+5751  FA 01 FA 01 F8 01 F8 01 F8 01 F6 01 F6 01 F6 01          db FAh,01h,FAh,01h,F8h,01h,F8h,01h,F8h,01h,F6h,01h,F6h,01h,F6h,01h
+5761  F4 01 F4 01 F4 01 F2 01 F2 01 F2 01 F2 01 F0 01          db F4h,01h,F4h,01h,F4h,01h,F2h,01h,F2h,01h,F2h,01h,F2h,01h,F0h,01h
+5771  F0 01 F0 01 EE 01 EE 01 EE 01 EC 01 EC 01 EC 01          db F0h,01h,F0h,01h,EEh,01h,EEh,01h,EEh,01h,ECh,01h,ECh,01h,ECh,01h
+5781  EA 01 EA 01 EA 01 EA 01 E8 01 E8 01 E8 01 E6 01          db EAh,01h,EAh,01h,EAh,01h,EAh,01h,E8h,01h,E8h,01h,E8h,01h,E6h,01h
+5791  E6 01 E6 01 E4 01 E4 01 E4 01 E4 01 E2 01 E2 01          db E6h,01h,E6h,01h,E4h,01h,E4h,01h,E4h,01h,E4h,01h,E2h,01h,E2h,01h
+57A1  E2 01 E0 01 E0 01 E0 01 DE 01 DE 01 DE 01 DE 01          db E2h,01h,E0h,01h,E0h,01h,E0h,01h,DEh,01h,DEh,01h,DEh,01h,DEh,01h
+57B1  DC 01 DC 01 DC 01 DA 01 DA 01 DA 01 D8 01 D8 01          db DCh,01h,DCh,01h,DCh,01h,DAh,01h,DAh,01h,DAh,01h,D8h,01h,D8h,01h
+57C1  D8 01 D6 01 D6 01 D6 01 D6 01 D4 01 D4 01 D4 01          db D8h,01h,D6h,01h,D6h,01h,D6h,01h,D6h,01h,D4h,01h,D4h,01h,D4h,01h
+57D1  D2 01 D2 01 D2 01 D0 01 D0 01 D0 01 D0 01 CE 01          db D2h,01h,D2h,01h,D2h,01h,D0h,01h,D0h,01h,D0h,01h,D0h,01h,CEh,01h
+57E1  CE 01 CE 01 CC 01 CC 01 CC 01 CA 01 CA 01 CA 01          db CEh,01h,CEh,01h,CCh,01h,CCh,01h,CCh,01h,CAh,01h,CAh,01h,CAh,01h
+57F1  CA 01 C8 01 C8 01 C8 01 C6 01 C6 01 C6 01 C6 01          db CAh,01h,C8h,01h,C8h,01h,C8h,01h,C6h,01h,C6h,01h,C6h,01h,C6h,01h
+5801  C4 01 C4 01 C4 01 C2 01 C2 01 C2 01 C0 01 C0 01          db C4h,01h,C4h,01h,C4h,01h,C2h,01h,C2h,01h,C2h,01h,C0h,01h,C0h,01h
+5811  C0 01 C0 01 BE 01 BE 01 BE 01 BC 01 BC 01 BC 01          db C0h,01h,C0h,01h,BEh,01h,BEh,01h,BEh,01h,BCh,01h,BCh,01h,BCh,01h
+5821  BC 01 BA 01 BA 01 BA 01 B8 01 B8 01 B8 01 B6 01          db BCh,01h,BAh,01h,BAh,01h,BAh,01h,B8h,01h,B8h,01h,B8h,01h,B6h,01h
+5831  B6 01 B6 01 B6 01 B4 01 B4 01 B4 01 B2 01 B2 01          db B6h,01h,B6h,01h,B6h,01h,B4h,01h,B4h,01h,B4h,01h,B2h,01h,B2h,01h
+5841  B2 01 B2 01 B0 01 B0 01 B0 01 AE 01 AE 01 AE 01          db B2h,01h,B2h,01h,B0h,01h,B0h,01h,B0h,01h,AEh,01h,AEh,01h,AEh,01h
+5851  AC 01 AC 01 AC 01 AC 01 AA 01 AA 01 AA 01 A8 01          db ACh,01h,ACh,01h,ACh,01h,ACh,01h,AAh,01h,AAh,01h,AAh,01h,A8h,01h
+5861  A8 01 A8 01 A8 01 A6 01 A6 01 A6 01 A4 01 A4 01          db A8h,01h,A8h,01h,A8h,01h,A6h,01h,A6h,01h,A6h,01h,A4h,01h,A4h,01h
+5871  A4 01 A4 01 A2 01 A2 01 A2 01 A0 01 A0 01 A0 01          db A4h,01h,A4h,01h,A2h,01h,A2h,01h,A2h,01h,A0h,01h,A0h,01h,A0h,01h
+5881  A0 01 9E 01 9E 01 9E 01 9C 01 9C 01 9C 01 9C 01          db A0h,01h,9Eh,01h,9Eh,01h,9Eh,01h,9Ch,01h,9Ch,01h,9Ch,01h,9Ch,01h
+5891  9A 01 9A 01 9A 01 98 01 98 01 98 01 98 01 96 01          db 9Ah,01h,9Ah,01h,9Ah,01h,98h,01h,98h,01h,98h,01h,98h,01h,96h,01h
+58A1  96 01 96 01 94 01 94 01 94 01 94 01 92 01 92 01          db 96h,01h,96h,01h,94h,01h,94h,01h,94h,01h,94h,01h,92h,01h,92h,01h
+58B1  92 01 90 01 90 01 90 01 90 01 8E 01 8E 01 8E 01          db 92h,01h,90h,01h,90h,01h,90h,01h,90h,01h,8Eh,01h,8Eh,01h,8Eh,01h
+58C1  8C 01 8C 01 8C 01 8C 01 8A 01 8A 01 8A 01 88 01          db 8Ch,01h,8Ch,01h,8Ch,01h,8Ch,01h,8Ah,01h,8Ah,01h,8Ah,01h,88h,01h
+58D1  88 01 88 01 88 01 86 01 86 01 86 01 84 01 84 01          db 88h,01h,88h,01h,88h,01h,86h,01h,86h,01h,86h,01h,84h,01h,84h,01h
+58E1  84 01 84 01 82 01 82 01 82 01 80 01 80 01 80 01          db 84h,01h,84h,01h,82h,01h,82h,01h,82h,01h,80h,01h,80h,01h,80h,01h
+58F1  80 01 7E 01 7E 01 7E 01 7E 01 7C 01 7C 01 7C 01          db 80h,01h,7Eh,01h,7Eh,01h,7Eh,01h,7Eh,01h,7Ch,01h,7Ch,01h,7Ch,01h
+5901  7A 01 7A 01 7A 01 7A 01 78 01 78 01 78 01 76 01          db 7Ah,01h,7Ah,01h,7Ah,01h,7Ah,01h,78h,01h,78h,01h,78h,01h,76h,01h
+5911  76 01 76 01 76 01 74 01 74 01 74 01 72 01 72 01          db 76h,01h,76h,01h,76h,01h,74h,01h,74h,01h,74h,01h,72h,01h,72h,01h
+5921  72 01 72 01 70 01 70 01 70 01 70 01 6E 01 6E 01          db 72h,01h,72h,01h,70h,01h,70h,01h,70h,01h,70h,01h,6Eh,01h,6Eh,01h
+5931  6E 01 6C 01 6C 01 6C 01 6C 01 6A 01 6A 01 6A 01          db 6Eh,01h,6Ch,01h,6Ch,01h,6Ch,01h,6Ch,01h,6Ah,01h,6Ah,01h,6Ah,01h
+5941  6A 01 68 01 68 01 68 01 66 01 66 01 66 01 66 01          db 6Ah,01h,68h,01h,68h,01h,68h,01h,66h,01h,66h,01h,66h,01h,66h,01h
+5951  64 01 64 01 64 01 62 01 62 01 62 01 62 01 60 01          db 64h,01h,64h,01h,64h,01h,62h,01h,62h,01h,62h,01h,62h,01h,60h,01h
+5961  60 01 60 01 60 01 5E 01 5E 01 5E 01 5C 01 5C 01          db 60h,01h,60h,01h,60h,01h,5Eh,01h,5Eh,01h,5Eh,01h,5Ch,01h,5Ch,01h
+5971  5C 01 5C 01 5A 01 5A 01 5A 01 5A 01 58 01 58 01          db 5Ch,01h,5Ch,01h,5Ah,01h,5Ah,01h,5Ah,01h,5Ah,01h,58h,01h,58h,01h
+5981  58 01 56 01 56 01 56 01 56 01 54 01 54 01 54 01          db 58h,01h,56h,01h,56h,01h,56h,01h,56h,01h,54h,01h,54h,01h,54h,01h
+5991  54 01 52 01 52 01 52 01 52 01 50 01 50 01 50 01          db 54h,01h,52h,01h,52h,01h,52h,01h,52h,01h,50h,01h,50h,01h,50h,01h
+59A1  4E 01 4E 01 4E 01 4E 01 4C 01 4C 01 4C 01 4C 01          db 4Eh,01h,4Eh,01h,4Eh,01h,4Eh,01h,4Ch,01h,4Ch,01h,4Ch,01h,4Ch,01h
+59B1  4A 01 4A 01 4A 01 48 01 48 01 48 01 48 01 46 01          db 4Ah,01h,4Ah,01h,4Ah,01h,48h,01h,48h,01h,48h,01h,48h,01h,46h,01h
+59C1  46 01 46 01 46 01 44 01 44 01 44 01 44 01 42 01          db 46h,01h,46h,01h,46h,01h,44h,01h,44h,01h,44h,01h,44h,01h,42h,01h
+59D1  42 01 42 01 40 01 40 01 40 01 40 01 3E 01 3E 01          db 42h,01h,42h,01h,40h,01h,40h,01h,40h,01h,40h,01h,3Eh,01h,3Eh,01h
+59E1  3E 01 3E 01 3C 01 3C 01 3C 01 3C 01 3A 01 3A 01          db 3Eh,01h,3Eh,01h,3Ch,01h,3Ch,01h,3Ch,01h,3Ch,01h,3Ah,01h,3Ah,01h
+59F1  3A 01 3A 01 38 01 38 01 38 01 36 01 36 01 36 01          db 3Ah,01h,3Ah,01h,38h,01h,38h,01h,38h,01h,36h,01h,36h,01h,36h,01h
+5A01  36 01 34 01 34 01 34 01 34 01 32 01 32 01 32 01          db 36h,01h,34h,01h,34h,01h,34h,01h,34h,01h,32h,01h,32h,01h,32h,01h
+5A11  32 01 30 01 30 01 30 01 30 01 2E 01 2E 01 2E 01          db 32h,01h,30h,01h,30h,01h,30h,01h,30h,01h,2Eh,01h,2Eh,01h,2Eh,01h
+5A21  2C 01 2C 01 2C 01 2C 01 2A 01 2A 01 2A 01 2A 01          db 2Ch,01h,2Ch,01h,2Ch,01h,2Ch,01h,2Ah,01h,2Ah,01h,2Ah,01h,2Ah,01h
+5A31  28 01 28 01 28 01 28 01 26 01 26 01 26 01 26 01          db 28h,01h,28h,01h,28h,01h,28h,01h,26h,01h,26h,01h,26h,01h,26h,01h
+5A41  24 01 24 01 24 01 24 01 22 01 22 01 22 01 20 01          db 24h,01h,24h,01h,24h,01h,24h,01h,22h,01h,22h,01h,22h,01h,20h,01h
+5A51  20 01 20 01 20 01 1E 01 1E 01 1E 01 1E 01 1C 01          db 20h,01h,20h,01h,20h,01h,1Eh,01h,1Eh,01h,1Eh,01h,1Eh,01h,1Ch,01h
+5A61  1C 01 1C 01 1C 01 1A 01 1A 01 1A 01 1A 01 18 01          db 1Ch,01h,1Ch,01h,1Ch,01h,1Ah,01h,1Ah,01h,1Ah,01h,1Ah,01h,18h,01h
+5A71  18 01 18 01 18 01 16 01 16 01 16 01 16 01 14 01          db 18h,01h,18h,01h,18h,01h,16h,01h,16h,01h,16h,01h,16h,01h,14h,01h
+5A81  14 01 14 01 14 01 12 01 12 01 12 01 10 01 10 01          db 14h,01h,14h,01h,14h,01h,12h,01h,12h,01h,12h,01h,10h,01h,10h,01h
+5A91  10 01 10 01 0E 01 0E 01 0E 01 0E 01 0C 01 0C 01          db 10h,01h,10h,01h,0Eh,01h,0Eh,01h,0Eh,01h,0Eh,01h,0Ch,01h,0Ch,01h
+5AA1  0C 01 0C 01 0A 01 0A 01 0A 01 0A 01 08 01 08 01          db 0Ch,01h,0Ch,01h,0Ah,01h,0Ah,01h,0Ah,01h,0Ah,01h,08h,01h,08h,01h
+5AB1  08 01 08 01 06 01 06 01 06 01 06 01 04 01 04 01          db 08h,01h,08h,01h,06h,01h,06h,01h,06h,01h,06h,01h,04h,01h,04h,01h
+5AC1  04 01 04 01 02 01 02 01 02 01 02 01 00 01 00 01          db 04h,01h,04h,01h,02h,01h,02h,01h,02h,01h,02h,01h,00h,01h,00h,01h
+5AD1  00 01 00 01 FE 00 FE 00 FE 00 FE 00 FC 00 FC 00          db 00h,01h,00h,01h,FEh,00h,FEh,00h,FEh,00h,FEh,00h,FCh,00h,FCh,00h
+5AE1  FC 00 FC 00 FA 00 FA 00 FA 00 FA 00 F8 00 F8 00          db FCh,00h,FCh,00h,FAh,00h,FAh,00h,FAh,00h,FAh,00h,F8h,00h,F8h,00h
+5AF1  F8 00 F8 00 F6 00 F6 00 F6 00 F6 00 F4 00 F4 00          db F8h,00h,F8h,00h,F6h,00h,F6h,00h,F6h,00h,F6h,00h,F4h,00h,F4h,00h
+5B01  F4 00 F4 00 F2 00 F2 00 F2 00 F2 00 F0 00 F0 00          db F4h,00h,F4h,00h,F2h,00h,F2h,00h,F2h,00h,F2h,00h,F0h,00h,F0h,00h
+5B11  F0 00 F0 00 EE 00 EE 00 EE 00 EE 00 EC 00 EC 00          db F0h,00h,F0h,00h,EEh,00h,EEh,00h,EEh,00h,EEh,00h,ECh,00h,ECh,00h
+5B21  EC 00 EC 00 EA 00 EA 00 EA 00 EA 00 E8 00 E8 00          db ECh,00h,ECh,00h,EAh,00h,EAh,00h,EAh,00h,EAh,00h,E8h,00h,E8h,00h
+5B31  E8 00 E8 00 E6 00 E6 00 E6 00 E6 00 E4 00 E4 00          db E8h,00h,E8h,00h,E6h,00h,E6h,00h,E6h,00h,E6h,00h,E4h,00h,E4h,00h
+5B41  E4 00 E4 00 E2 00 E2 00 E2 00 E2 00 E0 00 E0 00          db E4h,00h,E4h,00h,E2h,00h,E2h,00h,E2h,00h,E2h,00h,E0h,00h,E0h,00h
+5B51  E0 00 E0 00 DE 00 DE 00 DE 00 DE 00 DE 00 DC 00          db E0h,00h,E0h,00h,DEh,00h,DEh,00h,DEh,00h,DEh,00h,DEh,00h,DCh,00h
+5B61  DC 00 DC 00 DC 00 DA 00 DA 00 DA 00 DA 00 D8 00          db DCh,00h,DCh,00h,DCh,00h,DAh,00h,DAh,00h,DAh,00h,DAh,00h,D8h,00h
+5B71  D8 00 D8 00 D8 00 D6 00 D6 00 D6 00 D6 00 D4 00          db D8h,00h,D8h,00h,D8h,00h,D6h,00h,D6h,00h,D6h,00h,D6h,00h,D4h,00h
+5B81  D4 00 D4 00 D4 00 D2 00 D2 00 D2 00 D2 00 D0 00          db D4h,00h,D4h,00h,D4h,00h,D2h,00h,D2h,00h,D2h,00h,D2h,00h,D0h,00h
+5B91  D0 00 D0 00 D0 00 CE 00 CE 00 CE 00 CE 00 CE 00          db D0h,00h,D0h,00h,D0h,00h,CEh,00h,CEh,00h,CEh,00h,CEh,00h,CEh,00h
+5BA1  CC 00 CC 00 CC 00 CC 00 CA 00 CA 00 CA 00 CA 00          db CCh,00h,CCh,00h,CCh,00h,CCh,00h,CAh,00h,CAh,00h,CAh,00h,CAh,00h
+5BB1  C8 00 C8 00 C8 00 C8 00 C6 00 C6 00 C6 00 C6 00          db C8h,00h,C8h,00h,C8h,00h,C8h,00h,C6h,00h,C6h,00h,C6h,00h,C6h,00h
+5BC1  C4 00 C4 00 C4 00 C4 00 C2 00 C2 00 C2 00 C2 00          db C4h,00h,C4h,00h,C4h,00h,C4h,00h,C2h,00h,C2h,00h,C2h,00h,C2h,00h
+5BD1  C2 00 C0 00 C0 00 C0 00 C0 00 BE 00 BE 00 BE 00          db C2h,00h,C0h,00h,C0h,00h,C0h,00h,C0h,00h,BEh,00h,BEh,00h,BEh,00h
+5BE1  BE 00 BC 00 BC 00 BC 00 BC 00 BA 00 BA 00 BA 00          db BEh,00h,BCh,00h,BCh,00h,BCh,00h,BCh,00h,BAh,00h,BAh,00h,BAh,00h
+5BF1  BA 00 B8 00 B8 00 B8 00 B8 00 B8 00 B6 00 B6 00          db BAh,00h,B8h,00h,B8h,00h,B8h,00h,B8h,00h,B8h,00h,B6h,00h,B6h,00h
+5C01  B6 00 B6 00 B4 00 B4 00 B4 00 B4 00 B2 00 B2 00          db B6h,00h,B6h,00h,B4h,00h,B4h,00h,B4h,00h,B4h,00h,B2h,00h,B2h,00h
+5C11  B2 00 B2 00 B0 00 B0 00 B0 00 B0 00 B0 00 AE 00          db B2h,00h,B2h,00h,B0h,00h,B0h,00h,B0h,00h,B0h,00h,B0h,00h,AEh,00h
+5C21  AE 00 AE 00 AE 00 AC 00 AC 00 AC 00 AC 00 AA 00          db AEh,00h,AEh,00h,AEh,00h,ACh,00h,ACh,00h,ACh,00h,ACh,00h,AAh,00h
+5C31  AA 00 AA 00 AA 00 AA 00 A8 00 A8 00 A8 00 A8 00          db AAh,00h,AAh,00h,AAh,00h,AAh,00h,A8h,00h,A8h,00h,A8h,00h,A8h,00h
+5C41  A6 00 A6 00 A6 00 A6 00 A4 00 A4 00 A4 00 A4 00          db A6h,00h,A6h,00h,A6h,00h,A6h,00h,A4h,00h,A4h,00h,A4h,00h,A4h,00h
+5C51  A2 00 A2 00 A2 00 A2 00 A2 00 A0 00 A0 00 A0 00          db A2h,00h,A2h,00h,A2h,00h,A2h,00h,A2h,00h,A0h,00h,A0h,00h,A0h,00h
+5C61  A0 00 9E 00 9E 00 9E 00 9E 00 9C 00 9C 00 9C 00          db A0h,00h,9Eh,00h,9Eh,00h,9Eh,00h,9Eh,00h,9Ch,00h,9Ch,00h,9Ch,00h
+5C71  9C 00 9C 00 9A 00 9A 00 9A 00 9A 00 98 00 98 00          db 9Ch,00h,9Ch,00h,9Ah,00h,9Ah,00h,9Ah,00h,9Ah,00h,98h,00h,98h,00h
+5C81  98 00 98 00 96 00 96 00 96 00 96 00 96 00 94 00          db 98h,00h,98h,00h,96h,00h,96h,00h,96h,00h,96h,00h,96h,00h,94h,00h
+5C91  94 00 94 00 94 00 92 00 92 00 92 00 92 00 92 00          db 94h,00h,94h,00h,94h,00h,92h,00h,92h,00h,92h,00h,92h,00h,92h,00h
+5CA1  90 00 90 00 90 00 90 00 8E 00 8E 00 8E 00 8E 00          db 90h,00h,90h,00h,90h,00h,90h,00h,8Eh,00h,8Eh,00h,8Eh,00h,8Eh,00h
+5CB1  8C 00 8C 00 8C 00 8C 00 8C 00 8A 00 8A 00 8A 00          db 8Ch,00h,8Ch,00h,8Ch,00h,8Ch,00h,8Ch,00h,8Ah,00h,8Ah,00h,8Ah,00h
+5CC1  8A 00 88 00 88 00 88 00 88 00 88 00 86 00 86 00          db 8Ah,00h,88h,00h,88h,00h,88h,00h,88h,00h,88h,00h,86h,00h,86h,00h
+5CD1  86 00 86 00 84 00 84 00 84 00 84 00 82 00 82 00          db 86h,00h,86h,00h,84h,00h,84h,00h,84h,00h,84h,00h,82h,00h,82h,00h
+5CE1  82 00 82 00 82 00 80 00 80 00 80 00 80 00 7E 00          db 82h,00h,82h,00h,82h,00h,80h,00h,80h,00h,80h,00h,80h,00h,7Eh,00h
+5CF1  7E 00 7E 00 7E 00 7E 00 7C 00 7C 00 7C 00 7C 00          db 7Eh,00h,7Eh,00h,7Eh,00h,7Eh,00h,7Ch,00h,7Ch,00h,7Ch,00h,7Ch,00h
+5D01  7A 00 7A 00 7A 00 7A 00 7A 00 78 00 78 00 78 00          db 7Ah,00h,7Ah,00h,7Ah,00h,7Ah,00h,7Ah,00h,78h,00h,78h,00h,78h,00h
+5D11  78 00 76 00 76 00 76 00 76 00 76 00 74 00 74 00          db 78h,00h,76h,00h,76h,00h,76h,00h,76h,00h,76h,00h,74h,00h,74h,00h
+5D21  74 00 74 00 72 00 72 00 72 00 72 00 72 00 70 00          db 74h,00h,74h,00h,72h,00h,72h,00h,72h,00h,72h,00h,72h,00h,70h,00h
+5D31  70 00 70 00 70 00 6E 00 6E 00 6E 00 6E 00 6E 00          db 70h,00h,70h,00h,70h,00h,6Eh,00h,6Eh,00h,6Eh,00h,6Eh,00h,6Eh,00h
+5D41  6C 00 6C 00 6C 00 6C 00 6A 00 6A 00 6A 00 6A 00          db 6Ch,00h,6Ch,00h,6Ch,00h,6Ch,00h,6Ah,00h,6Ah,00h,6Ah,00h,6Ah,00h
+5D51  6A 00 68 00 68 00 68 00 68 00 66 00 66 00 66 00          db 6Ah,00h,68h,00h,68h,00h,68h,00h,68h,00h,66h,00h,66h,00h,66h,00h
+5D61  66 00 66 00 64 00 64 00 64 00 64 00 64 00 62 00          db 66h,00h,66h,00h,64h,00h,64h,00h,64h,00h,64h,00h,64h,00h,62h,00h
+5D71  62 00 62 00 62 00 60 00 60 00 60 00 60 00 60 00          db 62h,00h,62h,00h,62h,00h,60h,00h,60h,00h,60h,00h,60h,00h,60h,00h
+5D81  5E 00 5E 00 5E 00 5E 00 5C 00 5C 00 5C 00 5C 00          db 5Eh,00h,5Eh,00h,5Eh,00h,5Eh,00h,5Ch,00h,5Ch,00h,5Ch,00h,5Ch,00h
+5D91  5C 00 5A 00 5A 00 5A 00 5A 00 5A 00 58 00 58 00          db 5Ch,00h,5Ah,00h,5Ah,00h,5Ah,00h,5Ah,00h,5Ah,00h,58h,00h,58h,00h
+5DA1  58 00 58 00 56 00 56 00 56 00 56 00 56 00 54 00          db 58h,00h,58h,00h,56h,00h,56h,00h,56h,00h,56h,00h,56h,00h,54h,00h
+5DB1  54 00 54 00 54 00 52 00 52 00 52 00 52 00 52 00          db 54h,00h,54h,00h,54h,00h,52h,00h,52h,00h,52h,00h,52h,00h,52h,00h
+5DC1  50 00 50 00 50 00 50 00 50 00 4E 00 4E 00 4E 00          db 50h,00h,50h,00h,50h,00h,50h,00h,50h,00h,4Eh,00h,4Eh,00h,4Eh,00h
+5DD1  4E 00 4C 00 4C 00 4C 00 4C 00 4C 00 4A 00 4A 00          db 4Eh,00h,4Ch,00h,4Ch,00h,4Ch,00h,4Ch,00h,4Ch,00h,4Ah,00h,4Ah,00h
+5DE1  4A 00 4A 00 4A 00 48 00 48 00 48 00 48 00 46 00          db 4Ah,00h,4Ah,00h,4Ah,00h,48h,00h,48h,00h,48h,00h,48h,00h,46h,00h
+5DF1  46 00 46 00 46 00 46 00 44 00 44 00 44 00 44 00          db 46h,00h,46h,00h,46h,00h,46h,00h,44h,00h,44h,00h,44h,00h,44h,00h
+5E01  44 00 42 00 42 00 42 00 42 00 42 00 40 00 40 00          db 44h,00h,42h,00h,42h,00h,42h,00h,42h,00h,42h,00h,40h,00h,40h,00h
+5E11  40 00 40 00 3E 00 3E 00 3E 00 3E 00 3E 00 3C 00          db 40h,00h,40h,00h,3Eh,00h,3Eh,00h,3Eh,00h,3Eh,00h,3Eh,00h,3Ch,00h
+5E21  3C 00 3C 00 3C 00 3C 00 3A 00 3A 00 3A 00 3A 00          db 3Ch,00h,3Ch,00h,3Ch,00h,3Ch,00h,3Ah,00h,3Ah,00h,3Ah,00h,3Ah,00h
+5E31  3A 00 38 00 38 00 38 00 38 00 36 00 36 00 36 00          db 3Ah,00h,38h,00h,38h,00h,38h,00h,38h,00h,36h,00h,36h,00h,36h,00h
+5E41  36 00 36 00 34 00 34 00 34 00 34 00 34 00 32 00          db 36h,00h,36h,00h,34h,00h,34h,00h,34h,00h,34h,00h,34h,00h,32h,00h
+5E51  32 00 32 00 32 00 32 00 30 00 30 00 30 00 30 00          db 32h,00h,32h,00h,32h,00h,32h,00h,30h,00h,30h,00h,30h,00h,30h,00h
+5E61  2E 00 2E 00 2E 00 2E 00 2E 00 2C 00 2C 00 2C 00          db 2Eh,00h,2Eh,00h,2Eh,00h,2Eh,00h,2Eh,00h,2Ch,00h,2Ch,00h,2Ch,00h
+5E71  2C 00 2C 00 2A 00 2A 00 2A 00 2A 00 2A 00 28 00          db 2Ch,00h,2Ch,00h,2Ah,00h,2Ah,00h,2Ah,00h,2Ah,00h,2Ah,00h,28h,00h
+5E81  28 00 28 00 28 00 28 00 26 00 26 00 26 00 26 00          db 28h,00h,28h,00h,28h,00h,28h,00h,26h,00h,26h,00h,26h,00h,26h,00h
+5E91  26 00 24 00 24 00 24 00 24 00 22 00 22 00 22 00          db 26h,00h,24h,00h,24h,00h,24h,00h,24h,00h,22h,00h,22h,00h,22h,00h
+5EA1  22 00 22 00 20 00 20 00 20 00 20 00 20 00 1E 00          db 22h,00h,22h,00h,20h,00h,20h,00h,20h,00h,20h,00h,20h,00h,1Eh,00h
+5EB1  1E 00 1E 00 1E 00 1E 00 1C 00 1C 00 1C 00 1C 00          db 1Eh,00h,1Eh,00h,1Eh,00h,1Eh,00h,1Ch,00h,1Ch,00h,1Ch,00h,1Ch,00h
+5EC1  1C 00 1A 00 1A 00 1A 00 1A 00 1A 00 18 00 18 00          db 1Ch,00h,1Ah,00h,1Ah,00h,1Ah,00h,1Ah,00h,1Ah,00h,18h,00h,18h,00h
+5ED1  18 00 18 00 18 00 16 00 16 00 16 00 16 00 16 00          db 18h,00h,18h,00h,18h,00h,16h,00h,16h,00h,16h,00h,16h,00h,16h,00h
+5EE1  14 00 14 00 14 00 14 00 14 00 12 00 12 00 12 00          db 14h,00h,14h,00h,14h,00h,14h,00h,14h,00h,12h,00h,12h,00h,12h,00h
+5EF1  12 00 12 00 10 00 10 00 10 00 10 00 0E 00 0E 00          db 12h,00h,12h,00h,10h,00h,10h,00h,10h,00h,10h,00h,0Eh,00h,0Eh,00h
+5F01  0E 00 0E 00 0E 00 0C 00 0C 00 0C 00 0C 00 0C 00          db 0Eh,00h,0Eh,00h,0Eh,00h,0Ch,00h,0Ch,00h,0Ch,00h,0Ch,00h,0Ch,00h
+5F11  0A 00 0A 00 0A 00 0A 00 0A 00 08 00 08 00 08 00          db 0Ah,00h,0Ah,00h,0Ah,00h,0Ah,00h,0Ah,00h,08h,00h,08h,00h,08h,00h
+5F21  08 00 08 00 06 00 06 00 06 00 06 00 06 00 04 00          db 08h,00h,08h,00h,06h,00h,06h,00h,06h,00h,06h,00h,06h,00h,04h,00h
+5F31  04 00 04 00 04 00 04 00 02 00 02 00 02 00 02 00          db 04h,00h,04h,00h,04h,00h,04h,00h,02h,00h,02h,00h,02h,00h,02h,00h
+5F41  02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00          db 02h,00h,00h,00h,00h,00h,00h,00h,00h,00h,00h,00h,00h,00h,00h,00h
+5F51  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00          db 00h,00h,00h,00h,00h,00h,00h,00h,00h,00h,00h,00h,00h,00h,00h,00h
+5F61  00 00                                   db 00h,00h
+6380  3A 28 6A                                ld a,(STREAM_DATA+38)
+6383  32 1F 5F                                ld (ROW_COUNT_TMP),a
+6386  B7                                      or a
+6387  C8                                      ret z
+6388  16 02                                   ld d,02h
+638A  1E 11                                   ld e,011h
+638C  CD 2F 4A                                call opl4_write_de
+638F  CD 0E 49                                call read_stream_byte
+6392  38 3B                                   jr c,alias_init_done
+6394  6F                                      ld l,a
+6395  26 00                                   ld h,0
+6397  29                                      add hl,hl
+6398  29                                      add hl,hl
+6399  5D                                      ld e,l
+639A  54                                      ld d,h
+639B  29                                      add hl,hl
+639C  19                                      add hl,de
+639D  E5                                      push hl
+639E  16 03                                   ld d,03h
+63A0  1E 20                                   ld e,020h
+63A2  CD 2F 4A                                call opl4_write_de
+63A5  E1                                      pop hl
+63A6  E5                                      push hl
+63A7  16 04                                   ld d,04h
+63A9  5C                                      ld e,h
+63AA  CD 2F 4A                                call opl4_write_de
+63AD  E1                                      pop hl
+63AE  16 05                                   ld d,05h
+63B0  5D                                      ld e,l
+63B1  CD 2F 4A                                call opl4_write_de
+63B4  3E 06                                   ld a,006h
+63B6  D3 7E                                   out (07Eh),a
+63B8  CD 3B 4A                                call opl4_wait
+63BB  06 07                                   ld b,7
+63BD  CD 0E 49                                call read_stream_byte
+63C0  38 0D                                   jr c,alias_init_done
+63C2  D3 7F                                   out (07Fh),a
+63C4  10 F7                                   djnz alias_init_bytes
+63C6  3A 1F 5F                                ld a,(ROW_COUNT_TMP)
+63C9  3D                                      dec a
+63CA  32 1F 5F                                ld (ROW_COUNT_TMP),a
+63CD  20 C0                                   jr nz,alias_init_loop
+63CF  16 02                                   ld d,02h
+63D1  1E 10                                   ld e,010h
+63D3  C3 2F 4A                                jp opl4_write_de
+6400  CD 90 68                                call mod_clamp_period_hl
+6403  E5                                      push hl
+6404  EB                                      ex de,hl
+6405  21 00 60                                ld hl,PERIOD_Q
+6408  CD 01 49                                call ptr16_cur
+640B  73                                      ld (hl),e
+640C  23                                      inc hl
+640D  72                                      ld (hl),d
+640E  E1                                      pop hl
+640F  3E 01                                   ld a,1
+6411  32 0F 5F                                ld (PITCH_DIRTY),a
+6414  E5                                      push hl
+6415  21 00 63                                ld hl,GLISS
+6418  CD F5 48                                call ptr8_cur
+641B  7E                                      ld a,(hl)
+641C  E1                                      pop hl
+641D  B7                                      or a
+641E  20 0E                                   jr nz,porta_gliss_active
+6420  22 10 5F                                ld (OUT_PERIOD),hl
+6423  EB                                      ex de,hl
+6424  21 20 63                                ld hl,GLISS_OUT
+6427  CD 01 49                                call ptr16_cur
+642A  73                                      ld (hl),e
+642B  23                                      inc hl
+642C  72                                      ld (hl),d
+642D  C9                                      ret
+642E  E5                                      push hl
+642F  21 20 63                                ld hl,GLISS_OUT
+6432  CD 01 49                                call ptr16_cur
+6435  5E                                      ld e,(hl)
+6436  23                                      inc hl
+6437  56                                      ld d,(hl)
+6438  E1                                      pop hl
+6439  7A                                      ld a,d
+643A  B3                                      or e
+643B  20 02                                   jr nz,porta_gliss_have_prev
+643D  5D                                      ld e,l
+643E  54                                      ld d,h
+643F  E5                                      push hl
+6440  B7                                      or a
+6441  ED 52                                   sbc hl,de
+6443  E1                                      pop hl
+6444  CA F7 64                                jp z,porta_gliss_emit_de
+6447  38 54                                   jr c,porta_gliss_pitch_up
+6449  E5                                      push hl
+644A  EB                                      ex de,hl
+644B  CD 4F 65                                call mod_semidown_hl
+644E  EB                                      ex de,hl
+644F  21 30 60                                ld hl,TARGET_Q
+6452  CD 01 49                                call ptr16_cur
+6455  4E                                      ld c,(hl)
+6456  23                                      inc hl
+6457  46                                      ld b,(hl)
+6458  D5                                      push de
+6459  EB                                      ex de,hl
+645A  B7                                      or a
+645B  ED 42                                   sbc hl,bc
+645D  D1                                      pop de
+645E  38 04                                   jr c,porta_gliss_down_next_ok
+6460  28 02                                   jr z,porta_gliss_down_next_ok
+6462  50                                      ld d,b
+6463  59                                      ld e,c
+6464  21 20 63                                ld hl,GLISS_OUT
+6467  CD 01 49                                call ptr16_cur
+646A  4E                                      ld c,(hl)
+646B  23                                      inc hl
+646C  46                                      ld b,(hl)
+646D  D5                                      push de
+646E  EB                                      ex de,hl
+646F  B7                                      or a
+6470  ED 42                                   sbc hl,bc
+6472  CB 3C                                   srl h
+6474  CB 1D                                   rr l
+6476  09                                      add hl,bc
+6477  EB                                      ex de,hl
+6478  C1                                      pop bc
+6479  E1                                      pop hl
+647A  E5                                      push hl
+647B  B7                                      or a
+647C  ED 52                                   sbc hl,de
+647E  E1                                      pop hl
+647F  38 6D                                   jr c,porta_gliss_emit_prev
+6481  50                                      ld d,b
+6482  59                                      ld e,c
+6483  CD FC 64                                call porta_gliss_store_de
+6486  7A                                      ld a,d
+6487  B8                                      cp b
+6488  E5                                      push hl
+6489  21 30 60                                ld hl,TARGET_Q
+648C  CD 01 49                                call ptr16_cur
+648F  4E                                      ld c,(hl)
+6490  23                                      inc hl
+6491  46                                      ld b,(hl)
+6492  E1                                      pop hl
+6493  7A                                      ld a,d
+6494  B8                                      cp b
+6495  20 B2                                   jr nz,porta_gliss_pitch_down
+6497  7B                                      ld a,e
+6498  B9                                      cp c
+6499  20 AE                                   jr nz,porta_gliss_pitch_down
+649B  18 5A                                   jr porta_gliss_emit_de
+649D  E5                                      push hl
+649E  EB                                      ex de,hl
+649F  CD 08 65                                call mod_semiup_hl
+64A2  EB                                      ex de,hl
+64A3  21 30 60                                ld hl,TARGET_Q
+64A6  CD 01 49                                call ptr16_cur
+64A9  4E                                      ld c,(hl)
+64AA  23                                      inc hl
+64AB  46                                      ld b,(hl)
+64AC  D5                                      push de
+64AD  EB                                      ex de,hl
+64AE  B7                                      or a
+64AF  ED 42                                   sbc hl,bc
+64B1  D1                                      pop de
+64B2  30 02                                   jr nc,porta_gliss_up_next_ok
+64B4  50                                      ld d,b
+64B5  59                                      ld e,c
+64B6  21 20 63                                ld hl,GLISS_OUT
+64B9  CD 01 49                                call ptr16_cur
+64BC  4E                                      ld c,(hl)
+64BD  23                                      inc hl
+64BE  46                                      ld b,(hl)
+64BF  D5                                      push de
+64C0  60                                      ld h,b
+64C1  69                                      ld l,c
+64C2  B7                                      or a
+64C3  ED 52                                   sbc hl,de
+64C5  CB 3C                                   srl h
+64C7  CB 1D                                   rr l
+64C9  19                                      add hl,de
+64CA  EB                                      ex de,hl
+64CB  C1                                      pop bc
+64CC  E1                                      pop hl
+64CD  E5                                      push hl
+64CE  B7                                      or a
+64CF  ED 52                                   sbc hl,de
+64D1  E1                                      pop hl
+64D2  30 1A                                   jr nc,porta_gliss_emit_prev
+64D4  50                                      ld d,b
+64D5  59                                      ld e,c
+64D6  CD FC 64                                call porta_gliss_store_de
+64D9  E5                                      push hl
+64DA  21 30 60                                ld hl,TARGET_Q
+64DD  CD 01 49                                call ptr16_cur
+64E0  4E                                      ld c,(hl)
+64E1  23                                      inc hl
+64E2  46                                      ld b,(hl)
+64E3  E1                                      pop hl
+64E4  7A                                      ld a,d
+64E5  B8                                      cp b
+64E6  20 B5                                   jr nz,porta_gliss_pitch_up
+64E8  7B                                      ld a,e
+64E9  B9                                      cp c
+64EA  20 B1                                   jr nz,porta_gliss_pitch_up
+64EC  18 09                                   jr porta_gliss_emit_de
+64EE  21 20 63                                ld hl,GLISS_OUT
+64F1  CD 01 49                                call ptr16_cur
+64F4  5E                                      ld e,(hl)
+64F5  23                                      inc hl
+64F6  56                                      ld d,(hl)
+64F7  ED 53 10 5F                             ld (OUT_PERIOD),de
+64FB  C9                                      ret
+64FC  E5                                      push hl
+64FD  21 20 63                                ld hl,GLISS_OUT
+6500  CD 01 49                                call ptr16_cur
+6503  73                                      ld (hl),e
+6504  23                                      inc hl
+6505  72                                      ld (hl),d
+6506  E1                                      pop hl
+6507  C9                                      ret
+6508  22 50 63                                ld (GLISS_TMP),hl
+650B  22 52 63                                ld (GLISS_ACC),hl
+650E  3E 04                                   ld a,4
+6510  CD 82 65                                call mod_shr_hl_a
+6513  EB                                      ex de,hl
+6514  2A 52 63                                ld hl,(GLISS_ACC)
+6517  B7                                      or a
+6518  ED 52                                   sbc hl,de
+651A  22 52 63                                ld (GLISS_ACC),hl
+651D  2A 50 63                                ld hl,(GLISS_TMP)
+6520  3E 07                                   ld a,7
+6522  CD 82 65                                call mod_shr_hl_a
+6525  ED 5B 52 63                             ld de,(GLISS_ACC)
+6529  19                                      add hl,de
+652A  22 52 63                                ld (GLISS_ACC),hl
+652D  2A 50 63                                ld hl,(GLISS_TMP)
+6530  3E 0A                                   ld a,10
+6532  CD 82 65                                call mod_shr_hl_a
+6535  EB                                      ex de,hl
+6536  2A 52 63                                ld hl,(GLISS_ACC)
+6539  B7                                      or a
+653A  ED 52                                   sbc hl,de
+653C  22 52 63                                ld (GLISS_ACC),hl
+653F  2A 50 63                                ld hl,(GLISS_TMP)
+6542  3E 0B                                   ld a,11
+6544  CD 82 65                                call mod_shr_hl_a
+6547  EB                                      ex de,hl
+6548  2A 52 63                                ld hl,(GLISS_ACC)
+654B  B7                                      or a
+654C  ED 52                                   sbc hl,de
+654E  C9                                      ret
+654F  22 50 63                                ld (GLISS_TMP),hl
+6552  22 52 63                                ld (GLISS_ACC),hl
+6555  3E 04                                   ld a,4
+6557  CD 82 65                                call mod_shr_hl_a
+655A  ED 5B 52 63                             ld de,(GLISS_ACC)
+655E  19                                      add hl,de
+655F  22 52 63                                ld (GLISS_ACC),hl
+6562  2A 50 63                                ld hl,(GLISS_TMP)
+6565  3E 08                                   ld a,8
+6567  CD 82 65                                call mod_shr_hl_a
+656A  EB                                      ex de,hl
+656B  2A 52 63                                ld hl,(GLISS_ACC)
+656E  B7                                      or a
+656F  ED 52                                   sbc hl,de
+6571  22 52 63                                ld (GLISS_ACC),hl
+6574  2A 50 63                                ld hl,(GLISS_TMP)
+6577  3E 0A                                   ld a,10
+6579  CD 82 65                                call mod_shr_hl_a
+657C  ED 5B 52 63                             ld de,(GLISS_ACC)
+6580  19                                      add hl,de
+6581  C9                                      ret
+6582  B7                                      or a
+6583  C8                                      ret z
+6584  CB 3C                                   srl h
+6586  CB 1D                                   rr l
+6588  3D                                      dec a
+6589  20 F9                                   jr nz,mod_shr_hl_loop
+658B  C9                                      ret
+658C  3A 0E 5F                                ld a,(TICK_NOW)
+658F  B7                                      or a
+6590  C8                                      ret z
+6591  21 38 61                                ld hl,VIBPH
+6594  CD F5 48                                call ptr8_cur
+6597  7E                                      ld a,(hl)
+6598  E6 3F                                   and 3Fh
+659A  4F                                      ld c,a
+659B  21 D0 62                                ld hl,VIBWAVE
+659E  CD F5 48                                call ptr8_cur
+65A1  46                                      ld b,(hl)
+65A2  CD 0E 66                                call mod_wave_delta
+65A5  4F                                      ld c,a
+65A6  B7                                      or a
+65A7  28 52                                   jr z,mod_vib_advance
+65A9  F2 B2 65                                jp p,mod_vib_positive
+65AC  ED 44                                   neg
+65AE  06 01                                   ld b,1
+65B0  18 02                                   jr mod_vib_abs
+65B2  06 00                                   ld b,0
+65B4  5F                                      ld e,a
+65B5  16 00                                   ld d,0
+65B7  C5                                      push bc
+65B8  21 20 61                                ld hl,VIBDEP
+65BB  CD F5 48                                call ptr8_cur
+65BE  7E                                      ld a,(hl)
+65BF  4F                                      ld c,a
+65C0  21 00 00                                ld hl,0
+65C3  79                                      ld a,c
+65C4  B7                                      or a
+65C5  28 04                                   jr z,mod_vib_mul_done
+65C7  19                                      add hl,de
+65C8  0D                                      dec c
+65C9  18 F8                                   jr mod_vib_mul
+65CB  CB 3C                                   srl h
+65CD  CB 1D                                   rr l
+65CF  CB 3C                                   srl h
+65D1  CB 1D                                   rr l
+65D3  CB 3C                                   srl h
+65D5  CB 1D                                   rr l
+65D7  CB 3C                                   srl h
+65D9  CB 1D                                   rr l
+65DB  EB                                      ex de,hl
+65DC  C1                                      pop bc
+65DD  2A 10 5F                                ld hl,(OUT_PERIOD)
+65E0  78                                      ld a,b
+65E1  B7                                      or a
+65E2  20 03                                   jr nz,mod_vib_sub
+65E4  19                                      add hl,de
+65E5  18 08                                   jr mod_vib_store
+65E7  B7                                      or a
+65E8  ED 52                                   sbc hl,de
+65EA  30 03                                   jr nc,mod_vib_store
+65EC  21 01 00                                ld hl,1
+65EF  22 10 5F                                ld (OUT_PERIOD),hl
+65F2  7A                                      ld a,d
+65F3  B3                                      or e
+65F4  28 05                                   jr z,mod_vib_advance
+65F6  3E 01                                   ld a,1
+65F8  32 0F 5F                                ld (PITCH_DIRTY),a
+65FB  21 08 61                                ld hl,VIBSPD
+65FE  CD F5 48                                call ptr8_cur
+6601  46                                      ld b,(hl)
+6602  21 38 61                                ld hl,VIBPH
+6605  CD F5 48                                call ptr8_cur
+6608  7E                                      ld a,(hl)
+6609  80                                      add a,b
+660A  E6 3F                                   and 3Fh
+660C  77                                      ld (hl),a
+660D  C9                                      ret
+660E  4F                                      ld c,a
+660F  78                                      ld a,b
+6610  E6 03                                   and 03h
+6612  28 11                                   jr z,mod_wave_sine
+6614  FE 01                                   cp 1
+6616  28 16                                   jr z,mod_wave_ramp
+6618  FE 02                                   cp 2
+661A  28 20                                   jr z,mod_wave_square
+661C  59                                      ld e,c
+661D  16 00                                   ld d,0
+661F  21 50 68                                ld hl,MOD_RANDOM_TABLE
+6622  19                                      add hl,de
+6623  7E                                      ld a,(hl)
+6624  C9                                      ret
+6625  59                                      ld e,c
+6626  16 00                                   ld d,0
+6628  21 6C 4A                                ld hl,SINE_TABLE
+662B  19                                      add hl,de
+662C  7E                                      ld a,(hl)
+662D  C9                                      ret
+662E  79                                      ld a,c
+662F  FE 20                                   cp 32
+6631  30 03                                   jr nc,mod_wave_ramp_neg
+6633  87                                      add a,a
+6634  87                                      add a,a
+6635  C9                                      ret
+6636  87                                      add a,a
+6637  87                                      add a,a
+6638  2F                                      cpl
+6639  3C                                      inc a
+663A  3C                                      inc a
+663B  C9                                      ret
+663C  79                                      ld a,c
+663D  FE 20                                   cp 32
+663F  3E 7F                                   ld a,127
+6641  D8                                      ret c
+6642  3E 81                                   ld a,129
+6644  C9                                      ret
+6645  79                                      ld a,c
+6646  87                                      add a,a
+6647  87                                      add a,a
+6648  E6 7F                                   and 07Fh
+664A  5F                                      ld e,a
+664B  3E 00                                   ld a,0
+664D  21 A8 60                                ld hl,CMD1
+6650  CD F5 48                                call ptr8_cur
+6653  7E                                      ld a,(hl)
+6654  FE 08                                   cp CMD_H
+6656  28 0B                                   jr z,mod_ft2_trem_has_vib
+6658  21 D8 60                                ld hl,CMD2
+665B  CD F5 48                                call ptr8_cur
+665E  7E                                      ld a,(hl)
+665F  FE 08                                   cp CMD_H
+6661  20 0A                                   jr nz,mod_ft2_trem_vib_phase
+6663  21 08 61                                ld hl,VIBSPD
+6666  CD F5 48                                call ptr8_cur
+6669  7E                                      ld a,(hl)
+666A  57                                      ld d,a
+666B  18 02                                   jr mod_ft2_trem_vib_load
+666D  16 00                                   ld d,0
+666F  21 38 61                                ld hl,VIBPH
+6672  CD F5 48                                call ptr8_cur
+6675  7E                                      ld a,(hl)
+6676  82                                      add a,d
+6677  E6 3F                                   and 03Fh
+6679  FE 20                                   cp 32
+667B  38 04                                   jr c,mod_ft2_trem_no_xor
+667D  7B                                      ld a,e
+667E  EE 7F                                   xor 07Fh
+6680  5F                                      ld e,a
+6681  79                                      ld a,c
+6682  E6 3F                                   and 03Fh
+6684  FE 20                                   cp 32
+6686  7B                                      ld a,e
+6687  D8                                      ret c
+6688  ED 44                                   neg
+668A  C9                                      ret
+668B  3A 0E 5F                                ld a,(TICK_NOW)
+668E  B7                                      or a
+668F  C8                                      ret z
+6690  21 B8 62                                ld hl,TREMPH
+6693  CD F5 48                                call ptr8_cur
+6696  7E                                      ld a,(hl)
+6697  E6 3F                                   and 3Fh
+6699  4F                                      ld c,a
+669A  21 E8 62                                ld hl,TREMWAVE
+669D  CD F5 48                                call ptr8_cur
+66A0  46                                      ld b,(hl)
+66A1  78                                      ld a,b
+66A2  E6 03                                   and 03h
+66A4  FE 01                                   cp 1
+66A6  20 0C                                   jr nz,mod_trem_regular_wave
+66A8  3A 21 5F                                ld a,(MOD_FLAGS)
+66AB  CB 4F                                   bit 1,a
+66AD  28 05                                   jr z,mod_trem_regular_wave
+66AF  CD 45 66                                call mod_ft2_trem_ramp
+66B2  18 04                                   jr mod_trem_wave_done
+66B4  79                                      ld a,c
+66B5  CD 0E 66                                call mod_wave_delta
+66B8  4F                                      ld c,a
+66B9  B7                                      or a
+66BA  28 57                                   jr z,mod_trem_emit_base
+66BC  F2 C5 66                                jp p,mod_trem_positive
+66BF  ED 44                                   neg
+66C1  06 01                                   ld b,1
+66C3  18 02                                   jr mod_trem_abs
+66C5  06 00                                   ld b,0
+66C7  5F                                      ld e,a
+66C8  16 00                                   ld d,0
+66CA  C5                                      push bc
+66CB  21 A0 62                                ld hl,TREMDEP
+66CE  CD F5 48                                call ptr8_cur
+66D1  7E                                      ld a,(hl)
+66D2  4F                                      ld c,a
+66D3  21 00 00                                ld hl,0
+66D6  79                                      ld a,c
+66D7  B7                                      or a
+66D8  28 04                                   jr z,mod_trem_mul_done
+66DA  19                                      add hl,de
+66DB  0D                                      dec c
+66DC  18 F8                                   jr mod_trem_mul
+66DE  CB 3C                                   srl h
+66E0  CB 1D                                   rr l
+66E2  CB 3C                                   srl h
+66E4  CB 1D                                   rr l
+66E6  CB 3C                                   srl h
+66E8  CB 1D                                   rr l
+66EA  CB 3C                                   srl h
+66EC  CB 1D                                   rr l
+66EE  CB 3C                                   srl h
+66F0  CB 1D                                   rr l
+66F2  5D                                      ld e,l
+66F3  C1                                      pop bc
+66F4  21 60 60                                ld hl,VOLUME
+66F7  CD F5 48                                call ptr8_cur
+66FA  7E                                      ld a,(hl)
+66FB  57                                      ld d,a
+66FC  78                                      ld a,b
+66FD  B7                                      or a
+66FE  7A                                      ld a,d
+66FF  20 09                                   jr nz,mod_trem_sub
+6701  83                                      add a,e
+6702  FE 41                                   cp 65
+6704  38 14                                   jr c,mod_trem_emit
+6706  3E 40                                   ld a,64
+6708  18 10                                   jr mod_trem_emit
+670A  BB                                      cp e
+670B  30 03                                   jr nc,mod_trem_sub_ok
+670D  AF                                      xor a
+670E  18 0A                                   jr mod_trem_emit
+6710  93                                      sub e
+6711  18 07                                   jr mod_trem_emit
+6713  21 60 60                                ld hl,VOLUME
+6716  CD F5 48                                call ptr8_cur
+6719  7E                                      ld a,(hl)
+671A  F5                                      push af
+671B  21 88 62                                ld hl,TREMSPD
+671E  CD F5 48                                call ptr8_cur
+6721  46                                      ld b,(hl)
+6722  21 B8 62                                ld hl,TREMPH
+6725  CD F5 48                                call ptr8_cur
+6728  7E                                      ld a,(hl)
+6729  80                                      add a,b
+672A  E6 3F                                   and 3Fh
+672C  77                                      ld (hl),a
+672D  F1                                      pop af
+672E  C3 EF 47                                jp emit_volume_a
+6731  7B                                      ld a,e
+6732  21 7C 5F                                ld hl,EFX_SPEED
+6735  CD F5 48                                call ptr8_cur
+6738  77                                      ld (hl),a
+6739  3A 0E 5F                                ld a,(TICK_NOW)
+673C  B7                                      or a
+673D  C0                                      ret nz
+673E  C3 41 67                                jp mod_invert_tick
+6741  21 7C 5F                                ld hl,EFX_SPEED
+6744  CD F5 48                                call ptr8_cur
+6747  7E                                      ld a,(hl)
+6748  B7                                      or a
+6749  C8                                      ret z
+674A  47                                      ld b,a
+674B  21 94 5F                                ld hl,EFX_DELAY
+674E  CD F5 48                                call ptr8_cur
+6751  7E                                      ld a,(hl)
+6752  80                                      add a,b
+6753  FE 80                                   cp 128
+6755  30 02                                   jr nc,mod_invert_due
+6757  77                                      ld (hl),a
+6758  C9                                      ret
+6759  AF                                      xor a
+675A  77                                      ld (hl),a
+675B  21 78 60                                ld hl,WAVE
+675E  CD F5 48                                call ptr8_cur
+6761  7E                                      ld a,(hl)
+6762  E6 7F                                   and 07Fh
+6764  6F                                      ld l,a
+6765  26 00                                   ld h,0
+6767  29                                      add hl,hl
+6768  54                                      ld d,h
+6769  5D                                      ld e,l
+676A  29                                      add hl,hl
+676B  19                                      add hl,de
+676C  29                                      add hl,hl
+676D  7C                                      ld a,h
+676E  32 5C 63                                ld (EFX_ADDR+1),a
+6771  7D                                      ld a,l
+6772  32 5D 63                                ld (EFX_ADDR+2),a
+6775  3E 20                                   ld a,020h
+6777  32 5B 63                                ld (EFX_ADDR),a
+677A  16 02                                   ld d,02h
+677C  1E 11                                   ld e,011h
+677E  CD 2F 4A                                call opl4_write_de
+6781  CD 1B 68                                call efx_set_mem_addr
+6784  3E 06                                   ld a,006h
+6786  D3 7E                                   out (07Eh),a
+6788  CD 3B 4A                                call opl4_wait
+678B  21 54 63                                ld hl,EFX_HDR
+678E  06 07                                   ld b,7
+6790  DB 7F                                   in a,(07Fh)
+6792  77                                      ld (hl),a
+6793  23                                      inc hl
+6794  10 FA                                   djnz mod_invert_hdr_read
+6796  3A 59 63                                ld a,(EFX_HDR+5)
+6799  2F                                      cpl
+679A  67                                      ld h,a
+679B  3A 5A 63                                ld a,(EFX_HDR+6)
+679E  2F                                      cpl
+679F  6F                                      ld l,a
+67A0  23                                      inc hl
+67A1  3A 57 63                                ld a,(EFX_HDR+3)
+67A4  57                                      ld d,a
+67A5  3A 58 63                                ld a,(EFX_HDR+4)
+67A8  5F                                      ld e,a
+67A9  B7                                      or a
+67AA  ED 52                                   sbc hl,de
+67AC  22 5E 63                                ld (EFX_LOOPLEN),hl
+67AF  7C                                      ld a,h
+67B0  B7                                      or a
+67B1  20 05                                   jr nz,mod_invert_have_loop
+67B3  7D                                      ld a,l
+67B4  FE 02                                   cp 2
+67B6  38 5C                                   jr c,mod_invert_disable
+67B8  21 AC 5F                                ld hl,EFX_OFFSET
+67BB  CD 01 49                                call ptr16_cur
+67BE  5E                                      ld e,(hl)
+67BF  23                                      inc hl
+67C0  56                                      ld d,(hl)
+67C1  13                                      inc de
+67C2  E5                                      push hl
+67C3  2A 5E 63                                ld hl,(EFX_LOOPLEN)
+67C6  EB                                      ex de,hl
+67C7  B7                                      or a
+67C8  ED 52                                   sbc hl,de
+67CA  38 05                                   jr c,mod_invert_offset_ok_sub
+67CC  21 00 00                                ld hl,0
+67CF  18 01                                   jr mod_invert_offset_store
+67D1  19                                      add hl,de
+67D2  EB                                      ex de,hl
+67D3  E1                                      pop hl
+67D4  72                                      ld (hl),d
+67D5  2B                                      dec hl
+67D6  73                                      ld (hl),e
+67D7  3A 58 63                                ld a,(EFX_HDR+4)
+67DA  83                                      add a,e
+67DB  6F                                      ld l,a
+67DC  3A 57 63                                ld a,(EFX_HDR+3)
+67DF  8A                                      adc a,d
+67E0  67                                      ld h,a
+67E1  3A 56 63                                ld a,(EFX_HDR+2)
+67E4  85                                      add a,l
+67E5  32 5D 63                                ld (EFX_ADDR+2),a
+67E8  3A 55 63                                ld a,(EFX_HDR+1)
+67EB  8C                                      adc a,h
+67EC  32 5C 63                                ld (EFX_ADDR+1),a
+67EF  3A 54 63                                ld a,(EFX_HDR)
+67F2  CE 00                                   adc a,0
+67F4  E6 3F                                   and 03Fh
+67F6  32 5B 63                                ld (EFX_ADDR),a
+67F9  CD 1B 68                                call efx_set_mem_addr
+67FC  3E 06                                   ld a,006h
+67FE  D3 7E                                   out (07Eh),a
+6800  CD 3B 4A                                call opl4_wait
+6803  DB 7F                                   in a,(07Fh)
+6805  2F                                      cpl
+6806  4F                                      ld c,a
+6807  CD 1B 68                                call efx_set_mem_addr
+680A  3E 06                                   ld a,006h
+680C  D3 7E                                   out (07Eh),a
+680E  CD 3B 4A                                call opl4_wait
+6811  79                                      ld a,c
+6812  D3 7F                                   out (07Fh),a
+6814  16 02                                   ld d,02h
+6816  1E 10                                   ld e,010h
+6818  C3 2F 4A                                jp opl4_write_de
+681B  16 03                                   ld d,03h
+681D  3A 5B 63                                ld a,(EFX_ADDR)
+6820  5F                                      ld e,a
+6821  CD 2F 4A                                call opl4_write_de
+6824  16 04                                   ld d,04h
+6826  3A 5C 63                                ld a,(EFX_ADDR+1)
+6829  5F                                      ld e,a
+682A  CD 2F 4A                                call opl4_write_de
+682D  16 05                                   ld d,05h
+682F  3A 5D 63                                ld a,(EFX_ADDR+2)
+6832  5F                                      ld e,a
+6833  C3 2F 4A                                jp opl4_write_de
+6836  3A 0E 5F                                ld a,(TICK_NOW)
+6839  B7                                      or a
+683A  C0                                      ret nz
+683B  7B                                      ld a,e
+683C  E6 0F                                   and 0Fh
+683E  B7                                      or a
+683F  C8                                      ret z
+6840  C3 F1 45                                jp volume_add_a
+6843  3A 0E 5F                                ld a,(TICK_NOW)
+6846  B7                                      or a
+6847  C0                                      ret nz
+6848  7B                                      ld a,e
+6849  E6 0F                                   and 0Fh
+684B  B7                                      or a
+684C  C8                                      ret z
+684D  C3 04 46                                jp volume_sub_a
+6850  62 81 D5 58 66 29 BF A2 7D 14 B9 AA BA E0 F0 A0          db 98,129,213,88,102,41,191,162,125,20,185,170,186,224,240,160
+6860  11 48 6B FB 74 BB C2 D8 0A C3 41 6D EE DA F3 B4          db 17,72,107,251,116,187,194,216,10,195,65,109,238,218,243,180
+6870  E9 58 15 A2 08 6A 15 90 06 6D 14 A8 E2 09 81 76          db 233,88,21,162,8,106,21,144,6,109,20,168,226,9,129,118
+6880  2A DE 59 FC CD B8 15 E3 70 7B 54 9B A4 62 CA A1          db 42,222,89,252,205,184,21,227,112,123,84,155,164,98,202,161
+6890  3A 21 5F                                ld a,(MOD_FLAGS)
+6893  CB 47                                   bit 0,a
+6895  C8                                      ret z
+6896  E5                                      push hl
+6897  21 64 5F                                ld hl,MOD_FINETUNE
+689A  CD F5 48                                call ptr8_cur
+689D  7E                                      ld a,(hl)
+689E  E6 0F                                   and 0Fh
+68A0  87                                      add a,a
+68A1  5F                                      ld e,a
+68A2  16 00                                   ld d,0
+68A4  21 D6 68                                ld hl,MOD_LIMIT_LOW
+68A7  19                                      add hl,de
+68A8  4E                                      ld c,(hl)
+68A9  23                                      inc hl
+68AA  46                                      ld b,(hl)
+68AB  E1                                      pop hl
+68AC  E5                                      push hl
+68AD  B7                                      or a
+68AE  ED 42                                   sbc hl,bc
+68B0  E1                                      pop hl
+68B1  30 03                                   jr nc,mod_clamp_exact_high
+68B3  60                                      ld h,b
+68B4  69                                      ld l,c
+68B5  C9                                      ret
+68B6  E5                                      push hl
+68B7  21 64 5F                                ld hl,MOD_FINETUNE
+68BA  CD F5 48                                call ptr8_cur
+68BD  7E                                      ld a,(hl)
+68BE  E6 0F                                   and 0Fh
+68C0  87                                      add a,a
+68C1  5F                                      ld e,a
+68C2  16 00                                   ld d,0
+68C4  21 F6 68                                ld hl,MOD_LIMIT_HIGH
+68C7  19                                      add hl,de
+68C8  4E                                      ld c,(hl)
+68C9  23                                      inc hl
+68CA  46                                      ld b,(hl)
+68CB  E1                                      pop hl
+68CC  E5                                      push hl
+68CD  B7                                      or a
+68CE  ED 42                                   sbc hl,bc
+68D0  E1                                      pop hl
+68D1  D8                                      ret c
+68D2  C8                                      ret z
+68D3  60                                      ld h,b
+68D4  69                                      ld l,c
+68D5  C9                                      ret
+68D6  C5 01 C4 01 C4 01 C4 01 C4 01 C4 01 C4 01 C4 01 E0 01 DD 01 DA 01 D6 01 D3 01 CF 01 CC 01 C9 01          dw 453,452,452,452,452,452,452,452,480,477,474,470,467,463,460,457
+68F6  60 0D 48 0D 30 0D 18 0D 00 0D E8 0C D0 0C B8 0C 2C 0E 10 0E F8 0D DC 0D C4 0D AC 0D 90 0D 78 0D          dw 3424,3400,3376,3352,3328,3304,3280,3256,3628,3600,3576,3548,3524,3500,3472,3448
+6916  3A 0E 5F                                ld a,(TICK_NOW)
+6919  B7                                      or a
+691A  C0                                      ret nz
+691B  7B                                      ld a,e
+691C  E6 0F                                   and 0Fh
+691E  B7                                      or a
+691F  C8                                      ret z
+6920  6F                                      ld l,a
+6921  26 00                                   ld h,0
+6923  29                                      add hl,hl
+6924  29                                      add hl,hl
+6925  EB                                      ex de,hl
+6926  21 00 60                                ld hl,PERIOD_Q
+6929  CD 01 49                                call ptr16_cur
+692C  4E                                      ld c,(hl)
+692D  23                                      inc hl
+692E  46                                      ld b,(hl)
+692F  60                                      ld h,b
+6930  69                                      ld l,c
+6931  B7                                      or a
+6932  ED 52                                   sbc hl,de
+6934  30 03                                   jr nc,mod_fine_up_nonzero
+6936  21 01 00                                ld hl,1
+6939  7C                                      ld a,h
+693A  B5                                      or l
+693B  20 01                                   jr nz,mod_fine_up_store
+693D  23                                      inc hl
+693E  C3 68 46                                jp store_period_hl
+6941  3A 0E 5F                                ld a,(TICK_NOW)
+6944  B7                                      or a
+6945  C0                                      ret nz
+6946  7B                                      ld a,e
+6947  E6 0F                                   and 0Fh
+6949  B7                                      or a
+694A  C8                                      ret z
+694B  6F                                      ld l,a
+694C  26 00                                   ld h,0
+694E  29                                      add hl,hl
+694F  29                                      add hl,hl
+6950  EB                                      ex de,hl
+6951  21 00 60                                ld hl,PERIOD_Q
+6954  CD 01 49                                call ptr16_cur
+6957  4E                                      ld c,(hl)
+6958  23                                      inc hl
+6959  46                                      ld b,(hl)
+695A  60                                      ld h,b
+695B  69                                      ld l,c
+695C  19                                      add hl,de
+695D  30 03                                   jr nc,mod_fine_down_store
+695F  21 FF FF                                ld hl,0FFFFh
+6962  C3 68 46                                jp store_period_hl
+6965  7B                                      ld a,e
+6966  E6 0F                                   and 0Fh
+6968  21 64 5F                                ld hl,MOD_FINETUNE
+696B  CD F5 48                                call ptr8_cur
+696E  77                                      ld (hl),a
+696F  21 AC 5F                                ld hl,EFX_OFFSET
+6972  CD 01 49                                call ptr16_cur
+6975  AF                                      xor a
+6976  77                                      ld (hl),a
+6977  23                                      inc hl
+6978  77                                      ld (hl),a
+6979  B7                                      or a
+697A  C9                                      ret
+697B  7B                                      ld a,e
+697C  E6 0F                                   and 0Fh
+697E  21 64 5F                                ld hl,MOD_FINETUNE
+6981  CD F5 48                                call ptr8_cur
+6984  77                                      ld (hl),a
+6985  B7                                      or a
+6986  C9                                      ret
+6987  CD 9B 43                                call do_porta_target
+698A  3A 13 5F                                ld a,(EV_TONE)
+698D  47                                      ld b,a
+698E  E6 7F                                   and 07Fh
+6990  21 78 60                                ld hl,WAVE
+6993  CD F5 48                                call ptr8_cur
+6996  77                                      ld (hl),a
+6997  C6 80                                   add a,080h
+6999  5F                                      ld e,a
+699A  3A 0D 5F                                ld a,(CUR_CH)
+699D  C6 08                                   add a,008h
+699F  57                                      ld d,a
+69A0  CD 2F 4A                                call opl4_write_de
+69A3  CB 78                                   bit 7,b
+69A5  C8                                      ret z
+69A6  21 90 60                                ld hl,KEYSTATE
+69A9  CD F5 48                                call ptr8_cur
+69AC  7E                                      ld a,(hl)
+69AD  B7                                      or a
+69AE  C0                                      ret nz
+69AF  C3 6F 48                                jp keyon_current

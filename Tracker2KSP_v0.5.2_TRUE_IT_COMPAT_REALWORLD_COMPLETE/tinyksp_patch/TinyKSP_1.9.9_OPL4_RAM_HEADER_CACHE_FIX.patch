@@ -1,0 +1,29 @@
+--- /tmp/tinyorig/TinyKSP-v1.9.9_KSS_Compare/src/yamaha_chips.cpp	2026-08-04 10:55:00.000000000 +0000
++++ /mnt/data/tiny199/TinyKSP-v1.9.9_KSS_Compare/src/yamaha_chips.cpp	2026-08-22 07:42:27.974587652 +0000
+@@ -593,7 +593,25 @@
+     return address < memory_.size() ? memory_[address] : 0;
+ }
+ void Opl4Device::memoryWrite(uint32_t address, uint8_t value) {
+-    if (memory_write_enabled_ && address < memory_.size()) memory_[address] = value;
++    if (!memory_write_enabled_ || address >= memory_.size()) return;
++    memory_[address] = value;
++
++    // Custom MoonSound wave headers 384..447 live in RAM at 0x200000.
++    // Native KSP engines may rewrite these headers at runtime (e.g. tracker
++    // sample-offset 9xx/Oxx without duplicating PCM payloads). Keep TinyKSP's
++    // decoded-header cache coherent with the emulated OPL4 RAM.
++    if (address >= 0x200000u && address < 0x200300u) {
++        const uint32_t rel = address - 0x200000u;
++        const size_t tone = static_cast<size_t>(rel / 12u);
++        const size_t byte = static_cast<size_t>(rel % 12u);
++        if (tone < 64u) {
++            headers_[384u + tone][byte] = value;
++            // Runtime header edits can alter the end complement. Force reloadWave()
++            // to derive the current length from header bytes 5/6 rather than the
++            // MWK-load-time cached sample count.
++            if (byte <= 6u) custom_lengths_[384u + tone] = 0;
++        }
++    }
+ }
+ 
+ void Opl4Device::writeWave(uint8_t value) {

@@ -1,0 +1,3248 @@
+diff -ruN '--exclude=*.bin' '--exclude=*.lst' '--exclude=*.map' '--exclude=*.ksp' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=S3M_v0.4.4_to_v0.4.5.patch' /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/README.md /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/README.md
+--- /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/README.md	2026-08-22 13:18:09.000000000 +0000
++++ /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/README.md	2026-08-22 13:59:45.848402448 +0000
+@@ -1,15 +1,61 @@
+-# Tracker2KSP v0.4.4 — ST3 runtime + OPL4 header fixes
++# Tracker2KSP v0.4.5 — generic S3M/ST3 compatibility pass
+ 
+-Tracker2KSP converts S3M, IT-authored S3M, XM and MOD modules to compact realtime MoonSound/OPL4 KSP 1.05 files.
++Tracker2KSP converts S3M, IT-authored/modern S3M, XM and MOD modules to compact realtime MoonSound/OPL4 KSP 1.05 files. v0.4.5 concentrates on S3M correctness; the XM and MOD engines remain physically separate and are not routed through ST3 logic.
+ 
+ The tracker engines remain physically separate:
+ 
+-- `compact_engine_s3m.bin` — Scream Tracker 3 / S3M
+-- `compact_engine_it_s3m.bin` — Impulse Tracker-authored S3M compatibility route
++- `compact_engine_s3m.bin` — genuine Scream Tracker 3 (`ST3-GUS` / `ST3-SB`)
++- `compact_engine_it_s3m.bin` — IT-authored and modern/non-ST3 S3M compatibility route
+ - `compact_engine_xm.bin` — FastTracker II / XM
+ - `compact_engine_mod.bin` — ProTracker / MOD
+ 
+-KSP 1.05 and the player interface are unchanged.
++KSP 1.05 and the KSP1PLAY interface are unchanged. The semantic stream window moved from `$6400` to `$6800` to reserve persistent S3M effect state; all bundled engines were rebuilt for that layout.
++
++## v0.4.5 S3M generic fixes
++
++- Explicit S3M creator profiles replace the old `family 3 => IT, everything else => ST3` rule. Genuine ST3 is split into GUS/SB behaviour; IT-authored and modern OpenMPT/Schism/Orpheus-style files no longer inherit strict ST3 quirks.
++- Genuine ST3 shared effect memory now follows OpenMPT/ST3 semantics: any real non-zero effect command updates the byte recalled by D/E/F/I/J/K/L/Q/R/S; `command=NONE,param!=0` does not. G/H/O retain their command-specific state as well.
++- K/L combined volume slide is completely suppressed on tick 0, including with fast volume slides.
++- `Qx0` uses a one-tick retrigger interval for strict ST3.
++- `Ixy` tremor and `Rxy` tremolo now execute in the S3M runtimes; vibrato/tremolo waveform state is supported.
++- Important `Sxx` commands are implemented: S2 finetune, S3 vibrato waveform, S4 tremolo waveform, S6 tick delay, S8 panning, SA high sample offset, SB pattern loop, SC note cut, SD note delay and SE pattern delay. S1 glissando state is parsed, but exact semitone-quantised portamento remains a known gap (see below).
++- Initial S3M speed/tempo fallback is profile-aware (`speed 0 -> 6`, strict ST3 `speed 255 -> 6`, strict invalid tempo -> 125).
++- C5/C2 speed is normalised like ST3/OpenMPT (`0 -> 8363`, minimum 1024, maximum 65535).
++- S3M volume-column values 128..192 are converted to panning 0..64. Mono S3M playback is centred when no explicit panning table overrides it.
++- Pattern decoding ignores an unreliable packed-length field and merges duplicate channel tokens field-by-field, matching OpenMPT's row/channel model.
++- S3M 16-bit and stereo PCM are accepted. Stereo planes are decoded correctly and downmixed to the converter's signed mono OPL4 custom-wave format.
++- Strict GUS sample offsets past a loop end wrap within the loop; strict SB out-of-range offsets stop instead of using the previous alias behaviour.
++- S3M old-vibrato header flag `0x01` is propagated to the runtime and doubles the strict-ST3 vibrato depth.
++
++### OpenMPT regression
++
++OpenMPT's own `test/test.s3m` (`cwtv=0x5132`) previously aborted with `stereo/16-bit S3M samples are not supported`. v0.4.5 classifies it as `MODERN-S3M / OpenMPT`, decodes its stereo 16-bit PCM and builds a KSP successfully. `tests/test_s3m_v045.py` also covers shared effect memory, NONE-command memory behaviour, profile defaults, duplicate-token merging, bad packed-length tolerance, mono panning and stereo/16-bit decoding.
++
++## Known S3M gaps after v0.4.5
++
++These are deliberately not claimed as solved yet:
++
++- S1 glissando is recognised but the realtime Gxx slide is not yet quantised to exact semitone steps.
++- ST3 GUS-vs-SB **short-sample end detection during Q retrigger** is not exact on the OPL4 runtime yet.
++- Header flag `0x10` Amiga period limits and original ST3 master-volume/preamp gain are not yet modelled.
++- S3M ADPCM-packed samples and AdLib/SCRI instruments remain unsupported.
++- IT/Schism/OpenMPT-specific S3M corner cases beyond the profile split are intentionally left for the later IT audit.
++
++## Usage
++
++```text
++python3 CONVERT_TRACKER_TO_KSP.py song.s3m
++python3 CONVERT_TRACKER_TO_KSP.py song.xm
++python3 CONVERT_TRACKER_TO_KSP.py song.mod
++```
++
++Format-specific wrappers are included as well.
++
++## Source tree
++
++The root converter files and their copies under `source/` are synchronized in this release. `source/BUILD_ENGINES.py` rebuilds all four Z80 engine binaries.
++
++## Historical v0.4.4 notes
+ 
+ ## v0.4.4 S3M reference-pitch fixes
+ 
+diff -ruN '--exclude=*.bin' '--exclude=*.lst' '--exclude=*.map' '--exclude=*.ksp' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=S3M_v0.4.4_to_v0.4.5.patch' /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/TEST_REPORT.md /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/TEST_REPORT.md
+--- /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/TEST_REPORT.md	2026-08-22 13:18:09.000000000 +0000
++++ /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/TEST_REPORT.md	2026-08-22 13:59:45.848851217 +0000
+@@ -1,56 +1,49 @@
+-# Tracker2KSP v0.4.4 test report
++# Tracker2KSP v0.4.5 test report
+ 
+ ## Scope
+ 
+-v0.4.4 finishes the genuine Scream Tracker 3 / S3M repair pass that followed the engine split. The IT-authored S3M, XM and MOD engines remain separate and were not given ST3-specific pitch semantics.
++v0.4.5 is an S3M/ST3 compatibility pass against the supplied OpenMPT source. XM and MOD remain separate engines and only inherit the semantic-stream relocation to `$6800`.
+ 
+-## Confirmed OPL4 RAM/header fixes inherited from v0.4.3
++## Automated regression groups
+ 
+-The supplied Purple Motion `2nd_pm.s3m` exposed two independent MoonSound RAM/header bugs:
++Run:
+ 
+-1. Extended S3M aliases use OPL4 waves 384..511, requiring the full 128 x 12-byte header area (`0x200000..0x2005FF`). Earlier builds started real PCM at `0x200300`, allowing upper-half alias headers to overwrite the attack of the first real sample. Extended-layout PCM now starts at `0x200600`.
+-2. Upper-half runtime aliases previously installed only the seven geometry bytes. The five fixed envelope bytes (`00 F0 00 07 00`) are now pre-seeded for every upper-half header.
++```text
++python3 tests/test_s3m_v045.py
++```
+ 
+-Listening confirmation: fix 1 removed the erroneous high component in the opening Purple Motion chords; fix 2 substantially repaired the section beginning around 44.5 seconds.
++Result: **4/4 regression groups PASS**. The tests cover:
+ 
+-## v0.4.4 ST3 pitch/runtime fixes
++1. Genuine ST3 shared effect memory, including `H81 -> D00`, a non-effect token that must not overwrite memory, and a non-D/E/F command that must update it. The legacy backend is checked for the same semantics.
++2. Tracker profiling/defaults plus a synthetic S3M with a deliberately wrong packed length and duplicate same-channel tokens. The parser must merge note/instrument, volume-column panning and effect into one channel event.
++3. Signed 16-bit split-stereo decoding and mono downmix.
++4. Mono-channel centring and source-level guards for K/L tick-0 suppression, Qx0 interval-1, tremor and tremolo runtime handlers.
+ 
+-The genuine ST3 engine was compared tick/register-state against the proven Second Reality host-side ST3-to-OPL4 converter over the complete Purple Motion track.
++## OpenMPT test.s3m
+ 
+-- New-note period state uses the accurate C2SPD/exponential base period in a 4x integer runtime domain.
+-- Tone-portamento arithmetic clamps on 16-bit underflow/overflow rather than wrapping.
+-- The S3M pitch lookup table no longer overlaps mutable runtime state. The old layout ended at `$5F1E` while state began at `$5F00`; the final 30 LUT bytes could therefore be overwritten by PTR/PAGE/tempo state. The S3M-only dead FT2 vibrato table and obsolete padding were removed; the LUT now ends at `$5EFF`.
+-- H/K vibrato now commits the base pitch at sine zero crossings instead of leaving the preceding modulated OPL4 F-number active.
+-- J arpeggio commits the unshifted base pitch at cycle position 0 instead of leaving the previous arpeggio pitch active.
+-- Kxy continues H00 on tick 0. Its Dxy half follows normal D timing, while fine-volume-slide forms remain ignored in combined ST3 K/L commands.
+-- E/F commits the current pitch even on effect ticks on which an ordinary slide itself is inactive, preventing stale temporary pitch from remaining on hardware.
+-- A fresh ordinary note clears temporary H/J/K pitch state, preventing tick 1 from overwriting the newly installed exact host-computed pitch.
++Input: supplied OpenMPT `test/test.s3m` (`cwtv 0x5132`).
+ 
+-## Purple Motion full-track reference comparison
++- v0.4.4: aborts on the stereo/16-bit sample.
++- v0.4.5: selects `MODERN-S3M`, identifies `OpenMPT / compatible`, parses the default panning table and builds KSP 1.05 successfully.
++- 60-second conversion check: 4 semantic rows / 3 semantic events, no converter warnings, KSP size 18,481 bytes with compression disabled for the check.
+ 
+-Reference: `MUSIC1_ST3_VIBRATO_FIXED.srm` generated by the known-good Second Reality ST3-to-OPL4 source, using the identical `2nd_pm.s3m` input.
++## Engine rebuild
+ 
+-- Compared duration: complete ~404.85-second track.
+-- Previously observed pitch errors: up to roughly 1-2 semitones in later passages due to LUT/state overlap and stale temporary pitch.
+-- Final largest register-derived pitch difference: about **2.88 cents**.
+-- High-tone/vibrato passage around 65-75 seconds: about **1.0 cent** maximum in the sampled comparison.
+-- Remaining small differences are at OPL4 F-number / 4x-integer-period quantization scale rather than state-loss or wrong-effect behaviour.
++`python3 source/BUILD_ENGINES.py` succeeds for all engines:
+ 
+-## Isolation / regression tests
++- ST3/S3M: 9,054 bytes
++- IT/modern-S3M: 8,926 bytes
++- MOD: 8,926 bytes
++- XM: 4,983 bytes
+ 
+-30-second TinyKSP renders from v0.4.3 and v0.4.4 are PCM-byte-identical for all non-ST3 routes tested:
++All engines use `STREAM_PAGE=$6800` / `STREAM_DATA=$6802`. The extra S3M persistent state starts at `$6400`, so it no longer collides with semantic stream pages.
+ 
+-- XM: `DEADLOCK(1).XM` — identical
+-- MOD: `space_debris(1).mod` — identical
+-- IT-authored S3M: `2nd_reality(3).s3m` — identical
++## Python validation
+ 
+-Thus the new runtime changes are confined to the genuine ST3/S3M engine.
++`python3 -m py_compile *.py source/*.py` passes.
+ 
+-## Release examples
++## Remaining known gaps
+ 
+-- `SECOND_REALITY_PM_S3M_OPL4.ksp` — 404846 ms
+-- `SECOND_REALITY_SKAVEN_S3M_OPL4.ksp` — 469880 ms
+-- `DEADLOCK_XM_OPL4.ksp` — 259286 ms
+-- `SPACE_DEBRIS_MOD_OPL4.ksp` — 305940 ms
++Exact S1 glissando quantisation, ST3 GUS/SB short-sample retrigger-end behaviour, Amiga period limits, ST3 master/preamp gain, S3M ADPCM and AdLib instruments remain open. They are documented in README and are not counted as fixed by v0.4.5.
+ 
+-KSP 1.05 and the KSP1PLAY interface remain unchanged.
++The old `examples/` artifacts are retained as historical v0.4.4 playback examples; their JSON reports therefore still state converter v0.4.4 and the old dynamic window.
+diff -ruN '--exclude=*.bin' '--exclude=*.lst' '--exclude=*.map' '--exclude=*.ksp' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=S3M_v0.4.4_to_v0.4.5.patch' /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/VERSION.txt /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/VERSION.txt
+--- /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/VERSION.txt	2026-08-22 12:58:00.000000000 +0000
++++ /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/VERSION.txt	2026-08-22 13:55:25.196669844 +0000
+@@ -1 +1 @@
+-0.4.4
++0.4.5
+diff -ruN '--exclude=*.bin' '--exclude=*.lst' '--exclude=*.map' '--exclude=*.ksp' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=S3M_v0.4.4_to_v0.4.5.patch' /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/_s3m2opl4_backend.py /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/_s3m2opl4_backend.py
+--- /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/_s3m2opl4_backend.py	2026-08-22 10:36:41.000000000 +0000
++++ /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/_s3m2opl4_backend.py	2026-08-22 13:55:25.196275357 +0000
+@@ -5,10 +5,9 @@
+ all tracker rows/ticks on the host and emits absolute YMF278B PCM register
+ writes.  The MSX runtime only clocks the precompiled tick stream.
+ 
+-Supported effect set is the one used by the two Future Crew Second Reality S3Ms
+-shipped with this project: A/B/C/D/E/F/G/H/J/K/O/Q/SDx. S3M ST3 global effect
+-memory is implemented for D/E/F/J/K/Q and S00; G has byte memory and H uses
+-ST3's independent speed/depth nibble memory with exact 64-step vibrato scaling.
++The S3M parser is intentionally generic: it accepts mono/stereo and 8/16-bit PCM,
++merges duplicate packed channel tokens field-by-field, tolerates broken packed-length
++fields like ST3/OpenMPT, and leaves tracker-specific effect quirks to compact_stream.py.
+ """
+ from __future__ import annotations
+ 
+@@ -93,6 +92,62 @@
+         return [i for i, v in enumerate(self.channel_settings) if v < 16]
+ 
+ 
++def _s16_to_s8(v: int) -> int:
++    v = max(-32768, min(32767, int(v)))
++    return (v >> 8) & 0xFF
++
++
++def _decode_s3m_pcm(raw: bytes, length: int, flags: int, ffi: int) -> bytes:
++    """Decode S3M PCM to the converter's signed mono 8-bit internal format.
++
++    S3M stereo PCM is stored split (all left samples followed by all right
++    samples), not interleaved. OPL4 custom waves are mono, so stereo samples
++    are downmixed with a signed arithmetic average while preserving the S3M
++    frame count, loop points and C5 speed.
++    """
++    stereo = bool(flags & 0x02)
++    bit16 = bool(flags & 0x04)
++    chans = 2 if stereo else 1
++    bps = 2 if bit16 else 1
++    need = int(length) * chans * bps
++    if len(raw) < need:
++        raise ValueError('S3M sample data extends past file')
++    raw = raw[:need]
++
++    def decode_plane(buf: bytes) -> list[int]:
++        vals=[]
++        if bit16:
++            for i in range(0, len(buf), 2):
++                u=int.from_bytes(buf[i:i+2], 'little', signed=False)
++                if ffi == 2:  # unsigned 16-bit -> signed
++                    v=u-32768
++                elif ffi == 1:
++                    v=u if u < 0x8000 else u-0x10000
++                else:
++                    raise ValueError(f'unsupported S3M sample format info {ffi}')
++                vals.append(v)
++        else:
++            for u in buf:
++                if ffi == 2:
++                    vals.append(u-128)
++                elif ffi == 1:
++                    vals.append(u if u < 128 else u-256)
++                else:
++                    raise ValueError(f'unsupported S3M sample format info {ffi}')
++        return vals
++
++    plane_bytes = int(length) * bps
++    left = decode_plane(raw[:plane_bytes])
++    if stereo:
++        right = decode_plane(raw[plane_bytes:plane_bytes*2])
++        if bit16:
++            return bytes(_s16_to_s8((l+r)//2) for l,r in zip(left,right))
++        return bytes((((l+r)//2) & 0xFF) for l,r in zip(left,right))
++    if bit16:
++        return bytes(_s16_to_s8(v) for v in left)
++    return bytes(v & 0xFF for v in left)
++
++
+ def parse_s3m(path: Path) -> Module:
+     b = path.read_bytes()
+     if len(b) < 0x60 or b[0x2c:0x30] != b"SCRM":
+@@ -111,27 +166,39 @@
+         if not off or off + 2 > len(b):
+             patterns.append(rows)
+             continue
+-        plen = u16(b, off)
+-        src = b[off+2:min(len(b), off+max(2, plen))]  # packed length includes this 2-byte length field
+-        p = 0
++        # OpenMPT deliberately ignores the packed-length field. A number of
++        # real S3Ms contain a broken value but valid row terminators.
++        p = off + 2
+         row = 0
+-        while p < len(src) and row < 64:
+-            token = src[p]; p += 1
++        row_events: Dict[int, Event] = {}
++        while p < len(b) and row < 64:
++            token = b[p]; p += 1
+             if token == 0:
++                rows[row] = [row_events[ch] for ch in sorted(row_events)]
++                row_events = {}
+                 row += 1
+                 continue
+             ch = token & 31
+-            e = Event(ch=ch)
++            e = row_events.get(ch)
++            if e is None:
++                e = Event(ch=ch)
++                row_events[ch]=e
+             if token & 0x20:
+-                if p + 2 > len(src): break
+-                e.note, e.ins = src[p], src[p+1]; p += 2
++                if p + 2 > len(b): break
++                e.note, e.ins = b[p], b[p+1]; p += 2
+             if token & 0x40:
+-                if p >= len(src): break
+-                e.vol = src[p]; p += 1
++                if p >= len(b): break
++                v=b[p]; p += 1
++                if 128 <= v <= 192:
++                    # S3M volume-column panning: 128..192 -> 0..64.
++                    e.volume_pan=v-128
++                else:
++                    e.vol=min(64,v)
+             if token & 0x80:
+-                if p + 2 > len(src): break
+-                e.cmd, e.param = src[p], src[p+1]; p += 2
+-            rows[row].append(e)
++                if p + 2 > len(b): break
++                e.cmd, e.param = b[p], b[p+1]; p += 2
++        if row < 64 and row_events:
++            rows[row] = [row_events[ch] for ch in sorted(row_events)]
+         patterns.append(rows)
+ 
+     samples: Dict[int, Sample] = {}
+@@ -143,29 +210,33 @@
+         data_off = memseg * 16
+         length = u32(b, off+0x10)
+         flags = b[off+0x1f]
+-        if flags & 0x06:
+-            raise ValueError(f"sample {number}: stereo/16-bit S3M samples are not supported by this v0.1 compiler")
+-        if data_off + length > len(b):
++        pack = b[off+0x1e]
++        if pack not in (0,):
++            raise ValueError(f"sample {number}: packed/ADPCM S3M sample type {pack} is not supported yet")
++        chans=2 if (flags & 0x02) else 1
++        bps=2 if (flags & 0x04) else 1
++        raw_len=length*chans*bps
++        if data_off + raw_len > len(b):
+             raise ValueError(f"sample {number}: sample data extends past file")
+-        data = bytes(b[data_off:data_off+length])
+-        # S3M signedness: FFI=1 is signed, FFI=2 is unsigned PCM.  YMF278B 8-bit
+-        # samples are signed, so unsigned source data is converted by toggling bit 7.
+-        if ffi == 2:
+-            data = bytes(x ^ 0x80 for x in data)
+-        elif ffi != 1:
+-            raise ValueError(f"sample {number}: unsupported S3M sample format info {ffi}")
++        data = _decode_s3m_pcm(bytes(b[data_off:data_off+raw_len]), length, flags, ffi)
+         name = b[off+0x30:off+0x30+28].split(b"\0")[0].decode("cp437", "replace").rstrip()
++        c5=u32(b,off+0x20)
++        if c5==0: c5=8363
++        elif c5<1024: c5=1024
++        c5=min(65535,c5)
+         samples[number] = Sample(
+             number=number, name=name, length=length,
+-            loop_begin=u32(b, off+0x14), loop_end=u32(b, off+0x18),
+-            volume=min(64, b[off+0x1c]), flags=flags,
+-            c2spd=max(1, u32(b, off+0x20)), data_offset=data_off, data=data,
++            loop_begin=min(length,u32(b, off+0x14)), loop_end=min(length,u32(b, off+0x18)),
++            volume=min(64, b[off+0x1c]), flags=(flags & 1),
++            c2spd=c5, data_offset=data_off, data=data,
+         )
++        samples[number].s3m_source_stereo=bool(flags & 0x02)
++        samples[number].s3m_source_16bit=bool(flags & 0x04)
+ 
+     return Module(
+         path=path, raw=b, title=title, orders=orders, patterns=patterns,
+         samples=samples, channel_settings=list(b[0x40:0x60]),
+-        speed=max(1, b[0x31]), tempo=max(32, b[0x32]),
++        speed=b[0x31], tempo=b[0x32],
+         global_volume=min(64, b[0x30]), flags=u16(b, 0x26), ffi=ffi,
+     )
+ 
+@@ -391,21 +462,19 @@
+         return ""
+ 
+     def _resolve_param(self, c: Channel, cmd: str, p: int) -> int:
+-        # ST3 has the unusual "global" effect-parameter memory: commands marked
+-        # Global recall the most recent non-zero parameter supplied by the
+-        # shared-memory group D/E/F/I/J/K/L/Q/R/S. G/H/O have their own memories.
++        # Genuine ST3 has one shared effect-parameter byte. D/E/F/I/J/K/L/Q/R/S
++        # recall it on xx=00, but *any real command* with xx!=00 updates it.
++        # A token with command=NONE never updates memory. G/H/O additionally keep
++        # their command-specific state used by their own zero-parameter forms.
+         raw = p
+         if cmd in "DEFIJKLQRS":
+-            p = p or c.global_mem
+-            if raw:
+-                c.global_mem = raw
++            p = raw or c.global_mem
+         elif cmd == "G":
+-            p = p or c.g_mem
++            p = raw or c.g_mem
+             if raw: c.g_mem = raw
+         elif cmd == "H":
+-            # ST3 does not remember Hxy as one byte. Each non-zero nibble
+-            # updates its own state; H00 retains both. Thus H81,H03,H00 means
+-            # H81,H83,H83, not H81,H03,H03.
++            # H has nibble-wise vibrato memory, even though Hxx also updates the
++            # shared ST3 parameter byte for later D/E/F/... 00 commands.
+             if raw & 0xF0:
+                 c.vibrato_speed = (raw >> 4) & 0x0F
+             if raw & 0x0F:
+@@ -413,8 +482,10 @@
+             c.h_mem = (c.vibrato_speed << 4) | c.vibrato_depth
+             p = c.h_mem
+         elif cmd == "O":
+-            p = p or c.offset_mem
++            p = raw or c.offset_mem
+             if raw: c.offset_mem = raw
++        if cmd and raw:
++            c.global_mem = raw
+         return p
+ 
+     @staticmethod
+diff -ruN '--exclude=*.bin' '--exclude=*.lst' '--exclude=*.map' '--exclude=*.ksp' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=S3M_v0.4.4_to_v0.4.5.patch' /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/compact_stream.py /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/compact_stream.py
+--- /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/compact_stream.py	2026-08-22 12:58:00.000000000 +0000
++++ /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/compact_stream.py	2026-08-22 13:53:01.442607668 +0000
+@@ -11,6 +11,10 @@
+ CMD_NOTE_CUT=27
+ CMD_XM_PROFILE=28; CMD_VCTRL=29; CMD_GLISS=30; CMD_KEYOFF=31
+ CMD_ST3_COMBINED_D=32; CMD_ST3_COMBINED_H=33; CMD_ST3_COMBINED_G=34
++CMD_ST3_PATTERN_DELAY=35; CMD_ST3_VIB_WAVE=36; CMD_ST3_TREM_WAVE=37
++CMD_ST3_FINETUNE=38; CMD_ST3_TICK_DELAY=39
++S3M_FMTS=('S3M','IT-S3M','MODERN-S3M')
++S3M_FINETUNE=(7895,7941,7985,8046,8107,8169,8232,8280,8363,8413,8463,8529,8581,8651,8723,8757)
+ 
+ HEADER_SIZE=39
+ STREAM_MAGIC=b'CTR1'
+@@ -27,6 +31,10 @@
+     note_offset: int = 0
+     vib_speed: int = 0
+     vib_depth: int = 0
++    high_offset: int = 0
++    finetune_c5: int = 0
++    loop_start_row: int = 0
++    loop_count: int = 0
+     mem: Dict[int,int] = field(default_factory=dict)
+ 
+ @dataclass
+@@ -134,7 +142,7 @@
+         self.stop_order=stop_order if stop_order is not None else self._next_255(start_order)
+         self.max_seconds=max_seconds
+         self.states={ch:ResolveState() for ch in self.m.active_channels}
+-        self.bank=SharedPayloadWaveBank(module,extended_aliases=(source_format in ('S3M','IT-S3M')))
++        self.bank=SharedPayloadWaveBank(module,extended_aliases=(source_format in S3M_FMTS))
+         self.speed=max(1,module.speed); self.tempo=max(32,module.tempo)
+         self.order=start_order; self.row=0; self.seconds=0.0; self.rows=0
+         self.ended_reason=''; self.warnings=[]
+@@ -150,14 +158,13 @@
+     def _resolve(self, st:ResolveState, cmd:int, p:int)->int:
+         raw=p or 0
+         if self.fmt=='S3M':
+-            # ST3 shared parameter memory is used only by D/E/F/I/J/K/L/Q/R/S.
+-            # G, H and O have independent memories; speed/tempo/flow commands
+-            # must not poison a later D00/E00/F00/etc. recall.
++            # Genuine ST3 has a deliberately odd shared memory. Any *effect
++            # command* with a non-zero parameter updates the value later
++            # recalled by D/E/F/I/J/K/L/Q/R/S. A NONE command never does.
+             if cmd in (CMD_D,CMD_E,CMD_F,CMD_I,CMD_J,CMD_K,CMD_L,CMD_Q,CMD_R,CMD_S):
+-                p = raw or st.global_mem
+-                if raw: st.global_mem=raw
++                p=raw or st.global_mem
+             elif cmd==CMD_G:
+-                p = raw or st.g_mem
++                p=raw or st.g_mem
+                 if raw: st.g_mem=raw
+             elif cmd==CMD_H:
+                 if raw & 0xF0: st.vib_speed=(raw>>4)&15
+@@ -165,17 +172,20 @@
+                 p=(st.vib_speed<<4)|st.vib_depth
+             elif cmd==CMD_O:
+                 if raw:
+-                    st.o_mem=raw
+-                    p=raw
++                    st.o_mem=raw; p=raw
+                 elif int(getattr(self.m,'s3m_cwtv',0)) <= 0x1301:
+                     p=0
+                 else:
+                     p=st.o_mem
++            else:
++                p=raw
++            if cmd and raw:
++                st.global_mem=raw
+             return p
+-        # Impulse Tracker-authored S3M: effect-local memory rather than
+-        # ST3's shared D/E/F/I/J/K/L/Q/R/S memory. G/H/O keep their dedicated
+-        # state because combined K/L commands refer to those primitive states.
+-        if self.fmt=='IT-S3M':
++
++        # IT-authored and modern/non-ST3 S3M use effect-local memory instead
++        # of ST3's global D/E/F/I/J/K/L/Q/R/S byte.
++        if self.fmt in ('IT-S3M','MODERN-S3M'):
+             if cmd==CMD_G:
+                 p=raw or st.g_mem
+                 if raw: st.g_mem=raw
+@@ -188,9 +198,6 @@
+                 p=raw or st.o_mem
+                 if raw: st.o_mem=raw
+                 return p
+-            # In IT, D/K/L share the same volume-slide parameter memory.
+-            # K00 and L00 therefore recall the latest non-zero D/K/L value,
+-            # while their vibrato/porta halves keep their own H/G memories.
+             if cmd in (CMD_D,CMD_K,CMD_L):
+                 if raw: st.mem[CMD_D]=raw
+                 return raw or st.mem.get(CMD_D,0)
+@@ -236,6 +243,8 @@
+             # S3M's 0..15 table spans the complete stereo field.
+             tracker_pan=(int(pans[ch])*256+7)//15
+             return self._tracker_pan_to_opl4(min(255,tracker_pan))
++        if self.fmt in S3M_FMTS and not bool(getattr(self.m,'s3m_is_stereo',True)):
++            return 0
+         setting=self.m.channel_settings[ch] if ch < len(self.m.channel_settings) else 0
+         return 11 if setting < 8 else 5
+ 
+@@ -250,9 +259,10 @@
+     # exponential note relation used by the proven Second Reality converter.
+     ST3_CLOCK=core.PERIOD_CLOCK*4.0
+ 
+-    def _s3m_period_q(self,ins,noteidx):
++    def _s3m_period_q(self,ins,noteidx,c5_override=0):
+         smp=self.m.samples[ins]
+-        freq=float(smp.c2spd)*(2.0**((int(noteidx)-48)/12.0))
++        c5=int(c5_override) if c5_override else int(smp.c2spd)
++        freq=float(c5)*(2.0**((int(noteidx)-48)/12.0))
+         period=core.PERIOD_CLOCK/max(1.0,freq)
+         return max(1,min(65535,int(round(period*4.0))))
+ 
+@@ -288,16 +298,40 @@
+ 
+     def _event_action(self,e, st:ResolveState)->Optional[Action]:
+         cmd=e.cmd or 0; p=e.param or 0
+-        # In ST3, even a no-op effect cell with a non-zero parameter updates
+-        # the shared D/E/F/I/J/K/L/Q/R/S parameter memory.
+-        if self.fmt=='S3M' and e.cmd==0 and p:
+-            st.global_mem=p
+         if cmd: p=self._resolve(st,cmd,p)
+-        # Combined K/L have a deliberate first-tick no-op in genuine ST3.
+-        # Preserve that provenance with private semantic commands; XM/MOD/IT
+-        # keep their own combined-effect rules.
++        # Keep the resolved command for compile-time flow effects (SBx loops).
++        e.resolved_param=p
+         effects=[]
+-        if cmd==CMD_K:
++        delay=-1
++        sx=(p>>4)&15 if cmd==CMD_S else -1
++        sl=p&15 if cmd==CMD_S else 0
++
++        # S3M extended commands. State-only commands are encoded as private
++        # semantic commands and consumed by the Z80 parser; they do not waste
++        # a realtime effect slot.
++        if cmd==CMD_S:
++            if sx==0x1: effects.append((CMD_GLISS,sl,None))
++            elif sx==0x2:
++                st.finetune_c5=S3M_FINETUNE[sl]
++                # Retune a currently playing note immediately. Future notes use
++                # the new channel C5 speed directly in their encoded period.
++                cur_ins=(e.ins if e.ins in self.m.samples else st.instrument)
++                has_new_note=(e.note is not None and e.note < 254)
++                curpq=self._s3m_period_q(cur_ins,st.note_index,st.finetune_c5) if (not has_new_note and cur_ins in self.m.samples and st.note_index>=0) else 0
++                effects.append((CMD_ST3_FINETUNE,sl,(curpq,0)))
++            elif sx==0x3: effects.append((CMD_ST3_VIB_WAVE,sl&3,None))
++            elif sx==0x4: effects.append((CMD_ST3_TREM_WAVE,sl&3,None))
++            elif sx==0x6: effects.append((CMD_ST3_TICK_DELAY,sl,None))
++            elif sx==0x8: effects.append((CMD_X,(sl*255+7)//15,None))
++            elif sx==0xA: st.high_offset=sl
++            elif sx==0xB: pass  # flattened by compile() below
++            elif sx==0xC:
++                # ST3 explicitly ignores SC0. IT-compatible S3M treats SC0 as SC1.
++                if sl or self.fmt!='S3M': effects.append((CMD_NOTE_CUT,sl or 1,None))
++            elif sx==0xD: delay=sl
++            elif sx==0xE:
++                if sl or self.fmt!='S3M': effects.append((CMD_ST3_PATTERN_DELAY,sl,None))
++        elif cmd==CMD_K:
+             if self.fmt=='S3M':
+                 effects=[(CMD_ST3_COMBINED_H,0,None),(CMD_ST3_COMBINED_D,p,None)]
+             else:
+@@ -307,17 +341,20 @@
+                 effects=[(CMD_ST3_COMBINED_G,st.g_mem,None),(CMD_ST3_COMBINED_D,p,None)]
+             else:
+                 effects=[(CMD_G,st.g_mem,None),(CMD_D,p,None)]
+-        elif cmd not in (0,CMD_B,CMD_C,CMD_O,CMD_S):
++        elif cmd not in (0,CMD_B,CMD_C,CMD_O):
+             effects.append((cmd,p,None))
+-        delay=-1
+-        if cmd==CMD_S and (p>>4)==0xD:
+-            delay=p&15
++
++        # S3M volume-column 128..192 is panning 0..64.
++        vpan=getattr(e,'volume_pan',None)
++        if vpan is not None and self.fmt in S3M_FMTS:
++            effects.insert(0,(CMD_X,(max(0,min(64,int(vpan)))*255+32)//64,None))
++
+         # Extra semantic effects from XM volume column etc.
+         for vc,vp in getattr(e,'extra_effects',[]):
+             rp=self._resolve(st,vc,vp)
+             effects.append((vc,rp,None))
+         if len(effects)>4:
+-            self.warnings.append(f'row event on channel {e.ch}: more than four simultaneous effects; extras dropped')
++            self.warnings.append(f'row event on channel {e.ch}: more than four semantic effects; extras dropped')
+             effects=effects[:4]
+ 
+         a=Action(e.ch)
+@@ -325,6 +362,10 @@
+         valid_ins = e.ins if e.ins in self.m.samples else None
+         old_ins=st.instrument
+         use_ins=valid_ins or old_ins
++        if valid_ins and not (cmd==CMD_S and sx==0x2):
++            # Loading an instrument/sample restores its native C5 speed; S2x on
++            # the same row then overrides it again below.
++            st.finetune_c5=0
+ 
+         # Immediate volume semantics. Instrument changes reset to the sample default except when delayed.
+         if delay < 0 and valid_ins:
+@@ -334,7 +375,7 @@
+         # S3M/ST3 volume is a true 0..64 range.  Do not fold 64 to 63:
+         # ST3's own fine/regular slides clamp at 64, and sample defaults and
+         # pattern volume cells are allowed to contain 64.
+-        if self.fmt in ('S3M','IT-S3M') and a.volume is not None:
++        if self.fmt in S3M_FMTS and a.volume is not None:
+             a.volume=min(64,a.volume)
+ 
+         if e.note is not None:
+@@ -353,12 +394,14 @@
+                     # then applies 1xx/2xx/3xx/4xy in exactly that domain.
+                     pq=self._xm_linear_period(use_ins,ni)
+                     lo,hi=self._xm_linear_pitch_regs(pq)
+-                elif self.fmt=='S3M':
+-                    # ST3 uses its own integer period table and C4-speed domain.
++                elif self.fmt in S3M_FMTS:
++                    # S3M profiles use their own integer period/C5-speed domain and C4-speed domain.
+                     # Keep that exact period as runtime state so slides/porta/vibrato
+                     # cannot inherit MOD/Paula rounding or clock assumptions.
+-                    pq=self._s3m_period_q(use_ins,ni)
+-                    lo,hi=core.Compiler._pitch_regs(self._period(use_ins,ni))
++                    pq=self._s3m_period_q(use_ins,ni,st.finetune_c5)
++                    c5=st.finetune_c5 or self.m.samples[use_ins].c2spd
++                    freq=float(c5)*(2.0**((ni-48)/12.0))
++                    lo,hi=core.Compiler._pitch_regs(core.PERIOD_CLOCK/max(1.0,freq))
+                 else:
+                     period=self._period(use_ins,ni)
+                     # A finetune-0 MOD stores the exact Paula period in the pattern.
+@@ -370,7 +413,7 @@
+                     lo,hi=core.Compiler._pitch_regs(period)
+                 porta=(cmd in (CMD_G,CMD_L)) and st.period_seen
+                 if porta:
+-                    if self.fmt=='IT-S3M' and delay<0 and valid_ins and old_ins and valid_ins!=old_ins:
++                    if self.fmt in S3M_FMTS and bool(getattr(self.m,'s3m_porta_sample_change',False)) and delay<0 and valid_ins and old_ins and valid_ins!=old_ins:
+                         # IT's S3M profile swaps/restarts the new sample while
+                         # keeping the old pitch and sliding towards the new note.
+                         wave=self.bank.get(valid_ins,0)
+@@ -381,14 +424,21 @@
+                     a.period_q=pq
+                 else:
+                     if cmd==CMD_O:
+-                        off=p*256
++                        off=(st.high_offset<<16) + p*256
+                     elif self.fmt=='S3M' and not valid_ins:
+                         # ST3 recalls the previous note's sample offset when a
+-                        # new note omits the instrument number. A new explicit
+-                        # instrument without Oxx starts at offset zero.
++                        # new note omits the instrument number.
+                         off=st.note_offset
+                     else:
+                         off=0
++                    smp=self.m.samples[use_ins]
++                    if self.fmt=='S3M' and cmd==CMD_O and smp.looped and off>=smp.loop_end:
++                        if bool(getattr(self.m,'s3m_use_gus',False)):
++                            span=max(1,smp.loop_end-smp.loop_begin)
++                            off=((off-smp.loop_begin)%span)+smp.loop_begin
++                        else:
++                            # ST3/SB stops the sample instead of GUS-style loop wrap.
++                            off=smp.length
+                     wave=self.bank.get(use_ins,off)
+                     a.tone=wave-384
+                     a.period_q=pq; a.pitch_lo=lo|1; a.pitch_hi=hi
+@@ -396,7 +446,7 @@
+                     if self.fmt=='S3M':
+                         st.note_offset=off
+                 if delay>=0 and valid_ins and e.vol is None:
+-                    a.delayed_volume=min(64,self.m.samples[valid_ins].volume) if self.fmt in ('S3M','IT-S3M') else self.m.samples[valid_ins].volume
++                    a.delayed_volume=min(64,self.m.samples[valid_ins].volume) if self.fmt in S3M_FMTS else self.m.samples[valid_ins].volume
+                 st.note_index=ni
+                 st.period_seen=True
+         elif valid_ins and delay>=0:
+@@ -407,7 +457,7 @@
+         # retriggering the voice or converting the current period. The default
+         # volume was already applied above. Avoid redundant writes when the
+         # selected sample is unchanged (as in Purple Motion's repeated #24).
+-        if (self.fmt in ('S3M','IT-S3M') and getattr(self.m,'s3m_sample_swap',self.fmt=='IT-S3M')
++        if (self.fmt in S3M_FMTS and getattr(self.m,'s3m_sample_swap',self.fmt!='S3M')
+                 and valid_ins and old_ins and valid_ins!=old_ins
+                 and (e.note is None or e.note==255) and delay<0):
+             wave=self.bank.get(valid_ins,0)
+@@ -434,9 +484,9 @@
+                     p1=self._xm_linear_period(arp_ins,st.note_index+((ep>>4)&15))
+                     p2=self._xm_linear_period(arp_ins,st.note_index+(ep&15))
+                     extra=(p1,p2)
+-                elif self.fmt=='S3M':
+-                    p1=self._s3m_period_q(arp_ins,st.note_index+((ep>>4)&15))
+-                    p2=self._s3m_period_q(arp_ins,st.note_index+(ep&15))
++                elif self.fmt in S3M_FMTS:
++                    p1=self._s3m_period_q(arp_ins,st.note_index+((ep>>4)&15),st.finetune_c5)
++                    p2=self._s3m_period_q(arp_ins,st.note_index+(ep&15),st.finetune_c5)
+                     extra=(p1,p2)
+                 else:
+                     p1=self._period(arp_ins,st.note_index+((ep>>4)&15))
+@@ -485,6 +535,8 @@
+                 out += bytes((c&0xFF,param&0xFF))
+                 if cmd==CMD_J:
+                     p1,p2=extra or (0,0); out += struct.pack('<HH',p1,p2)
++                elif cmd==CMD_ST3_FINETUNE:
++                    pq=(extra or (0,0))[0]; out += struct.pack('<H',pq)
+         return bytes(out)
+ 
+     def compile(self):
+@@ -497,7 +549,7 @@
+         visited_positions=set()
+         while self.order < self.stop_order and self.seconds < self.max_seconds:
+             if self.order>=len(self.m.orders): self.ended_reason='end of order list'; break
+-            pos_key=(self.order,self.row,self.speed,self.tempo)
++            pos_key=(self.order,self.row,self.speed,self.tempo,tuple((ch,self.states[ch].loop_start_row,self.states[ch].loop_count) for ch in sorted(self.states)))
+             if pos_key in visited_positions:
+                 self.ended_reason='sequence loop detected'; break
+             visited_positions.add(pos_key)
+@@ -509,18 +561,9 @@
+             if self.row>=len(pat): self.order+=1; self.row=0; continue
+             evs=pat[self.row]
+             # later channel wins for B/C, matching the backend's channel-order walk.
+-            pending_jump=None; pending_break=None
++            pending_jump=None; pending_break=None; pending_loop_row=None
+             actions=[]
+-            # The supplied S3M backend deliberately collapses packed-row data to
+-            # one event per active channel (last token wins).  Preserve that exact
+-            # behaviour here; it is important for malformed/legacy packed patterns
+-            # that contain duplicate channel tokens. XM/MOD parsers already emit at
+-            # most one event per channel per row.
+-            if self.fmt in ('S3M','IT-S3M'):
+-                by_ch={e.ch:e for e in evs if e.ch in self.states}
+-                row_events=sorted(by_ch.values(),key=lambda x:x.ch)
+-            else:
+-                row_events=sorted((e for e in evs if e.ch in self.states),key=lambda x:x.ch)
++            row_events=sorted((e for e in evs if e.ch in self.states),key=lambda x:x.ch)
+             for e in row_events:
+                 # Resolve B/C parameters directly (no memory in supported profiles).
+                 if e.cmd==CMD_B: pending_jump=e.param or 0
+@@ -531,6 +574,22 @@
+                     pending_break=((raw_break>>4)*10+(raw_break&15)) if self.fmt=='S3M' else raw_break
+                 a=self._event_action(e,self.states[e.ch])
+                 if a: actions.append(a)
++                # SBx pattern loop is flattened at conversion time. ST3 uses
++                # channel 0's loop memory globally; IT/modern S3M keep per-channel state.
++                if e.cmd==CMD_S and (((getattr(e,'resolved_param',0)>>4)&15)==0xB):
++                    lp=getattr(e,'resolved_param',0)&15
++                    lst=self.states[min(self.states)] if self.fmt=='S3M' else self.states[e.ch]
++                    if lp==0:
++                        lst.loop_start_row=self.row
++                    elif lst.loop_count:
++                        lst.loop_count-=1
++                        if lst.loop_count:
++                            pending_loop_row=lst.loop_start_row
++                        elif self.fmt=='S3M':
++                            lst.loop_start_row=self.row+1
++                    else:
++                        lst.loop_count=lp
++                        pending_loop_row=lst.loop_start_row
+                 # Global tempo/speed commands are effective on this row.
+                 if e.cmd==CMD_A and (e.param or 0): self.speed=max(1,e.param or 0)
+                 if e.cmd==CMD_T and (e.param or 0)>=32: self.tempo=max(32,e.param or 0)
+@@ -541,7 +600,9 @@
+             self.rows+=1
+             self.seconds += self.speed*2.5/self.tempo
+             # advance flattened playback order
+-            if pending_jump is not None:
++            if pending_loop_row is not None:
++                self.row=pending_loop_row
++            elif pending_jump is not None:
+                 if pending_jump<self.start_order or pending_jump>=self.stop_order:
+                     self.ended_reason=f'position jump leaves subsong (B{pending_jump:02X})'; break
+                 self.order=pending_jump; self.row=pending_break or 0
+@@ -564,7 +625,8 @@
+         # Bit 3 (0x08) is *zero-volume optimisation* and must not alter slide timing.
+         # ST3.00 (cwtv 0x1300) implicitly uses fast volume slides.
+         st3_fast = (self.fmt=='S3M' and int(getattr(self.m,'s3m_cwtv',0))==0x1300)
+-        stream_flags = 1 if (self.fmt in ('S3M','IT-S3M') and (bool(self.m.flags & 0x40) or st3_fast)) else 0
++        stream_flags = 1 if (self.fmt in S3M_FMTS and (bool(self.m.flags & 0x40) or st3_fast)) else 0
++        if self.fmt in S3M_FMTS and bool(getattr(self.m,'s3m_old_vibrato',False)): stream_flags |= 0x04
+         if self.xm_linear: stream_flags |= 0x02
+         header += bytes((STREAM_VERSION,min(24,len(self.m.active_channels)),max(1,self.m.speed),stream_flags))
+         header += struct.pack('<H',max(32,self.m.tempo))
+diff -ruN '--exclude=*.bin' '--exclude=*.lst' '--exclude=*.map' '--exclude=*.ksp' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=S3M_v0.4.4_to_v0.4.5.patch' /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/module_formats.py /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/module_formats.py
+--- /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/module_formats.py	2026-08-22 11:15:55.000000000 +0000
++++ /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/module_formats.py	2026-08-22 13:41:20.761814724 +0000
+@@ -299,64 +299,96 @@
+ 
+ 
+ def parse_s3m_profile(path:Path)->Tuple[core.Module,str]:
+-    """Parse an S3M container and select its actual playback profile.
++    """Parse S3M and choose an explicit playback profile.
+ 
+-    The S3M `cwtv` field identifies the tracker family that wrote the file.
+-    Impulse Tracker-authored S3Ms deliberately do not use several ST3 quirks,
+-    so they must not be sent through the strict ST3 runtime merely because the
+-    filename extension is .s3m.
++    This follows OpenMPT's important split: genuine ST3 (with GUS/SB driver
++    quirks), Impulse Tracker S3M, and modern/non-ST3 S3M writers. cwtv alone
++    is not sufficient because several trackers deliberately wrote ST3-looking
++    headers.
+     """
+-    m=core.parse_s3m(path)
+-    b=m.raw
++    m=core.parse_s3m(path); b=m.raw
+     cwtv=int.from_bytes(b[0x28:0x2A],'little') if len(b)>=0x2A else 0
+-    tracker_family=(cwtv>>12)&0x0F
+-    m.s3m_cwtv=cwtv
+-    m.s3m_tracker_family=tracker_family
+-    m.source_format='IT-S3M' if tracker_family==3 else 'S3M'
+-    m.offset_quantum=256
+-
+-    # Genuine ST3 saves fingerprint the active PCM driver in each 80-byte
+-    # sample header.  The 16-bit GUS address lives at +40.  With the GUS
+-    # driver loaded, non-empty samples receive distinct addresses; with the
+-    # SoundBlaster driver they are 0/1.  ST3 playback semantics differ for
+-    # instrument-only sample changes and instrument+tone-portamento, so this
+-    # is runtime-relevant information rather than metadata only.
+-    ordn=int.from_bytes(b[0x20:0x22],'little')
+-    insn=int.from_bytes(b[0x22:0x24],'little')
+-    patn=int.from_bytes(b[0x24:0x26],'little')
+-    ins_ptr_base=0x60+ordn
+-    gus_or=0
+-    pcm_headers=0
++    family=cwtv & 0xF000
++    m.s3m_cwtv=cwtv; m.s3m_tracker_family=family>>12; m.offset_quantum=256
++    ordn=int.from_bytes(b[0x20:0x22],'little'); insn=int.from_bytes(b[0x22:0x24],'little'); patn=int.from_bytes(b[0x24:0x26],'little')
++    flags=int.from_bytes(b[0x26:0x28],'little')
++    master=b[0x33] if len(b)>0x33 else 0
++    ultraclick=b[0x34] if len(b)>0x34 else 0
++    use_pan=(len(b)>0x35 and b[0x35]==0xFC)
++    special=int.from_bytes(b[0x3E:0x40],'little') if len(b)>=0x40 else 0
++
++    # Fingerprint GUS vs SB using ST3's saved GUS addresses.
++    ins_ptr_base=0x60+ordn; gus_or=0; pcm_headers=0
++    sample_ptrs=[]; pattern_ptrs=[]
+     for i in range(insn):
+         q=ins_ptr_base+2*i
+-        if q+2>len(b):
+-            break
+-        para=int.from_bytes(b[q:q+2],'little')
++        if q+2>len(b): break
++        para=int.from_bytes(b[q:q+2],'little'); sample_ptrs.append(para)
+         o=para*16
+-        if para and o+80<=len(b) and b[o]==1:  # PCM sample header
+-            pcm_headers+=1
+-            gus_or |= int.from_bytes(b[o+40:o+42],'little')
+-    m.s3m_gus_address_or=gus_or
+-    m.s3m_use_gus=(tracker_family==1 and pcm_headers>0 and gus_or>1)
+-    m.s3m_sample_swap=(tracker_family==3) or (tracker_family==1 and not m.s3m_use_gus)
+-    m.s3m_porta_sample_change=(tracker_family==1 and m.s3m_use_gus)
+-    if tracker_family==3:
+-        m.s3m_tracker_name='Impulse Tracker'
+-    elif tracker_family==1:
+-        m.s3m_tracker_name='Scream Tracker 3 (' + ('GUS' if m.s3m_use_gus else 'SB') + ')'
++        if para and o+80<=len(b) and b[o]==1:
++            pcm_headers+=1; gus_or |= int.from_bytes(b[o+40:o+42],'little')
++    pat_base=ins_ptr_base+2*insn
++    for i in range(patn):
++        q=pat_base+2*i
++        if q+2>len(b): break
++        pattern_ptrs.append(int.from_bytes(b[q:q+2],'little'))
++    offsets_canonical=bool(pattern_ptrs and sample_ptrs and pattern_ptrs[0] > sample_ptrs[0])
++
++    # OpenMPT fingerprints several cwtv=0x1320 files as non-ST3.
++    disguised_modern=False; modern_name=None
++    if cwtv==0x1320 and special==0 and ultraclick==0:
++        if (ordn & 1)==0 and (flags & ~0x50)==0 and use_pan and offsets_canonical:
++            if (ordn & 0x0F)==0:
++                modern_name='ModPlug Tracker / OpenMPT 1.17' if (master & 0x80) else 'ModPlug Tracker 1.0 alpha'
++                disguised_modern=True
++            elif master & 0x80:
++                modern_name='Schism Tracker'; disguised_modern=True
++        elif flags==0 and not use_pan:
++            modern_name='PlayerPRO' if b[0x30]==64 and (master&0x7F)==48 else 'Velvet Studio'; disguised_modern=True
++        elif flags==8 and not use_pan:
++            modern_name='Impulse Tracker < 1.03'; disguised_modern=True
++
++    is_st3=(family==0x1000 and not disguised_modern)
++    # ST3 3.01+ should leave GUS-address fingerprints. If all are zero, OpenMPT
++    # assumes another writer/converter rather than forcing ST3 quirks.
++    if is_st3 and pcm_headers and gus_or==0 and cwtv!=0x1300:
++        is_st3=False; modern_name='Unknown / ST3-compatible writer'
++
++    use_gus=bool(is_st3 and pcm_headers and gus_or>1)
++    m.s3m_gus_address_or=gus_or; m.s3m_use_gus=use_gus
++    m.s3m_is_st3=is_st3; m.s3m_is_stereo=bool(master & 0x80)
++    m.s3m_old_vibrato=bool(flags & 0x01); m.s3m_amiga_limits=bool(flags & 0x10)
++
++    if is_st3:
++        m.source_format='S3M'
++        m.s3m_profile='ST3-GUS' if use_gus else 'ST3-SB'
++        m.s3m_tracker_name='Scream Tracker 3 ('+('GUS' if use_gus else 'SB')+')'
++        m.s3m_sample_swap=not use_gus
++        m.s3m_porta_sample_change=use_gus
++        m.s3m_short_sample_retrig=not use_gus
++        m.s3m_shared_effect_memory=True
++    elif family==0x3000 or (modern_name and modern_name.startswith('Impulse Tracker')):
++        m.source_format='IT-S3M'; m.s3m_profile='IT-S3M'; m.s3m_tracker_name=modern_name or 'Impulse Tracker'
++        m.s3m_sample_swap=True; m.s3m_porta_sample_change=False; m.s3m_short_sample_retrig=True; m.s3m_shared_effect_memory=False
+     else:
+-        m.s3m_tracker_name='Scream Tracker 3 / ST3-compatible'
+-
+-    # Optional S3M default-panning table. A value is valid when bit 5 is set;
+-    # the low nibble then contains the 0..15 pan position.
+-    poff=0x60+ordn+2*insn+2*patn
+-    pans=[None]*32
+-    if len(b)>0x35 and b[0x35]==0xFC and poff+32<=len(b):
++        m.source_format='MODERN-S3M'; m.s3m_profile='modern/non-ST3 S3M'; m.s3m_shared_effect_memory=False
++        names={0x2000:'Imago Orpheus / compatible',0x4000:'Schism Tracker / compatible',0x5000:'OpenMPT / compatible',0x6000:'BeRoTracker',0x7000:'CreamTracker'}
++        m.s3m_tracker_name=modern_name or names.get(family,'Modern / non-ST3 S3M writer')
++        # Modern writers are closer to IT/Schism semantics than strict ST3.
++        m.s3m_sample_swap=True; m.s3m_porta_sample_change=False; m.s3m_short_sample_retrig=(family in (0x3000,0x4000,0x5000));
++
++    # Correct default speed/tempo after the creator profile is known.
++    raw_speed=b[0x31]; raw_tempo=b[0x32]
++    m.speed = 6 if (raw_speed==0 or (raw_speed==255 and is_st3)) else raw_speed
++    m.tempo = (125 if is_st3 else 32) if raw_tempo<33 else raw_tempo
++
++    # Optional default panning table. Mono S3M centers PCM channels when no
++    # explicit pan exists; stereo files use the traditional left/right groups.
++    poff=0x60+ordn+2*insn+2*patn; pans=[None]*32
++    if use_pan and poff+32<=len(b):
+         for ch,v in enumerate(b[poff:poff+32]):
+-            if v&0x20:
+-                pans[ch]=v&0x0F
+-    m.channel_panning_nibbles=pans
+-    m.s3m_has_default_panning=any(v is not None for v in pans)
++            if v&0x20: pans[ch]=v&0x0F
++    m.channel_panning_nibbles=pans; m.s3m_has_default_panning=any(v is not None for v in pans)
+     return m,m.source_format
+ 
+ 
+diff -ruN '--exclude=*.bin' '--exclude=*.lst' '--exclude=*.map' '--exclude=*.ksp' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=S3M_v0.4.4_to_v0.4.5.patch' /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/source/_s3m2opl4_backend.py /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/source/_s3m2opl4_backend.py
+--- /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/source/_s3m2opl4_backend.py	2026-08-22 10:36:41.000000000 +0000
++++ /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/source/_s3m2opl4_backend.py	2026-08-22 13:55:25.196453357 +0000
+@@ -5,10 +5,9 @@
+ all tracker rows/ticks on the host and emits absolute YMF278B PCM register
+ writes.  The MSX runtime only clocks the precompiled tick stream.
+ 
+-Supported effect set is the one used by the two Future Crew Second Reality S3Ms
+-shipped with this project: A/B/C/D/E/F/G/H/J/K/O/Q/SDx. S3M ST3 global effect
+-memory is implemented for D/E/F/J/K/Q and S00; G has byte memory and H uses
+-ST3's independent speed/depth nibble memory with exact 64-step vibrato scaling.
++The S3M parser is intentionally generic: it accepts mono/stereo and 8/16-bit PCM,
++merges duplicate packed channel tokens field-by-field, tolerates broken packed-length
++fields like ST3/OpenMPT, and leaves tracker-specific effect quirks to compact_stream.py.
+ """
+ from __future__ import annotations
+ 
+@@ -93,6 +92,62 @@
+         return [i for i, v in enumerate(self.channel_settings) if v < 16]
+ 
+ 
++def _s16_to_s8(v: int) -> int:
++    v = max(-32768, min(32767, int(v)))
++    return (v >> 8) & 0xFF
++
++
++def _decode_s3m_pcm(raw: bytes, length: int, flags: int, ffi: int) -> bytes:
++    """Decode S3M PCM to the converter's signed mono 8-bit internal format.
++
++    S3M stereo PCM is stored split (all left samples followed by all right
++    samples), not interleaved. OPL4 custom waves are mono, so stereo samples
++    are downmixed with a signed arithmetic average while preserving the S3M
++    frame count, loop points and C5 speed.
++    """
++    stereo = bool(flags & 0x02)
++    bit16 = bool(flags & 0x04)
++    chans = 2 if stereo else 1
++    bps = 2 if bit16 else 1
++    need = int(length) * chans * bps
++    if len(raw) < need:
++        raise ValueError('S3M sample data extends past file')
++    raw = raw[:need]
++
++    def decode_plane(buf: bytes) -> list[int]:
++        vals=[]
++        if bit16:
++            for i in range(0, len(buf), 2):
++                u=int.from_bytes(buf[i:i+2], 'little', signed=False)
++                if ffi == 2:  # unsigned 16-bit -> signed
++                    v=u-32768
++                elif ffi == 1:
++                    v=u if u < 0x8000 else u-0x10000
++                else:
++                    raise ValueError(f'unsupported S3M sample format info {ffi}')
++                vals.append(v)
++        else:
++            for u in buf:
++                if ffi == 2:
++                    vals.append(u-128)
++                elif ffi == 1:
++                    vals.append(u if u < 128 else u-256)
++                else:
++                    raise ValueError(f'unsupported S3M sample format info {ffi}')
++        return vals
++
++    plane_bytes = int(length) * bps
++    left = decode_plane(raw[:plane_bytes])
++    if stereo:
++        right = decode_plane(raw[plane_bytes:plane_bytes*2])
++        if bit16:
++            return bytes(_s16_to_s8((l+r)//2) for l,r in zip(left,right))
++        return bytes((((l+r)//2) & 0xFF) for l,r in zip(left,right))
++    if bit16:
++        return bytes(_s16_to_s8(v) for v in left)
++    return bytes(v & 0xFF for v in left)
++
++
+ def parse_s3m(path: Path) -> Module:
+     b = path.read_bytes()
+     if len(b) < 0x60 or b[0x2c:0x30] != b"SCRM":
+@@ -111,27 +166,39 @@
+         if not off or off + 2 > len(b):
+             patterns.append(rows)
+             continue
+-        plen = u16(b, off)
+-        src = b[off+2:min(len(b), off+max(2, plen))]  # packed length includes this 2-byte length field
+-        p = 0
++        # OpenMPT deliberately ignores the packed-length field. A number of
++        # real S3Ms contain a broken value but valid row terminators.
++        p = off + 2
+         row = 0
+-        while p < len(src) and row < 64:
+-            token = src[p]; p += 1
++        row_events: Dict[int, Event] = {}
++        while p < len(b) and row < 64:
++            token = b[p]; p += 1
+             if token == 0:
++                rows[row] = [row_events[ch] for ch in sorted(row_events)]
++                row_events = {}
+                 row += 1
+                 continue
+             ch = token & 31
+-            e = Event(ch=ch)
++            e = row_events.get(ch)
++            if e is None:
++                e = Event(ch=ch)
++                row_events[ch]=e
+             if token & 0x20:
+-                if p + 2 > len(src): break
+-                e.note, e.ins = src[p], src[p+1]; p += 2
++                if p + 2 > len(b): break
++                e.note, e.ins = b[p], b[p+1]; p += 2
+             if token & 0x40:
+-                if p >= len(src): break
+-                e.vol = src[p]; p += 1
++                if p >= len(b): break
++                v=b[p]; p += 1
++                if 128 <= v <= 192:
++                    # S3M volume-column panning: 128..192 -> 0..64.
++                    e.volume_pan=v-128
++                else:
++                    e.vol=min(64,v)
+             if token & 0x80:
+-                if p + 2 > len(src): break
+-                e.cmd, e.param = src[p], src[p+1]; p += 2
+-            rows[row].append(e)
++                if p + 2 > len(b): break
++                e.cmd, e.param = b[p], b[p+1]; p += 2
++        if row < 64 and row_events:
++            rows[row] = [row_events[ch] for ch in sorted(row_events)]
+         patterns.append(rows)
+ 
+     samples: Dict[int, Sample] = {}
+@@ -143,29 +210,33 @@
+         data_off = memseg * 16
+         length = u32(b, off+0x10)
+         flags = b[off+0x1f]
+-        if flags & 0x06:
+-            raise ValueError(f"sample {number}: stereo/16-bit S3M samples are not supported by this v0.1 compiler")
+-        if data_off + length > len(b):
++        pack = b[off+0x1e]
++        if pack not in (0,):
++            raise ValueError(f"sample {number}: packed/ADPCM S3M sample type {pack} is not supported yet")
++        chans=2 if (flags & 0x02) else 1
++        bps=2 if (flags & 0x04) else 1
++        raw_len=length*chans*bps
++        if data_off + raw_len > len(b):
+             raise ValueError(f"sample {number}: sample data extends past file")
+-        data = bytes(b[data_off:data_off+length])
+-        # S3M signedness: FFI=1 is signed, FFI=2 is unsigned PCM.  YMF278B 8-bit
+-        # samples are signed, so unsigned source data is converted by toggling bit 7.
+-        if ffi == 2:
+-            data = bytes(x ^ 0x80 for x in data)
+-        elif ffi != 1:
+-            raise ValueError(f"sample {number}: unsupported S3M sample format info {ffi}")
++        data = _decode_s3m_pcm(bytes(b[data_off:data_off+raw_len]), length, flags, ffi)
+         name = b[off+0x30:off+0x30+28].split(b"\0")[0].decode("cp437", "replace").rstrip()
++        c5=u32(b,off+0x20)
++        if c5==0: c5=8363
++        elif c5<1024: c5=1024
++        c5=min(65535,c5)
+         samples[number] = Sample(
+             number=number, name=name, length=length,
+-            loop_begin=u32(b, off+0x14), loop_end=u32(b, off+0x18),
+-            volume=min(64, b[off+0x1c]), flags=flags,
+-            c2spd=max(1, u32(b, off+0x20)), data_offset=data_off, data=data,
++            loop_begin=min(length,u32(b, off+0x14)), loop_end=min(length,u32(b, off+0x18)),
++            volume=min(64, b[off+0x1c]), flags=(flags & 1),
++            c2spd=c5, data_offset=data_off, data=data,
+         )
++        samples[number].s3m_source_stereo=bool(flags & 0x02)
++        samples[number].s3m_source_16bit=bool(flags & 0x04)
+ 
+     return Module(
+         path=path, raw=b, title=title, orders=orders, patterns=patterns,
+         samples=samples, channel_settings=list(b[0x40:0x60]),
+-        speed=max(1, b[0x31]), tempo=max(32, b[0x32]),
++        speed=b[0x31], tempo=b[0x32],
+         global_volume=min(64, b[0x30]), flags=u16(b, 0x26), ffi=ffi,
+     )
+ 
+@@ -391,21 +462,19 @@
+         return ""
+ 
+     def _resolve_param(self, c: Channel, cmd: str, p: int) -> int:
+-        # ST3 has the unusual "global" effect-parameter memory: commands marked
+-        # Global recall the most recent non-zero parameter supplied by the
+-        # shared-memory group D/E/F/I/J/K/L/Q/R/S. G/H/O have their own memories.
++        # Genuine ST3 has one shared effect-parameter byte. D/E/F/I/J/K/L/Q/R/S
++        # recall it on xx=00, but *any real command* with xx!=00 updates it.
++        # A token with command=NONE never updates memory. G/H/O additionally keep
++        # their command-specific state used by their own zero-parameter forms.
+         raw = p
+         if cmd in "DEFIJKLQRS":
+-            p = p or c.global_mem
+-            if raw:
+-                c.global_mem = raw
++            p = raw or c.global_mem
+         elif cmd == "G":
+-            p = p or c.g_mem
++            p = raw or c.g_mem
+             if raw: c.g_mem = raw
+         elif cmd == "H":
+-            # ST3 does not remember Hxy as one byte. Each non-zero nibble
+-            # updates its own state; H00 retains both. Thus H81,H03,H00 means
+-            # H81,H83,H83, not H81,H03,H03.
++            # H has nibble-wise vibrato memory, even though Hxx also updates the
++            # shared ST3 parameter byte for later D/E/F/... 00 commands.
+             if raw & 0xF0:
+                 c.vibrato_speed = (raw >> 4) & 0x0F
+             if raw & 0x0F:
+@@ -413,8 +482,10 @@
+             c.h_mem = (c.vibrato_speed << 4) | c.vibrato_depth
+             p = c.h_mem
+         elif cmd == "O":
+-            p = p or c.offset_mem
++            p = raw or c.offset_mem
+             if raw: c.offset_mem = raw
++        if cmd and raw:
++            c.global_mem = raw
+         return p
+ 
+     @staticmethod
+diff -ruN '--exclude=*.bin' '--exclude=*.lst' '--exclude=*.map' '--exclude=*.ksp' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=S3M_v0.4.4_to_v0.4.5.patch' /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/source/compact_engine_it_s3m.asm /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/source/compact_engine_it_s3m.asm
+--- /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/source/compact_engine_it_s3m.asm	2026-08-22 10:53:51.000000000 +0000
++++ /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/source/compact_engine_it_s3m.asm	2026-08-22 13:52:23.851355409 +0000
+@@ -1,8 +1,8 @@
+ 
+         org 04000h
+ 
+-STREAM_PAGE     equ 06400h
+-STREAM_DATA     equ 06402h
++STREAM_PAGE     equ 06800h
++STREAM_DATA     equ 06802h
+ HEADER_SIZE     equ 39
+ DYNAMIC_GATEWAY equ 07FF0h
+ 
+@@ -35,6 +35,9 @@
+ ROW_COUNT_TMP   equ 05F1Fh
+ LINEAR_XM       equ 05F21h
+ RETRIG_COUNT    equ 05F22h      ; 24 bytes: IT Qxy countdowns
++PAT_DELAY       equ 05F3Ah
++TICK_DELAY      equ 05F3Bh
++HOLD_ROW        equ 05F3Ch
+ 
+ PERIOD_Q        equ 06000h      ; 24 words
+ TARGET_Q        equ 06030h      ; 24 words
+@@ -58,9 +61,17 @@
+ PEND_PLO        equ 06240h
+ PEND_PHI        equ 06258h
+ PEND_VOL        equ 06270h
++TREMOR_COUNT    equ 06400h
++TREMSPD         equ 06418h
++TREMDEP         equ 06430h
++TREMPH          equ 06448h
++TREMTYPE        equ 06460h
++VIBTYPE         equ 06478h
++GLISS           equ 06490h
+ PAGE_TOTAL_CFG  equ 063FCh      ; patched by converter
+ STATE_CLEAR     equ 05F00h
+ STATE_CLEAR_END equ 06288h
++EXT_STATE_END   equ 064A8h
+ 
+ CMD_A           equ 1
+ CMD_D           equ 4
+@@ -68,12 +79,20 @@
+ CMD_F           equ 6
+ CMD_G           equ 7
+ CMD_H           equ 8
++CMD_I           equ 9
+ CMD_J           equ 10
+ CMD_O           equ 15
+ CMD_Q           equ 17
++CMD_R           equ 18
+ CMD_T           equ 20
+ CMD_X           equ 24
+ CMD_CUT         equ 27
++CMD_GLISS       equ 30
++CMD_ST3_PATDELAY equ 35
++CMD_ST3_VIBWAVE equ 36
++CMD_ST3_TREMWAVE equ 37
++CMD_ST3_FINETUNE equ 38
++CMD_ST3_TICKDELAY equ 39
+ 
+ init:
+         xor a
+@@ -82,6 +101,12 @@
+         ld bc,STATE_CLEAR_END-STATE_CLEAR-1
+         ld (hl),a
+         ldir
++        xor a
++        ld hl,TREMOR_COUNT
++        ld de,TREMOR_COUNT+1
++        ld bc,EXT_STATE_END-TREMOR_COUNT-1
++        ld (hl),a
++        ldir
+         ld hl,DELAY_TICK
+         ld b,24
+         ld a,0FFh
+@@ -159,6 +184,13 @@
+         ld a,(ROW_TICK)
+         or a
+         jr nz,process_have_row
++        ld a,(HOLD_ROW)
++        or a
++        jr z,process_parse_new_row
++        xor a
++        ld (HOLD_ROW),a
++        jr process_have_row
++process_parse_new_row:
+         call parse_row
+         ld a,(ENDED)
+         or a
+@@ -171,6 +203,9 @@
+         inc a
+         ld b,a
+         ld a,(SPEED)
++        ld c,a
++        ld a,(TICK_DELAY)
++        add a,c
+         cp b
+         jr c,process_row_done
+         jr z,process_row_done
+@@ -178,13 +213,27 @@
+         ld (ROW_TICK),a
+         ret
+ process_row_done:
++        ld a,(PAT_DELAY)
++        or a
++        jr z,process_row_really_done
++        dec a
++        ld (PAT_DELAY),a
++        ld a,1
++        ld (HOLD_ROW),a
+         xor a
+         ld (ROW_TICK),a
+         ret
++process_row_really_done:
++        xor a
++        ld (ROW_TICK),a
++        ld (TICK_DELAY),a
++        ret
+ 
+ parse_row:
+         ; Clear row-local effects and expire delayed actions from a malformed prior row.
+         xor a
++        ld (PAT_DELAY),a
++        ld (TICK_DELAY),a
+         ld hl,CMD1
+         ld de,CMD1+1
+         ld bc,96-1
+@@ -326,14 +375,13 @@
+ parse_effects:
+         xor a
+         ld (FX_SLOT),a
++parse_effects_loop:
+         call parse_one_effect
+         ret c
+         ld a,(SECOND_FX)
+         or a
+         ret z
+-        ld a,1
+-        ld (FX_SLOT),a
+-        jp parse_one_effect
++        jr parse_effects_loop
+ 
+ parse_one_effect:
+         call read_stream_byte
+@@ -375,6 +423,49 @@
+         or a
+         ret
+ fx_not_pan:
++        cp CMD_GLISS
++        jr nz,fx_not_gliss
++        ld a,e
++        ld hl,GLISS
++        call ptr8_cur
++        ld (hl),a
++        or a
++        ret
++fx_not_gliss:
++        cp CMD_ST3_VIBWAVE
++        jr nz,fx_not_vibwave
++        ld a,e
++        and 03h
++        ld hl,VIBTYPE
++        call ptr8_cur
++        ld (hl),a
++        or a
++        ret
++fx_not_vibwave:
++        cp CMD_ST3_TREMWAVE
++        jr nz,fx_not_tremwave
++        ld a,e
++        and 03h
++        ld hl,TREMTYPE
++        call ptr8_cur
++        ld (hl),a
++        or a
++        ret
++fx_not_tremwave:
++        cp CMD_ST3_PATDELAY
++        jr nz,fx_not_patdelay
++        ld a,e
++        ld (PAT_DELAY),a
++        or a
++        ret
++fx_not_patdelay:
++        cp CMD_ST3_TICKDELAY
++        jr nz,fx_not_tickdelay
++        ld a,e
++        ld (TICK_DELAY),a
++        or a
++        ret
++fx_not_tickdelay:
+         ; H updates nibble memory immediately; its resolved parameter already has both nibbles.
+         cp CMD_H
+         jr nz,fx_store
+@@ -394,6 +485,8 @@
+         pop de
+ fx_store:
+         ld a,(FX_SLOT)
++        cp 2
++        jr nc,fx_extra
+         or a
+         jr nz,fx_store_2
+         ld hl,CMD1
+@@ -402,7 +495,7 @@
+         ld hl,PAR1
+         call ptr8_cur
+         ld (hl),e
+-        jr fx_extra
++        jr fx_store_inc
+ fx_store_2:
+         ld hl,CMD2
+         call ptr8_cur
+@@ -410,10 +503,14 @@
+         ld hl,PAR2
+         call ptr8_cur
+         ld (hl),e
++fx_store_inc:
++        ld a,(FX_SLOT)
++        inc a
++        ld (FX_SLOT),a
+ fx_extra:
+         ld a,d
+         cp CMD_J
+-        jr nz,fx_done
++        jr nz,fx_check_finetune
+         ; J carries two precomputed quarter-periods.
+         call read_stream_byte
+         ret c
+@@ -437,6 +534,21 @@
+         ld (hl),e
+         inc hl
+         ld (hl),d
++        jr fx_done
++fx_check_finetune:
++        cp CMD_ST3_FINETUNE
++        jr nz,fx_done
++        call read_stream_byte
++        ret c
++        ld e,a
++        call read_stream_byte
++        ret c
++        ld d,a
++        ld hl,ARP1
++        call ptr16_cur
++        ld (hl),e
++        inc hl
++        ld (hl),d
+ fx_done:
+         or a
+         ret
+@@ -577,6 +689,12 @@
+         ld hl,VIBPH
+         call ptr8_cur
+         ld (hl),a
++        ld hl,TREMPH
++        call ptr8_cur
++        ld (hl),a
++        ld hl,TREMOR_COUNT
++        call ptr8_cur
++        ld (hl),a
+         call keyoff_current
+         ; Exact host-computed base pitch and wave number 384+tone.
+         ld a,(CUR_CH)
+@@ -733,10 +851,16 @@
+         jp z,effect_porta
+         cp CMD_H
+         jp z,effect_vibrato
++        cp CMD_I
++        jp z,effect_tremor
+         cp CMD_J
+         jp z,effect_arpeggio
+         cp CMD_Q
+         jp z,effect_retrig
++        cp CMD_R
++        jp z,effect_tremolo
++        cp CMD_ST3_FINETUNE
++        jp z,effect_finetune
+         cp CMD_CUT
+         jp z,effect_note_cut
+         ret
+@@ -1025,11 +1149,7 @@
+         call ptr8_cur
+         ld a,(hl)
+         and 3Fh
+-        ld e,a
+-        ld d,0
+-        ld hl,SINE_TABLE
+-        add hl,de
+-        ld a,(hl)
++        call get_vib_wave_current
+         ld b,a
+         ld a,(TICK_NOW)
+         or a
+@@ -1105,6 +1225,181 @@
+         ld (PITCH_DIRTY),a
+         ret
+ 
++effect_tremor:
++        ; ST3 Ixy: x+1 ticks on, y+1 ticks off. Counter persists across rows
++        ; and is reset by a new note.
++        ld a,e
++        and 0F0h
++        rrca
++        rrca
++        rrca
++        rrca
++        and 0Fh
++        ld b,a                 ; x
++        ld a,e
++        and 0Fh
++        ld c,a                 ; y
++        ld hl,TREMOR_COUNT
++        call ptr8_cur
++        ld a,b
++        add a,c
++        add a,2
++        ld d,a                 ; cycle length
++        ld a,(hl)
++        cp d
++        jr c,tremor_count_ok
++        xor a
++        ld (hl),a
++tremor_count_ok:
++        ld e,a                 ; current count
++        inc a
++        ld (hl),a              ; next count
++        ld a,b
++        inc a                  ; on length
++        cp e
++        jr c,tremor_off
++        jr z,tremor_off
++        ld hl,VOLUME
++        call ptr8_cur
++        ld a,(hl)
++        jp emit_volume_a_temp
++tremor_off:
++        xor a
++        jp emit_volume_a_temp
++
++effect_tremolo:
++        ; ST3 Rxy. The host already resolved ST3 shared parameter memory, so
++        ; both nibbles are authoritative here (including a zero nibble).
++        ld a,e
++        and 0F0h
++        rrca
++        rrca
++        rrca
++        rrca
++        and 0Fh
++        ld hl,TREMSPD
++        call ptr8_cur
++        ld (hl),a
++        ld a,e
++        and 0Fh
++        ld hl,TREMDEP
++        call ptr8_cur
++        ld (hl),a
++        ld hl,TREMPH
++        call ptr8_cur
++        ld a,(hl)
++        and 3Fh
++        call get_trem_wave_current
++        ld b,a                 ; signed waveform delta
++        ld a,(TICK_NOW)
++        or a
++        jr z,trem_no_advance
++        ld hl,TREMPH
++        call ptr8_cur
++        ld a,(hl)
++        ld c,a
++        ld hl,TREMSPD
++        call ptr8_cur
++        ld a,(hl)
++        add a,c
++        and 3Fh
++        ld hl,TREMPH
++        call ptr8_cur
++        ld (hl),a
++trem_no_advance:
++        ld a,b
++        or a
++        jr z,trem_emit_base
++        jp p,trem_positive
++        neg
++        ld c,1
++        jr trem_abs_ready
++trem_positive:
++        ld c,0
++trem_abs_ready:
++        ld e,a
++        ld d,0
++        push bc
++        ld hl,TREMDEP
++        call ptr8_cur
++        ld a,(hl)
++        ld b,a
++        ld hl,0
++trem_mul:
++        ld a,b
++        or a
++        jr z,trem_mul_done
++        add hl,de
++        dec b
++        jr trem_mul
++trem_mul_done:
++        ; tracker-volume delta = waveform * depth / 64
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        ld e,l
++        pop bc
++        ld hl,VOLUME
++        call ptr8_cur
++        ld a,(hl)
++        ld b,a
++        ld a,c
++        or a
++        ld a,b
++        jr nz,trem_sub
++        add a,e
++        cp 65
++        jr c,trem_emit
++        ld a,64
++        jr trem_emit
++trem_sub:
++        sub e
++        jr nc,trem_emit
++        xor a
++trem_emit:
++        jp emit_volume_a_temp
++trem_emit_base:
++        ld hl,VOLUME
++        call ptr8_cur
++        ld a,(hl)
++        jp emit_volume_a_temp
++
++effect_finetune:
++        ld a,(TICK_NOW)
++        or a
++        ret nz
++        ld hl,ARP1
++        call ptr16_cur
++        ld e,(hl)
++        inc hl
++        ld d,(hl)
++        ld a,d
++        or e
++        ret z
++        ld hl,PERIOD_Q
++        call ptr16_cur
++        ld (hl),e
++        inc hl
++        ld (hl),d
++        ld hl,TARGET_Q
++        call ptr16_cur
++        ld (hl),e
++        inc hl
++        ld (hl),d
++        ld (OUT_PERIOD),de
++        ld a,1
++        ld (PITCH_DIRTY),a
++        ret
++
+ effect_arpeggio:
+         ld a,(TICK_NOW)
+ arp_mod3:
+@@ -1304,6 +1599,21 @@
+         ld d,a
+         jp opl4_write_de
+ 
++emit_volume_a_temp:
++        cp 65
++        jr c,emit_temp_ok
++        ld a,64
++emit_temp_ok:
++        ld e,a
++        ld d,0
++        ld hl,VOL_LUT
++        add hl,de
++        ld e,(hl)
++        ld a,(CUR_CH)
++        add a,050h
++        ld d,a
++        jp opl4_write_de
++
+ set_pan_from_tracker:
+         ; A=0..255 tracker pan. OPL4: 9..15 left, 1..7 right, 0 centre.
+         cp 128
+@@ -1361,6 +1671,63 @@
+         ld (hl),a
+         ret
+ 
++get_vib_wave_current:
++        ld c,a
++        ld hl,VIBTYPE
++        call ptr8_cur
++        ld b,(hl)
++        jr get_mod_wave
++
++get_trem_wave_current:
++        ld c,a
++        ld hl,TREMTYPE
++        call ptr8_cur
++        ld b,(hl)
++get_mod_wave:
++        ld a,b
++        and 03h
++        or a
++        jr z,mod_wave_sine
++        cp 1
++        jr z,mod_wave_ramp
++        cp 2
++        jr z,mod_wave_square
++        ld e,c
++        ld d,0
++        ld hl,RANDOM_TABLE
++        add hl,de
++        ld a,(hl)
++        ret
++mod_wave_sine:
++        ld e,c
++        ld d,0
++        ld hl,SINE_TABLE
++        add hl,de
++        ld a,(hl)
++        ret
++mod_wave_ramp:
++        ld a,c
++        add a,a
++        add a,a
++        ld b,a
++        ld a,c
++        cp 32
++        jr nc,mod_ramp_hi
++        xor a
++        sub b
++        ret
++mod_ramp_hi:
++        ld a,0FFh
++        sub b
++        ret
++mod_wave_square:
++        ld a,c
++        cp 32
++        ld a,127
++        ret c
++        ld a,129               ; -127 signed
++        ret
++
+ keycut_current:
+         ; S3M note-off is a cut, not a long envelope release.
+         ; YMF278B DAMP reaches silence in about 11 ms and is cleared by keyon.
+@@ -1596,7 +1963,7 @@
+         ld bc,9                ; PAGE_INDEX..ENDED (includes ROW_TICK)
+         call state_write_block
+         ld hl,FAST_VOL
+-        ld bc,28               ; FAST_VOL..RETRIG_COUNT[23]
++        ld bc,31               ; FAST_VOL..HOLD_ROW
+         call state_write_block
+         ld hl,PERIOD_Q
+         ld bc,CMD1-PERIOD_Q    ; periods/target/volume/wave/key state
+@@ -1607,6 +1974,9 @@
+         ld hl,PAN
+         ld bc,24
+         call state_write_block
++        ld hl,TREMOR_COUNT
++        ld bc,168
++        call state_write_block
+         ld d,02h
+         ld e,010h              ; leave MoonSound RAM write disabled
+         jp opl4_write_de
+@@ -1634,7 +2004,7 @@
+         ld bc,9
+         call state_read_block
+         ld hl,FAST_VOL
+-        ld bc,28               ; FAST_VOL..RETRIG_COUNT[23]
++        ld bc,31               ; FAST_VOL..HOLD_ROW
+         call state_read_block
+         ld hl,PERIOD_Q
+         ld bc,CMD1-PERIOD_Q
+@@ -1645,6 +2015,9 @@
+         ld hl,PAN
+         ld bc,24
+         call state_read_block
++        ld hl,TREMOR_COUNT
++        ld bc,168
++        call state_read_block
+         ld d,02h
+         ld e,010h              ; return MoonSound to normal wave-table mode
+         jp opl4_write_de
+@@ -1701,6 +2074,12 @@
+         db 127,126,125,122,117,112,106,98,90,81,71,60,49,37,25,12
+         db 0,244,231,219,207,196,185,175,166,158,150,144,139,134,131,130
+         db 129,130,131,134,139,144,150,158,166,175,185,196,207,219,231,244
++RANDOM_TABLE:
++        db 98,129,213,88,102,41,191,162,125,20,185,170,186,224,240,160
++        db 17,72,107,251,116,187,194,216,10,195,65,109,238,218,243,180
++        db 96,160,243,125,84,145,204,189,236,187,100,174,8,186,205,143
++        db 45,77,129,221,154,59,194,98,210,30,68,106,134,198,99,41
++
+ 
+ ; Preserve the v0.3.8 table addresses exactly. The generic engine historically
+ ; has a small PITCH_LUT/state overlap, so moving these tables changes playback.
+diff -ruN '--exclude=*.bin' '--exclude=*.lst' '--exclude=*.map' '--exclude=*.ksp' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=S3M_v0.4.4_to_v0.4.5.patch' /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/source/compact_engine_mod.asm /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/source/compact_engine_mod.asm
+--- /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/source/compact_engine_mod.asm	2026-08-22 09:22:48.000000000 +0000
++++ /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/source/compact_engine_mod.asm	2026-08-22 13:51:26.575277735 +0000
+@@ -1,8 +1,8 @@
+ 
+         org 04000h
+ 
+-STREAM_PAGE     equ 06400h
+-STREAM_DATA     equ 06402h
++STREAM_PAGE     equ 06800h
++STREAM_DATA     equ 06802h
+ HEADER_SIZE     equ 39
+ DYNAMIC_GATEWAY equ 07FF0h
+ 
+diff -ruN '--exclude=*.bin' '--exclude=*.lst' '--exclude=*.map' '--exclude=*.ksp' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=S3M_v0.4.4_to_v0.4.5.patch' /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/source/compact_engine_s3m.asm /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/source/compact_engine_s3m.asm
+--- /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/source/compact_engine_s3m.asm	2026-08-22 13:14:46.000000000 +0000
++++ /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/source/compact_engine_s3m.asm	2026-08-22 13:51:26.575401139 +0000
+@@ -1,8 +1,8 @@
+ 
+         org 04000h
+ 
+-STREAM_PAGE     equ 06400h
+-STREAM_DATA     equ 06402h
++STREAM_PAGE     equ 06800h
++STREAM_DATA     equ 06802h
+ HEADER_SIZE     equ 39
+ DYNAMIC_GATEWAY equ 07FF0h
+ 
+@@ -36,6 +36,10 @@
+ LINEAR_XM       equ 05F21h
+ RETRIG_COUNT    equ 05F22h      ; 24 bytes: persistent ST3 Qxy counters
+ TEMP_PITCH      equ 05F3Ah      ; 24 bytes: 0 none, 1 temporary FX active, 2 restore pending
++OLD_VIB         equ 05F52h      ; stream flag: old ST2 vibrato depth x2
++PAT_DELAY       equ 05F53h      ; remaining SEx row-delay segments
++TICK_DELAY      equ 05F54h      ; S6x extra ticks per segment
++HOLD_ROW        equ 05F55h      ; delayed segment: do not parse row again
+ 
+ PERIOD_Q        equ 06000h      ; 24 words
+ TARGET_Q        equ 06030h      ; 24 words
+@@ -59,9 +63,17 @@
+ PEND_PLO        equ 06240h
+ PEND_PHI        equ 06258h
+ PEND_VOL        equ 06270h
++TREMOR_COUNT    equ 06400h      ; 24 bytes (free now stream starts at 6800h)
++TREMSPD         equ 06418h      ; Rxy speed
++TREMDEP         equ 06430h      ; Rxy depth
++TREMPH          equ 06448h      ; Rxy phase 0..63
++TREMTYPE        equ 06460h      ; S4x waveform 0..3
++VIBTYPE         equ 06478h      ; S3x waveform 0..3
++GLISS           equ 06490h      ; S1x control
+ PAGE_TOTAL_CFG  equ 063FCh      ; patched by converter
+ STATE_CLEAR     equ 05F00h
+-STATE_CLEAR_END equ 06288h
++STATE_CLEAR_END equ 06288h      ; do not clear resident code above this
++EXT_STATE_END   equ 064A8h
+ 
+ CMD_A           equ 1
+ CMD_D           equ 4
+@@ -69,15 +81,23 @@
+ CMD_F           equ 6
+ CMD_G           equ 7
+ CMD_H           equ 8
++CMD_I           equ 9
+ CMD_J           equ 10
+ CMD_O           equ 15
+ CMD_Q           equ 17
++CMD_R           equ 18
+ CMD_T           equ 20
+ CMD_X           equ 24
+ CMD_CUT         equ 27
+ CMD_ST3_COMB_D  equ 32
+ CMD_ST3_COMB_H  equ 33
+ CMD_ST3_COMB_G  equ 34
++CMD_ST3_PATDELAY equ 35
++CMD_ST3_VIBWAVE equ 36
++CMD_ST3_TREMWAVE equ 37
++CMD_ST3_FINETUNE equ 38
++CMD_ST3_TICKDELAY equ 39
++CMD_GLISS       equ 30
+ 
+ init:
+         xor a
+@@ -86,6 +106,12 @@
+         ld bc,STATE_CLEAR_END-STATE_CLEAR-1
+         ld (hl),a
+         ldir
++        xor a
++        ld hl,TREMOR_COUNT
++        ld de,TREMOR_COUNT+1
++        ld bc,EXT_STATE_END-TREMOR_COUNT-1
++        ld (hl),a
++        ldir
+         ld hl,DELAY_TICK
+         ld b,24
+         ld a,0FFh
+@@ -111,6 +137,9 @@
+         ld a,b
+         and 2
+         ld (LINEAR_XM),a
++        ld a,b
++        and 4
++        ld (OLD_VIB),a
+         ld hl,(STREAM_DATA+8)
+         ld (TEMPO),hl
+         ld hl,STREAM_DATA+14
+@@ -163,6 +192,13 @@
+         ld a,(ROW_TICK)
+         or a
+         jr nz,process_have_row
++        ld a,(HOLD_ROW)
++        or a
++        jr z,process_parse_new_row
++        xor a
++        ld (HOLD_ROW),a
++        jr process_have_row
++process_parse_new_row:
+         call parse_row
+         ld a,(ENDED)
+         or a
+@@ -175,6 +211,9 @@
+         inc a
+         ld b,a
+         ld a,(SPEED)
++        ld c,a
++        ld a,(TICK_DELAY)
++        add a,c
+         cp b
+         jr c,process_row_done
+         jr z,process_row_done
+@@ -182,13 +221,27 @@
+         ld (ROW_TICK),a
+         ret
+ process_row_done:
++        ld a,(PAT_DELAY)
++        or a
++        jr z,process_row_really_done
++        dec a
++        ld (PAT_DELAY),a
++        ld a,1
++        ld (HOLD_ROW),a
+         xor a
+         ld (ROW_TICK),a
+         ret
++process_row_really_done:
++        xor a
++        ld (ROW_TICK),a
++        ld (TICK_DELAY),a
++        ret
+ 
+ parse_row:
+         ; Clear row-local effects and expire delayed actions from a malformed prior row.
+         xor a
++        ld (PAT_DELAY),a
++        ld (TICK_DELAY),a
+         ld hl,CMD1
+         ld de,CMD1+1
+         ld bc,96-1
+@@ -330,14 +383,13 @@
+ parse_effects:
+         xor a
+         ld (FX_SLOT),a
++parse_effects_loop:
+         call parse_one_effect
+         ret c
+         ld a,(SECOND_FX)
+         or a
+         ret z
+-        ld a,1
+-        ld (FX_SLOT),a
+-        jp parse_one_effect
++        jr parse_effects_loop
+ 
+ parse_one_effect:
+         call read_stream_byte
+@@ -379,6 +431,49 @@
+         or a
+         ret
+ fx_not_pan:
++        cp CMD_GLISS
++        jr nz,fx_not_gliss
++        ld a,e
++        ld hl,GLISS
++        call ptr8_cur
++        ld (hl),a
++        or a
++        ret
++fx_not_gliss:
++        cp CMD_ST3_VIBWAVE
++        jr nz,fx_not_vibwave
++        ld a,e
++        and 03h
++        ld hl,VIBTYPE
++        call ptr8_cur
++        ld (hl),a
++        or a
++        ret
++fx_not_vibwave:
++        cp CMD_ST3_TREMWAVE
++        jr nz,fx_not_tremwave
++        ld a,e
++        and 03h
++        ld hl,TREMTYPE
++        call ptr8_cur
++        ld (hl),a
++        or a
++        ret
++fx_not_tremwave:
++        cp CMD_ST3_PATDELAY
++        jr nz,fx_not_patdelay
++        ld a,e
++        ld (PAT_DELAY),a
++        or a
++        ret
++fx_not_patdelay:
++        cp CMD_ST3_TICKDELAY
++        jr nz,fx_not_tickdelay
++        ld a,e
++        ld (TICK_DELAY),a
++        or a
++        ret
++fx_not_tickdelay:
+         ; H updates nibble memory immediately; its resolved parameter already has both nibbles.
+         cp CMD_H
+         jr nz,fx_store
+@@ -398,6 +493,8 @@
+         pop de
+ fx_store:
+         ld a,(FX_SLOT)
++        cp 2
++        jr nc,fx_extra
+         or a
+         jr nz,fx_store_2
+         ld hl,CMD1
+@@ -406,7 +503,7 @@
+         ld hl,PAR1
+         call ptr8_cur
+         ld (hl),e
+-        jr fx_extra
++        jr fx_store_inc
+ fx_store_2:
+         ld hl,CMD2
+         call ptr8_cur
+@@ -414,10 +511,14 @@
+         ld hl,PAR2
+         call ptr8_cur
+         ld (hl),e
++fx_store_inc:
++        ld a,(FX_SLOT)
++        inc a
++        ld (FX_SLOT),a
+ fx_extra:
+         ld a,d
+         cp CMD_J
+-        jr nz,fx_done
++        jr nz,fx_check_finetune
+         ; J carries two precomputed quarter-periods.
+         call read_stream_byte
+         ret c
+@@ -441,6 +542,21 @@
+         ld (hl),e
+         inc hl
+         ld (hl),d
++        jr fx_done
++fx_check_finetune:
++        cp CMD_ST3_FINETUNE
++        jr nz,fx_done
++        call read_stream_byte
++        ret c
++        ld e,a
++        call read_stream_byte
++        ret c
++        ld d,a
++        ld hl,ARP1
++        call ptr16_cur
++        ld (hl),e
++        inc hl
++        ld (hl),d
+ fx_done:
+         or a
+         ret
+@@ -546,6 +662,12 @@
+         ld hl,VIBPH
+         call ptr8_cur
+         ld (hl),a
++        ld hl,TREMPH
++        call ptr8_cur
++        ld (hl),a
++        ld hl,TREMOR_COUNT
++        call ptr8_cur
++        ld (hl),a
+         ld hl,TEMP_PITCH
+         call ptr8_cur
+         ld (hl),a
+@@ -705,10 +827,16 @@
+         jp z,effect_porta
+         cp CMD_H
+         jp z,effect_vibrato
++        cp CMD_I
++        jp z,effect_tremor
+         cp CMD_J
+         jp z,effect_arpeggio
+         cp CMD_Q
+         jp z,effect_retrig
++        cp CMD_R
++        jp z,effect_tremolo
++        cp CMD_ST3_FINETUNE
++        jp z,effect_finetune
+         cp CMD_CUT
+         jp z,effect_note_cut
+         cp CMD_ST3_COMB_D
+@@ -720,9 +848,8 @@
+         ret
+ 
+ effect_st3_combined_d:
+-        ; Kxy/Lxy are H00/G00 + Dxy. ST3 forbids fine volume slides in
+-        ; combined commands, but an ordinary Dxy follows the normal D timing
+-        ; (including ST3.00 fast-volume-slide tick 0 behaviour).
++        ; Kxy/Lxy are H00/G00 + Dxy. The D half never runs on tick 0 in ST3,
++        ; even when fast volume slides are enabled.
+         jp s3m_combined_volume_slide
+ 
+ effect_st3_combined_h:
+@@ -1028,11 +1155,7 @@
+         call ptr8_cur
+         ld a,(hl)
+         and 3Fh
+-        ld e,a
+-        ld d,0
+-        ld hl,SINE_TABLE
+-        add hl,de
+-        ld a,(hl)
++        call get_vib_wave_current
+         ld b,a
+         ld a,(TICK_NOW)
+         or a
+@@ -1083,8 +1206,12 @@
+         rr l
+         srl h
+         rr l
++        ld a,(OLD_VIB)
++        or a
++        jr nz,vib_depth_shift_done
+         srl h
+         rr l
++vib_depth_shift_done:
+         ld e,l
+         ld d,0
+         pop bc
+@@ -1108,6 +1235,181 @@
+         ld (PITCH_DIRTY),a
+         ret
+ 
++effect_tremor:
++        ; ST3 Ixy: x+1 ticks on, y+1 ticks off. Counter persists across rows
++        ; and is reset by a new note.
++        ld a,e
++        and 0F0h
++        rrca
++        rrca
++        rrca
++        rrca
++        and 0Fh
++        ld b,a                 ; x
++        ld a,e
++        and 0Fh
++        ld c,a                 ; y
++        ld hl,TREMOR_COUNT
++        call ptr8_cur
++        ld a,b
++        add a,c
++        add a,2
++        ld d,a                 ; cycle length
++        ld a,(hl)
++        cp d
++        jr c,tremor_count_ok
++        xor a
++        ld (hl),a
++tremor_count_ok:
++        ld e,a                 ; current count
++        inc a
++        ld (hl),a              ; next count
++        ld a,b
++        inc a                  ; on length
++        cp e
++        jr c,tremor_off
++        jr z,tremor_off
++        ld hl,VOLUME
++        call ptr8_cur
++        ld a,(hl)
++        jp emit_volume_a_temp
++tremor_off:
++        xor a
++        jp emit_volume_a_temp
++
++effect_tremolo:
++        ; ST3 Rxy. The host already resolved ST3 shared parameter memory, so
++        ; both nibbles are authoritative here (including a zero nibble).
++        ld a,e
++        and 0F0h
++        rrca
++        rrca
++        rrca
++        rrca
++        and 0Fh
++        ld hl,TREMSPD
++        call ptr8_cur
++        ld (hl),a
++        ld a,e
++        and 0Fh
++        ld hl,TREMDEP
++        call ptr8_cur
++        ld (hl),a
++        ld hl,TREMPH
++        call ptr8_cur
++        ld a,(hl)
++        and 3Fh
++        call get_trem_wave_current
++        ld b,a                 ; signed waveform delta
++        ld a,(TICK_NOW)
++        or a
++        jr z,trem_no_advance
++        ld hl,TREMPH
++        call ptr8_cur
++        ld a,(hl)
++        ld c,a
++        ld hl,TREMSPD
++        call ptr8_cur
++        ld a,(hl)
++        add a,c
++        and 3Fh
++        ld hl,TREMPH
++        call ptr8_cur
++        ld (hl),a
++trem_no_advance:
++        ld a,b
++        or a
++        jr z,trem_emit_base
++        jp p,trem_positive
++        neg
++        ld c,1
++        jr trem_abs_ready
++trem_positive:
++        ld c,0
++trem_abs_ready:
++        ld e,a
++        ld d,0
++        push bc
++        ld hl,TREMDEP
++        call ptr8_cur
++        ld a,(hl)
++        ld b,a
++        ld hl,0
++trem_mul:
++        ld a,b
++        or a
++        jr z,trem_mul_done
++        add hl,de
++        dec b
++        jr trem_mul
++trem_mul_done:
++        ; tracker-volume delta = waveform * depth / 64
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        ld e,l
++        pop bc
++        ld hl,VOLUME
++        call ptr8_cur
++        ld a,(hl)
++        ld b,a
++        ld a,c
++        or a
++        ld a,b
++        jr nz,trem_sub
++        add a,e
++        cp 65
++        jr c,trem_emit
++        ld a,64
++        jr trem_emit
++trem_sub:
++        sub e
++        jr nc,trem_emit
++        xor a
++trem_emit:
++        jp emit_volume_a_temp
++trem_emit_base:
++        ld hl,VOLUME
++        call ptr8_cur
++        ld a,(hl)
++        jp emit_volume_a_temp
++
++effect_finetune:
++        ld a,(TICK_NOW)
++        or a
++        ret nz
++        ld hl,ARP1
++        call ptr16_cur
++        ld e,(hl)
++        inc hl
++        ld d,(hl)
++        ld a,d
++        or e
++        ret z
++        ld hl,PERIOD_Q
++        call ptr16_cur
++        ld (hl),e
++        inc hl
++        ld (hl),d
++        ld hl,TARGET_Q
++        call ptr16_cur
++        ld (hl),e
++        inc hl
++        ld (hl),d
++        ld (OUT_PERIOD),de
++        ld a,1
++        ld (PITCH_DIRTY),a
++        ret
++
+ effect_arpeggio:
+         ld a,(TICK_NOW)
+ arp_mod3:
+@@ -1146,7 +1448,9 @@
+         ; Retrigger when counter >= y, then clear it. New notes do not reset it.
+         ld a,e
+         and 0Fh
+-        ret z
++        jr nz,s3m_retrig_interval_ok
++        inc a                    ; ST3 Qx0 behaves as interval 1
++s3m_retrig_interval_ok:
+         ld b,a
+         ld hl,RETRIG_COUNT
+         call ptr8_cur
+@@ -1307,6 +1611,21 @@
+         ld d,a
+         jp opl4_write_de
+ 
++emit_volume_a_temp:
++        cp 65
++        jr c,emit_temp_ok
++        ld a,64
++emit_temp_ok:
++        ld e,a
++        ld d,0
++        ld hl,VOL_LUT
++        add hl,de
++        ld e,(hl)
++        ld a,(CUR_CH)
++        add a,050h
++        ld d,a
++        jp opl4_write_de
++
+ set_pan_from_tracker:
+         ; A=0..255 tracker pan. OPL4: 9..15 left, 1..7 right, 0 centre.
+         cp 128
+@@ -1364,6 +1683,63 @@
+         ld (hl),a
+         ret
+ 
++get_vib_wave_current:
++        ld c,a
++        ld hl,VIBTYPE
++        call ptr8_cur
++        ld b,(hl)
++        jr get_mod_wave
++
++get_trem_wave_current:
++        ld c,a
++        ld hl,TREMTYPE
++        call ptr8_cur
++        ld b,(hl)
++get_mod_wave:
++        ld a,b
++        and 03h
++        or a
++        jr z,mod_wave_sine
++        cp 1
++        jr z,mod_wave_ramp
++        cp 2
++        jr z,mod_wave_square
++        ld e,c
++        ld d,0
++        ld hl,RANDOM_TABLE
++        add hl,de
++        ld a,(hl)
++        ret
++mod_wave_sine:
++        ld e,c
++        ld d,0
++        ld hl,SINE_TABLE
++        add hl,de
++        ld a,(hl)
++        ret
++mod_wave_ramp:
++        ld a,c
++        add a,a
++        add a,a
++        ld b,a
++        ld a,c
++        cp 32
++        jr nc,mod_ramp_hi
++        xor a
++        sub b
++        ret
++mod_ramp_hi:
++        ld a,0FFh
++        sub b
++        ret
++mod_wave_square:
++        ld a,c
++        cp 32
++        ld a,127
++        ret c
++        ld a,129               ; -127 signed
++        ret
++
+ keycut_current:
+         ; S3M sample note-off is a cut, not a long envelope release.
+         ; YMF278B DAMP reaches silence in about 11 ms and is cleared by keyon.
+@@ -1571,7 +1947,7 @@
+ ;
+ ; Dynamic materialization replaces 4000h..7FFFh, including our RAM state.
+ ; Store only state that must survive between rows in reserved MoonSound RAM
+-; 2FFE00h..2FFFFFh. 301 bytes are used; the converter never places MWK sample
++; 2FFE00h..2FFFFFh. Less than 512 bytes are used; the converter never places MWK sample
+ ; payload in this final 512-byte window. CMD/PAR/delay/ARP scratch is row-local
+ ; and deliberately not persisted because page changes only occur between rows.
+ ; ---------------------------------------------------------------------------
+@@ -1599,7 +1975,7 @@
+         ld bc,9                ; PAGE_INDEX..ENDED (includes ROW_TICK)
+         call state_write_block
+         ld hl,FAST_VOL
+-        ld bc,52               ; FAST_VOL..TEMP_PITCH[23]
++        ld bc,56               ; FAST_VOL..HOLD_ROW
+         call state_write_block
+         ld hl,PERIOD_Q
+         ld bc,CMD1-PERIOD_Q    ; periods/target/volume/wave/key state
+@@ -1610,6 +1986,9 @@
+         ld hl,PAN
+         ld bc,24
+         call state_write_block
++        ld hl,TREMOR_COUNT
++        ld bc,168              ; tremor/tremolo/vibrato-wave/gliss state
++        call state_write_block
+         ld d,02h
+         ld e,010h              ; leave MoonSound RAM write disabled
+         jp opl4_write_de
+@@ -1637,7 +2016,7 @@
+         ld bc,9
+         call state_read_block
+         ld hl,FAST_VOL
+-        ld bc,52               ; FAST_VOL..TEMP_PITCH[23]
++        ld bc,56               ; FAST_VOL..HOLD_ROW
+         call state_read_block
+         ld hl,PERIOD_Q
+         ld bc,CMD1-PERIOD_Q
+@@ -1648,6 +2027,9 @@
+         ld hl,PAN
+         ld bc,24
+         call state_read_block
++        ld hl,TREMOR_COUNT
++        ld bc,168
++        call state_read_block
+         ld d,02h
+         ld e,010h              ; return MoonSound to normal wave-table mode
+         jp opl4_write_de
+@@ -1704,6 +2086,11 @@
+         db 127,126,125,122,117,112,106,98,90,81,71,60,49,37,25,12
+         db 0,244,231,219,207,196,185,175,166,158,150,144,139,134,131,130
+         db 129,130,131,134,139,144,150,158,166,175,185,196,207,219,231,244
++RANDOM_TABLE:
++        db 98,129,213,88,102,41,191,162,125,20,185,170,186,224,240,160
++        db 17,72,107,251,116,187,194,216,10,195,65,109,238,218,243,180
++        db 96,160,243,125,84,145,204,189,236,187,100,174,8,186,205,143
++        db 45,77,129,221,154,59,194,98,210,30,68,106,134,198,99,41
+ 
+ ; Preserve the v0.3.8 table addresses exactly. The generic engine historically
+ ; has a small PITCH_LUT/state overlap, so moving these tables changes playback.
+@@ -2104,8 +2491,13 @@
+         ld e,010h              ; normal wave-table mode / write disabled
+         jp opl4_write_de
+ 
+-; K/L combined volume-slide helper. Fine D forms are ignored in ST3 K/L.
++; K/L combined volume-slide helper. ST3 suppresses the volume-slide half
++; completely on tick 0, regardless of fast-volume-slide mode. Fine D forms are
++; ignored on all ticks.
+ s3m_combined_volume_slide:
++        ld a,(TICK_NOW)
++        or a
++        ret z
+         ld a,e
+         and 0F0h
+         cp 0F0h
+diff -ruN '--exclude=*.bin' '--exclude=*.lst' '--exclude=*.map' '--exclude=*.ksp' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=S3M_v0.4.4_to_v0.4.5.patch' /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/source/compact_engine_xm.asm /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/source/compact_engine_xm.asm
+--- /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/source/compact_engine_xm.asm	2026-08-22 08:54:56.000000000 +0000
++++ /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/source/compact_engine_xm.asm	2026-08-22 13:51:26.574998384 +0000
+@@ -1,8 +1,8 @@
+ 
+         org 04000h
+ 
+-STREAM_PAGE     equ 06400h
+-STREAM_DATA     equ 06402h
++STREAM_PAGE     equ 06800h
++STREAM_DATA     equ 06802h
+ HEADER_SIZE     equ 39
+ DYNAMIC_GATEWAY equ 07FF0h
+ 
+diff -ruN '--exclude=*.bin' '--exclude=*.lst' '--exclude=*.map' '--exclude=*.ksp' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=S3M_v0.4.4_to_v0.4.5.patch' /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/source/compact_stream.py /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/source/compact_stream.py
+--- /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/source/compact_stream.py	2026-08-22 12:58:00.000000000 +0000
++++ /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/source/compact_stream.py	2026-08-22 13:53:01.442929600 +0000
+@@ -11,6 +11,10 @@
+ CMD_NOTE_CUT=27
+ CMD_XM_PROFILE=28; CMD_VCTRL=29; CMD_GLISS=30; CMD_KEYOFF=31
+ CMD_ST3_COMBINED_D=32; CMD_ST3_COMBINED_H=33; CMD_ST3_COMBINED_G=34
++CMD_ST3_PATTERN_DELAY=35; CMD_ST3_VIB_WAVE=36; CMD_ST3_TREM_WAVE=37
++CMD_ST3_FINETUNE=38; CMD_ST3_TICK_DELAY=39
++S3M_FMTS=('S3M','IT-S3M','MODERN-S3M')
++S3M_FINETUNE=(7895,7941,7985,8046,8107,8169,8232,8280,8363,8413,8463,8529,8581,8651,8723,8757)
+ 
+ HEADER_SIZE=39
+ STREAM_MAGIC=b'CTR1'
+@@ -27,6 +31,10 @@
+     note_offset: int = 0
+     vib_speed: int = 0
+     vib_depth: int = 0
++    high_offset: int = 0
++    finetune_c5: int = 0
++    loop_start_row: int = 0
++    loop_count: int = 0
+     mem: Dict[int,int] = field(default_factory=dict)
+ 
+ @dataclass
+@@ -134,7 +142,7 @@
+         self.stop_order=stop_order if stop_order is not None else self._next_255(start_order)
+         self.max_seconds=max_seconds
+         self.states={ch:ResolveState() for ch in self.m.active_channels}
+-        self.bank=SharedPayloadWaveBank(module,extended_aliases=(source_format in ('S3M','IT-S3M')))
++        self.bank=SharedPayloadWaveBank(module,extended_aliases=(source_format in S3M_FMTS))
+         self.speed=max(1,module.speed); self.tempo=max(32,module.tempo)
+         self.order=start_order; self.row=0; self.seconds=0.0; self.rows=0
+         self.ended_reason=''; self.warnings=[]
+@@ -150,14 +158,13 @@
+     def _resolve(self, st:ResolveState, cmd:int, p:int)->int:
+         raw=p or 0
+         if self.fmt=='S3M':
+-            # ST3 shared parameter memory is used only by D/E/F/I/J/K/L/Q/R/S.
+-            # G, H and O have independent memories; speed/tempo/flow commands
+-            # must not poison a later D00/E00/F00/etc. recall.
++            # Genuine ST3 has a deliberately odd shared memory. Any *effect
++            # command* with a non-zero parameter updates the value later
++            # recalled by D/E/F/I/J/K/L/Q/R/S. A NONE command never does.
+             if cmd in (CMD_D,CMD_E,CMD_F,CMD_I,CMD_J,CMD_K,CMD_L,CMD_Q,CMD_R,CMD_S):
+-                p = raw or st.global_mem
+-                if raw: st.global_mem=raw
++                p=raw or st.global_mem
+             elif cmd==CMD_G:
+-                p = raw or st.g_mem
++                p=raw or st.g_mem
+                 if raw: st.g_mem=raw
+             elif cmd==CMD_H:
+                 if raw & 0xF0: st.vib_speed=(raw>>4)&15
+@@ -165,17 +172,20 @@
+                 p=(st.vib_speed<<4)|st.vib_depth
+             elif cmd==CMD_O:
+                 if raw:
+-                    st.o_mem=raw
+-                    p=raw
++                    st.o_mem=raw; p=raw
+                 elif int(getattr(self.m,'s3m_cwtv',0)) <= 0x1301:
+                     p=0
+                 else:
+                     p=st.o_mem
++            else:
++                p=raw
++            if cmd and raw:
++                st.global_mem=raw
+             return p
+-        # Impulse Tracker-authored S3M: effect-local memory rather than
+-        # ST3's shared D/E/F/I/J/K/L/Q/R/S memory. G/H/O keep their dedicated
+-        # state because combined K/L commands refer to those primitive states.
+-        if self.fmt=='IT-S3M':
++
++        # IT-authored and modern/non-ST3 S3M use effect-local memory instead
++        # of ST3's global D/E/F/I/J/K/L/Q/R/S byte.
++        if self.fmt in ('IT-S3M','MODERN-S3M'):
+             if cmd==CMD_G:
+                 p=raw or st.g_mem
+                 if raw: st.g_mem=raw
+@@ -188,9 +198,6 @@
+                 p=raw or st.o_mem
+                 if raw: st.o_mem=raw
+                 return p
+-            # In IT, D/K/L share the same volume-slide parameter memory.
+-            # K00 and L00 therefore recall the latest non-zero D/K/L value,
+-            # while their vibrato/porta halves keep their own H/G memories.
+             if cmd in (CMD_D,CMD_K,CMD_L):
+                 if raw: st.mem[CMD_D]=raw
+                 return raw or st.mem.get(CMD_D,0)
+@@ -236,6 +243,8 @@
+             # S3M's 0..15 table spans the complete stereo field.
+             tracker_pan=(int(pans[ch])*256+7)//15
+             return self._tracker_pan_to_opl4(min(255,tracker_pan))
++        if self.fmt in S3M_FMTS and not bool(getattr(self.m,'s3m_is_stereo',True)):
++            return 0
+         setting=self.m.channel_settings[ch] if ch < len(self.m.channel_settings) else 0
+         return 11 if setting < 8 else 5
+ 
+@@ -250,9 +259,10 @@
+     # exponential note relation used by the proven Second Reality converter.
+     ST3_CLOCK=core.PERIOD_CLOCK*4.0
+ 
+-    def _s3m_period_q(self,ins,noteidx):
++    def _s3m_period_q(self,ins,noteidx,c5_override=0):
+         smp=self.m.samples[ins]
+-        freq=float(smp.c2spd)*(2.0**((int(noteidx)-48)/12.0))
++        c5=int(c5_override) if c5_override else int(smp.c2spd)
++        freq=float(c5)*(2.0**((int(noteidx)-48)/12.0))
+         period=core.PERIOD_CLOCK/max(1.0,freq)
+         return max(1,min(65535,int(round(period*4.0))))
+ 
+@@ -288,16 +298,40 @@
+ 
+     def _event_action(self,e, st:ResolveState)->Optional[Action]:
+         cmd=e.cmd or 0; p=e.param or 0
+-        # In ST3, even a no-op effect cell with a non-zero parameter updates
+-        # the shared D/E/F/I/J/K/L/Q/R/S parameter memory.
+-        if self.fmt=='S3M' and e.cmd==0 and p:
+-            st.global_mem=p
+         if cmd: p=self._resolve(st,cmd,p)
+-        # Combined K/L have a deliberate first-tick no-op in genuine ST3.
+-        # Preserve that provenance with private semantic commands; XM/MOD/IT
+-        # keep their own combined-effect rules.
++        # Keep the resolved command for compile-time flow effects (SBx loops).
++        e.resolved_param=p
+         effects=[]
+-        if cmd==CMD_K:
++        delay=-1
++        sx=(p>>4)&15 if cmd==CMD_S else -1
++        sl=p&15 if cmd==CMD_S else 0
++
++        # S3M extended commands. State-only commands are encoded as private
++        # semantic commands and consumed by the Z80 parser; they do not waste
++        # a realtime effect slot.
++        if cmd==CMD_S:
++            if sx==0x1: effects.append((CMD_GLISS,sl,None))
++            elif sx==0x2:
++                st.finetune_c5=S3M_FINETUNE[sl]
++                # Retune a currently playing note immediately. Future notes use
++                # the new channel C5 speed directly in their encoded period.
++                cur_ins=(e.ins if e.ins in self.m.samples else st.instrument)
++                has_new_note=(e.note is not None and e.note < 254)
++                curpq=self._s3m_period_q(cur_ins,st.note_index,st.finetune_c5) if (not has_new_note and cur_ins in self.m.samples and st.note_index>=0) else 0
++                effects.append((CMD_ST3_FINETUNE,sl,(curpq,0)))
++            elif sx==0x3: effects.append((CMD_ST3_VIB_WAVE,sl&3,None))
++            elif sx==0x4: effects.append((CMD_ST3_TREM_WAVE,sl&3,None))
++            elif sx==0x6: effects.append((CMD_ST3_TICK_DELAY,sl,None))
++            elif sx==0x8: effects.append((CMD_X,(sl*255+7)//15,None))
++            elif sx==0xA: st.high_offset=sl
++            elif sx==0xB: pass  # flattened by compile() below
++            elif sx==0xC:
++                # ST3 explicitly ignores SC0. IT-compatible S3M treats SC0 as SC1.
++                if sl or self.fmt!='S3M': effects.append((CMD_NOTE_CUT,sl or 1,None))
++            elif sx==0xD: delay=sl
++            elif sx==0xE:
++                if sl or self.fmt!='S3M': effects.append((CMD_ST3_PATTERN_DELAY,sl,None))
++        elif cmd==CMD_K:
+             if self.fmt=='S3M':
+                 effects=[(CMD_ST3_COMBINED_H,0,None),(CMD_ST3_COMBINED_D,p,None)]
+             else:
+@@ -307,17 +341,20 @@
+                 effects=[(CMD_ST3_COMBINED_G,st.g_mem,None),(CMD_ST3_COMBINED_D,p,None)]
+             else:
+                 effects=[(CMD_G,st.g_mem,None),(CMD_D,p,None)]
+-        elif cmd not in (0,CMD_B,CMD_C,CMD_O,CMD_S):
++        elif cmd not in (0,CMD_B,CMD_C,CMD_O):
+             effects.append((cmd,p,None))
+-        delay=-1
+-        if cmd==CMD_S and (p>>4)==0xD:
+-            delay=p&15
++
++        # S3M volume-column 128..192 is panning 0..64.
++        vpan=getattr(e,'volume_pan',None)
++        if vpan is not None and self.fmt in S3M_FMTS:
++            effects.insert(0,(CMD_X,(max(0,min(64,int(vpan)))*255+32)//64,None))
++
+         # Extra semantic effects from XM volume column etc.
+         for vc,vp in getattr(e,'extra_effects',[]):
+             rp=self._resolve(st,vc,vp)
+             effects.append((vc,rp,None))
+         if len(effects)>4:
+-            self.warnings.append(f'row event on channel {e.ch}: more than four simultaneous effects; extras dropped')
++            self.warnings.append(f'row event on channel {e.ch}: more than four semantic effects; extras dropped')
+             effects=effects[:4]
+ 
+         a=Action(e.ch)
+@@ -325,6 +362,10 @@
+         valid_ins = e.ins if e.ins in self.m.samples else None
+         old_ins=st.instrument
+         use_ins=valid_ins or old_ins
++        if valid_ins and not (cmd==CMD_S and sx==0x2):
++            # Loading an instrument/sample restores its native C5 speed; S2x on
++            # the same row then overrides it again below.
++            st.finetune_c5=0
+ 
+         # Immediate volume semantics. Instrument changes reset to the sample default except when delayed.
+         if delay < 0 and valid_ins:
+@@ -334,7 +375,7 @@
+         # S3M/ST3 volume is a true 0..64 range.  Do not fold 64 to 63:
+         # ST3's own fine/regular slides clamp at 64, and sample defaults and
+         # pattern volume cells are allowed to contain 64.
+-        if self.fmt in ('S3M','IT-S3M') and a.volume is not None:
++        if self.fmt in S3M_FMTS and a.volume is not None:
+             a.volume=min(64,a.volume)
+ 
+         if e.note is not None:
+@@ -353,12 +394,14 @@
+                     # then applies 1xx/2xx/3xx/4xy in exactly that domain.
+                     pq=self._xm_linear_period(use_ins,ni)
+                     lo,hi=self._xm_linear_pitch_regs(pq)
+-                elif self.fmt=='S3M':
+-                    # ST3 uses its own integer period table and C4-speed domain.
++                elif self.fmt in S3M_FMTS:
++                    # S3M profiles use their own integer period/C5-speed domain and C4-speed domain.
+                     # Keep that exact period as runtime state so slides/porta/vibrato
+                     # cannot inherit MOD/Paula rounding or clock assumptions.
+-                    pq=self._s3m_period_q(use_ins,ni)
+-                    lo,hi=core.Compiler._pitch_regs(self._period(use_ins,ni))
++                    pq=self._s3m_period_q(use_ins,ni,st.finetune_c5)
++                    c5=st.finetune_c5 or self.m.samples[use_ins].c2spd
++                    freq=float(c5)*(2.0**((ni-48)/12.0))
++                    lo,hi=core.Compiler._pitch_regs(core.PERIOD_CLOCK/max(1.0,freq))
+                 else:
+                     period=self._period(use_ins,ni)
+                     # A finetune-0 MOD stores the exact Paula period in the pattern.
+@@ -370,7 +413,7 @@
+                     lo,hi=core.Compiler._pitch_regs(period)
+                 porta=(cmd in (CMD_G,CMD_L)) and st.period_seen
+                 if porta:
+-                    if self.fmt=='IT-S3M' and delay<0 and valid_ins and old_ins and valid_ins!=old_ins:
++                    if self.fmt in S3M_FMTS and bool(getattr(self.m,'s3m_porta_sample_change',False)) and delay<0 and valid_ins and old_ins and valid_ins!=old_ins:
+                         # IT's S3M profile swaps/restarts the new sample while
+                         # keeping the old pitch and sliding towards the new note.
+                         wave=self.bank.get(valid_ins,0)
+@@ -381,14 +424,21 @@
+                     a.period_q=pq
+                 else:
+                     if cmd==CMD_O:
+-                        off=p*256
++                        off=(st.high_offset<<16) + p*256
+                     elif self.fmt=='S3M' and not valid_ins:
+                         # ST3 recalls the previous note's sample offset when a
+-                        # new note omits the instrument number. A new explicit
+-                        # instrument without Oxx starts at offset zero.
++                        # new note omits the instrument number.
+                         off=st.note_offset
+                     else:
+                         off=0
++                    smp=self.m.samples[use_ins]
++                    if self.fmt=='S3M' and cmd==CMD_O and smp.looped and off>=smp.loop_end:
++                        if bool(getattr(self.m,'s3m_use_gus',False)):
++                            span=max(1,smp.loop_end-smp.loop_begin)
++                            off=((off-smp.loop_begin)%span)+smp.loop_begin
++                        else:
++                            # ST3/SB stops the sample instead of GUS-style loop wrap.
++                            off=smp.length
+                     wave=self.bank.get(use_ins,off)
+                     a.tone=wave-384
+                     a.period_q=pq; a.pitch_lo=lo|1; a.pitch_hi=hi
+@@ -396,7 +446,7 @@
+                     if self.fmt=='S3M':
+                         st.note_offset=off
+                 if delay>=0 and valid_ins and e.vol is None:
+-                    a.delayed_volume=min(64,self.m.samples[valid_ins].volume) if self.fmt in ('S3M','IT-S3M') else self.m.samples[valid_ins].volume
++                    a.delayed_volume=min(64,self.m.samples[valid_ins].volume) if self.fmt in S3M_FMTS else self.m.samples[valid_ins].volume
+                 st.note_index=ni
+                 st.period_seen=True
+         elif valid_ins and delay>=0:
+@@ -407,7 +457,7 @@
+         # retriggering the voice or converting the current period. The default
+         # volume was already applied above. Avoid redundant writes when the
+         # selected sample is unchanged (as in Purple Motion's repeated #24).
+-        if (self.fmt in ('S3M','IT-S3M') and getattr(self.m,'s3m_sample_swap',self.fmt=='IT-S3M')
++        if (self.fmt in S3M_FMTS and getattr(self.m,'s3m_sample_swap',self.fmt!='S3M')
+                 and valid_ins and old_ins and valid_ins!=old_ins
+                 and (e.note is None or e.note==255) and delay<0):
+             wave=self.bank.get(valid_ins,0)
+@@ -434,9 +484,9 @@
+                     p1=self._xm_linear_period(arp_ins,st.note_index+((ep>>4)&15))
+                     p2=self._xm_linear_period(arp_ins,st.note_index+(ep&15))
+                     extra=(p1,p2)
+-                elif self.fmt=='S3M':
+-                    p1=self._s3m_period_q(arp_ins,st.note_index+((ep>>4)&15))
+-                    p2=self._s3m_period_q(arp_ins,st.note_index+(ep&15))
++                elif self.fmt in S3M_FMTS:
++                    p1=self._s3m_period_q(arp_ins,st.note_index+((ep>>4)&15),st.finetune_c5)
++                    p2=self._s3m_period_q(arp_ins,st.note_index+(ep&15),st.finetune_c5)
+                     extra=(p1,p2)
+                 else:
+                     p1=self._period(arp_ins,st.note_index+((ep>>4)&15))
+@@ -485,6 +535,8 @@
+                 out += bytes((c&0xFF,param&0xFF))
+                 if cmd==CMD_J:
+                     p1,p2=extra or (0,0); out += struct.pack('<HH',p1,p2)
++                elif cmd==CMD_ST3_FINETUNE:
++                    pq=(extra or (0,0))[0]; out += struct.pack('<H',pq)
+         return bytes(out)
+ 
+     def compile(self):
+@@ -497,7 +549,7 @@
+         visited_positions=set()
+         while self.order < self.stop_order and self.seconds < self.max_seconds:
+             if self.order>=len(self.m.orders): self.ended_reason='end of order list'; break
+-            pos_key=(self.order,self.row,self.speed,self.tempo)
++            pos_key=(self.order,self.row,self.speed,self.tempo,tuple((ch,self.states[ch].loop_start_row,self.states[ch].loop_count) for ch in sorted(self.states)))
+             if pos_key in visited_positions:
+                 self.ended_reason='sequence loop detected'; break
+             visited_positions.add(pos_key)
+@@ -509,18 +561,9 @@
+             if self.row>=len(pat): self.order+=1; self.row=0; continue
+             evs=pat[self.row]
+             # later channel wins for B/C, matching the backend's channel-order walk.
+-            pending_jump=None; pending_break=None
++            pending_jump=None; pending_break=None; pending_loop_row=None
+             actions=[]
+-            # The supplied S3M backend deliberately collapses packed-row data to
+-            # one event per active channel (last token wins).  Preserve that exact
+-            # behaviour here; it is important for malformed/legacy packed patterns
+-            # that contain duplicate channel tokens. XM/MOD parsers already emit at
+-            # most one event per channel per row.
+-            if self.fmt in ('S3M','IT-S3M'):
+-                by_ch={e.ch:e for e in evs if e.ch in self.states}
+-                row_events=sorted(by_ch.values(),key=lambda x:x.ch)
+-            else:
+-                row_events=sorted((e for e in evs if e.ch in self.states),key=lambda x:x.ch)
++            row_events=sorted((e for e in evs if e.ch in self.states),key=lambda x:x.ch)
+             for e in row_events:
+                 # Resolve B/C parameters directly (no memory in supported profiles).
+                 if e.cmd==CMD_B: pending_jump=e.param or 0
+@@ -531,6 +574,22 @@
+                     pending_break=((raw_break>>4)*10+(raw_break&15)) if self.fmt=='S3M' else raw_break
+                 a=self._event_action(e,self.states[e.ch])
+                 if a: actions.append(a)
++                # SBx pattern loop is flattened at conversion time. ST3 uses
++                # channel 0's loop memory globally; IT/modern S3M keep per-channel state.
++                if e.cmd==CMD_S and (((getattr(e,'resolved_param',0)>>4)&15)==0xB):
++                    lp=getattr(e,'resolved_param',0)&15
++                    lst=self.states[min(self.states)] if self.fmt=='S3M' else self.states[e.ch]
++                    if lp==0:
++                        lst.loop_start_row=self.row
++                    elif lst.loop_count:
++                        lst.loop_count-=1
++                        if lst.loop_count:
++                            pending_loop_row=lst.loop_start_row
++                        elif self.fmt=='S3M':
++                            lst.loop_start_row=self.row+1
++                    else:
++                        lst.loop_count=lp
++                        pending_loop_row=lst.loop_start_row
+                 # Global tempo/speed commands are effective on this row.
+                 if e.cmd==CMD_A and (e.param or 0): self.speed=max(1,e.param or 0)
+                 if e.cmd==CMD_T and (e.param or 0)>=32: self.tempo=max(32,e.param or 0)
+@@ -541,7 +600,9 @@
+             self.rows+=1
+             self.seconds += self.speed*2.5/self.tempo
+             # advance flattened playback order
+-            if pending_jump is not None:
++            if pending_loop_row is not None:
++                self.row=pending_loop_row
++            elif pending_jump is not None:
+                 if pending_jump<self.start_order or pending_jump>=self.stop_order:
+                     self.ended_reason=f'position jump leaves subsong (B{pending_jump:02X})'; break
+                 self.order=pending_jump; self.row=pending_break or 0
+@@ -564,7 +625,8 @@
+         # Bit 3 (0x08) is *zero-volume optimisation* and must not alter slide timing.
+         # ST3.00 (cwtv 0x1300) implicitly uses fast volume slides.
+         st3_fast = (self.fmt=='S3M' and int(getattr(self.m,'s3m_cwtv',0))==0x1300)
+-        stream_flags = 1 if (self.fmt in ('S3M','IT-S3M') and (bool(self.m.flags & 0x40) or st3_fast)) else 0
++        stream_flags = 1 if (self.fmt in S3M_FMTS and (bool(self.m.flags & 0x40) or st3_fast)) else 0
++        if self.fmt in S3M_FMTS and bool(getattr(self.m,'s3m_old_vibrato',False)): stream_flags |= 0x04
+         if self.xm_linear: stream_flags |= 0x02
+         header += bytes((STREAM_VERSION,min(24,len(self.m.active_channels)),max(1,self.m.speed),stream_flags))
+         header += struct.pack('<H',max(32,self.m.tempo))
+diff -ruN '--exclude=*.bin' '--exclude=*.lst' '--exclude=*.map' '--exclude=*.ksp' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=S3M_v0.4.4_to_v0.4.5.patch' /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/source/module_formats.py /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/source/module_formats.py
+--- /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/source/module_formats.py	2026-08-22 11:15:55.000000000 +0000
++++ /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/source/module_formats.py	2026-08-22 13:41:20.762158721 +0000
+@@ -299,64 +299,96 @@
+ 
+ 
+ def parse_s3m_profile(path:Path)->Tuple[core.Module,str]:
+-    """Parse an S3M container and select its actual playback profile.
++    """Parse S3M and choose an explicit playback profile.
+ 
+-    The S3M `cwtv` field identifies the tracker family that wrote the file.
+-    Impulse Tracker-authored S3Ms deliberately do not use several ST3 quirks,
+-    so they must not be sent through the strict ST3 runtime merely because the
+-    filename extension is .s3m.
++    This follows OpenMPT's important split: genuine ST3 (with GUS/SB driver
++    quirks), Impulse Tracker S3M, and modern/non-ST3 S3M writers. cwtv alone
++    is not sufficient because several trackers deliberately wrote ST3-looking
++    headers.
+     """
+-    m=core.parse_s3m(path)
+-    b=m.raw
++    m=core.parse_s3m(path); b=m.raw
+     cwtv=int.from_bytes(b[0x28:0x2A],'little') if len(b)>=0x2A else 0
+-    tracker_family=(cwtv>>12)&0x0F
+-    m.s3m_cwtv=cwtv
+-    m.s3m_tracker_family=tracker_family
+-    m.source_format='IT-S3M' if tracker_family==3 else 'S3M'
+-    m.offset_quantum=256
+-
+-    # Genuine ST3 saves fingerprint the active PCM driver in each 80-byte
+-    # sample header.  The 16-bit GUS address lives at +40.  With the GUS
+-    # driver loaded, non-empty samples receive distinct addresses; with the
+-    # SoundBlaster driver they are 0/1.  ST3 playback semantics differ for
+-    # instrument-only sample changes and instrument+tone-portamento, so this
+-    # is runtime-relevant information rather than metadata only.
+-    ordn=int.from_bytes(b[0x20:0x22],'little')
+-    insn=int.from_bytes(b[0x22:0x24],'little')
+-    patn=int.from_bytes(b[0x24:0x26],'little')
+-    ins_ptr_base=0x60+ordn
+-    gus_or=0
+-    pcm_headers=0
++    family=cwtv & 0xF000
++    m.s3m_cwtv=cwtv; m.s3m_tracker_family=family>>12; m.offset_quantum=256
++    ordn=int.from_bytes(b[0x20:0x22],'little'); insn=int.from_bytes(b[0x22:0x24],'little'); patn=int.from_bytes(b[0x24:0x26],'little')
++    flags=int.from_bytes(b[0x26:0x28],'little')
++    master=b[0x33] if len(b)>0x33 else 0
++    ultraclick=b[0x34] if len(b)>0x34 else 0
++    use_pan=(len(b)>0x35 and b[0x35]==0xFC)
++    special=int.from_bytes(b[0x3E:0x40],'little') if len(b)>=0x40 else 0
++
++    # Fingerprint GUS vs SB using ST3's saved GUS addresses.
++    ins_ptr_base=0x60+ordn; gus_or=0; pcm_headers=0
++    sample_ptrs=[]; pattern_ptrs=[]
+     for i in range(insn):
+         q=ins_ptr_base+2*i
+-        if q+2>len(b):
+-            break
+-        para=int.from_bytes(b[q:q+2],'little')
++        if q+2>len(b): break
++        para=int.from_bytes(b[q:q+2],'little'); sample_ptrs.append(para)
+         o=para*16
+-        if para and o+80<=len(b) and b[o]==1:  # PCM sample header
+-            pcm_headers+=1
+-            gus_or |= int.from_bytes(b[o+40:o+42],'little')
+-    m.s3m_gus_address_or=gus_or
+-    m.s3m_use_gus=(tracker_family==1 and pcm_headers>0 and gus_or>1)
+-    m.s3m_sample_swap=(tracker_family==3) or (tracker_family==1 and not m.s3m_use_gus)
+-    m.s3m_porta_sample_change=(tracker_family==1 and m.s3m_use_gus)
+-    if tracker_family==3:
+-        m.s3m_tracker_name='Impulse Tracker'
+-    elif tracker_family==1:
+-        m.s3m_tracker_name='Scream Tracker 3 (' + ('GUS' if m.s3m_use_gus else 'SB') + ')'
++        if para and o+80<=len(b) and b[o]==1:
++            pcm_headers+=1; gus_or |= int.from_bytes(b[o+40:o+42],'little')
++    pat_base=ins_ptr_base+2*insn
++    for i in range(patn):
++        q=pat_base+2*i
++        if q+2>len(b): break
++        pattern_ptrs.append(int.from_bytes(b[q:q+2],'little'))
++    offsets_canonical=bool(pattern_ptrs and sample_ptrs and pattern_ptrs[0] > sample_ptrs[0])
++
++    # OpenMPT fingerprints several cwtv=0x1320 files as non-ST3.
++    disguised_modern=False; modern_name=None
++    if cwtv==0x1320 and special==0 and ultraclick==0:
++        if (ordn & 1)==0 and (flags & ~0x50)==0 and use_pan and offsets_canonical:
++            if (ordn & 0x0F)==0:
++                modern_name='ModPlug Tracker / OpenMPT 1.17' if (master & 0x80) else 'ModPlug Tracker 1.0 alpha'
++                disguised_modern=True
++            elif master & 0x80:
++                modern_name='Schism Tracker'; disguised_modern=True
++        elif flags==0 and not use_pan:
++            modern_name='PlayerPRO' if b[0x30]==64 and (master&0x7F)==48 else 'Velvet Studio'; disguised_modern=True
++        elif flags==8 and not use_pan:
++            modern_name='Impulse Tracker < 1.03'; disguised_modern=True
++
++    is_st3=(family==0x1000 and not disguised_modern)
++    # ST3 3.01+ should leave GUS-address fingerprints. If all are zero, OpenMPT
++    # assumes another writer/converter rather than forcing ST3 quirks.
++    if is_st3 and pcm_headers and gus_or==0 and cwtv!=0x1300:
++        is_st3=False; modern_name='Unknown / ST3-compatible writer'
++
++    use_gus=bool(is_st3 and pcm_headers and gus_or>1)
++    m.s3m_gus_address_or=gus_or; m.s3m_use_gus=use_gus
++    m.s3m_is_st3=is_st3; m.s3m_is_stereo=bool(master & 0x80)
++    m.s3m_old_vibrato=bool(flags & 0x01); m.s3m_amiga_limits=bool(flags & 0x10)
++
++    if is_st3:
++        m.source_format='S3M'
++        m.s3m_profile='ST3-GUS' if use_gus else 'ST3-SB'
++        m.s3m_tracker_name='Scream Tracker 3 ('+('GUS' if use_gus else 'SB')+')'
++        m.s3m_sample_swap=not use_gus
++        m.s3m_porta_sample_change=use_gus
++        m.s3m_short_sample_retrig=not use_gus
++        m.s3m_shared_effect_memory=True
++    elif family==0x3000 or (modern_name and modern_name.startswith('Impulse Tracker')):
++        m.source_format='IT-S3M'; m.s3m_profile='IT-S3M'; m.s3m_tracker_name=modern_name or 'Impulse Tracker'
++        m.s3m_sample_swap=True; m.s3m_porta_sample_change=False; m.s3m_short_sample_retrig=True; m.s3m_shared_effect_memory=False
+     else:
+-        m.s3m_tracker_name='Scream Tracker 3 / ST3-compatible'
+-
+-    # Optional S3M default-panning table. A value is valid when bit 5 is set;
+-    # the low nibble then contains the 0..15 pan position.
+-    poff=0x60+ordn+2*insn+2*patn
+-    pans=[None]*32
+-    if len(b)>0x35 and b[0x35]==0xFC and poff+32<=len(b):
++        m.source_format='MODERN-S3M'; m.s3m_profile='modern/non-ST3 S3M'; m.s3m_shared_effect_memory=False
++        names={0x2000:'Imago Orpheus / compatible',0x4000:'Schism Tracker / compatible',0x5000:'OpenMPT / compatible',0x6000:'BeRoTracker',0x7000:'CreamTracker'}
++        m.s3m_tracker_name=modern_name or names.get(family,'Modern / non-ST3 S3M writer')
++        # Modern writers are closer to IT/Schism semantics than strict ST3.
++        m.s3m_sample_swap=True; m.s3m_porta_sample_change=False; m.s3m_short_sample_retrig=(family in (0x3000,0x4000,0x5000));
++
++    # Correct default speed/tempo after the creator profile is known.
++    raw_speed=b[0x31]; raw_tempo=b[0x32]
++    m.speed = 6 if (raw_speed==0 or (raw_speed==255 and is_st3)) else raw_speed
++    m.tempo = (125 if is_st3 else 32) if raw_tempo<33 else raw_tempo
++
++    # Optional default panning table. Mono S3M centers PCM channels when no
++    # explicit pan exists; stereo files use the traditional left/right groups.
++    poff=0x60+ordn+2*insn+2*patn; pans=[None]*32
++    if use_pan and poff+32<=len(b):
+         for ch,v in enumerate(b[poff:poff+32]):
+-            if v&0x20:
+-                pans[ch]=v&0x0F
+-    m.channel_panning_nibbles=pans
+-    m.s3m_has_default_panning=any(v is not None for v in pans)
++            if v&0x20: pans[ch]=v&0x0F
++    m.channel_panning_nibbles=pans; m.s3m_has_default_panning=any(v is not None for v in pans)
+     return m,m.source_format
+ 
+ 
+diff -ruN '--exclude=*.bin' '--exclude=*.lst' '--exclude=*.map' '--exclude=*.ksp' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=S3M_v0.4.4_to_v0.4.5.patch' /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/source/tracker2ksp.py /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/source/tracker2ksp.py
+--- /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/source/tracker2ksp.py	2026-08-22 12:58:01.000000000 +0000
++++ /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/source/tracker2ksp.py	2026-08-22 13:55:25.196583174 +0000
+@@ -18,7 +18,7 @@
+ KSP_MINOR=5
+ PAGE_LOAD=0x4000
+ PAGE_SIZE=0x4000
+-STREAM_BASE=0x6400
++STREAM_BASE=0x6800
+ STREAM_OFFSET=STREAM_BASE-PAGE_LOAD
+ STREAM_DATA_OFFSET=STREAM_OFFSET+2
+ STREAM_PAGE_CAPACITY=PAGE_SIZE-STREAM_DATA_OFFSET
+@@ -273,7 +273,7 @@
+ def make_engine_template(module:core.Module,page_count:int,source_format:str,waves:list[dict]):
+     if source_format=='S3M':
+         engine_bin=S3M_ENGINE_BIN; sym=S3M_ENGINE_SYM
+-    elif source_format=='IT-S3M':
++    elif source_format in ('IT-S3M','MODERN-S3M'):
+         engine_bin=IT_S3M_ENGINE_BIN; sym=IT_S3M_ENGINE_SYM
+     elif source_format=='MOD':
+         engine_bin=MOD_ENGINE_BIN; sym=MOD_ENGINE_SYM
+@@ -331,16 +331,16 @@
+                         'compression':comp,'runtime_crc':crc32(runtime)})
+         payloads.append(stored)
+     strings=bytearray()
+-    engine_names={'S3M':'Tracker2KSP ST3/S3M MoonSound engine','IT-S3M':'Tracker2KSP Impulse Tracker S3M MoonSound engine','MOD':'Tracker2KSP ProTracker MOD MoonSound engine','XM':'Tracker2KSP FastTracker II XM MoonSound engine'}
++    engine_names={'S3M':'Tracker2KSP ST3/S3M MoonSound engine','IT-S3M':'Tracker2KSP Impulse Tracker S3M MoonSound engine','MODERN-S3M':'Tracker2KSP modern S3M MoonSound engine','MOD':'Tracker2KSP ProTracker MOD MoonSound engine','XM':'Tracker2KSP FastTracker II XM MoonSound engine'}
+     ename=add_string(strings,engine_names[source_format]); tname=add_string(strings,title)
+     metadata='\n'.join([
+         'metadata_version=2','default_language=en',f'title={title}',f'game={title}',
+-        'source_platform=PC tracker module',f'source_format={source_format}',f'source_tracker={getattr(module,"s3m_tracker_name",source_format)}',f's3m_cwtv=0x{getattr(module,"s3m_cwtv",0):04X}' if source_format in ('S3M','IT-S3M') else 'tracker_profile=not_applicable',f'source_file={source_name}',
++        'source_platform=PC tracker module',f'source_format={source_format}',f'source_tracker={getattr(module,"s3m_tracker_name",source_format)}',f's3m_cwtv=0x{getattr(module,"s3m_cwtv",0):04X}' if source_format in ('S3M','IT-S3M','MODERN-S3M') else 'tracker_profile=not_applicable',f'source_file={source_name}',
+         f'source_sha256={sha256(module.raw)}','target_platform=MSX2','target_hardware=MoonSound / OPL4',
+         'format=KSP 1.05',f'engine=native Z80 {source_format}-specific multi-page realtime engine',
+         'conversion=compact rows/effects + shared MWK PCM payloads + INIT-time OPL4 header aliases; no rendered PCM and no pre-expanded tick register stream',
+         f'initial_speed={module.speed}',f'initial_tempo={module.tempo}',f'active_channels={len(module.active_channels)}',
+-        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.4.4'
++        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.4.5'
+     ])+'\n'; meta=metadata.encode()
+     mwkp,mcomp=maybe_zx0(mwk,compression)
+     engine_off=80; page_off=engine_off+64; track_off=page_off+page_count*24; resource_off=track_off+32
+@@ -373,21 +373,21 @@
+     assert len(out)==file_size
+     output.parent.mkdir(parents=True,exist_ok=True); output.write_bytes(out)
+     packed_pages=sum(r['stored_bytes'] for r in records); mapper_segments=(packed_pages+PAGE_SIZE-1)//PAGE_SIZE
+-    return {'status':'built','format':'KSP 1.05','converter_version':'0.4.4','input':str(module.path),'output':str(output),
++    return {'status':'built','format':'KSP 1.05','converter_version':'0.4.5','input':str(module.path),'output':str(output),
+             'title':title,'duration_ms':round(semantic_stats['duration_seconds']*1000),'output_bytes':len(out),'output_sha256':sha256(out),
+             'engine':{'init':hex(engine_sym['init']),'play':hex(engine_sym['play']),'stop':hex(engine_sym['stop']),'play_hz':60,'hardware':'OPL4',
+-                      'resident_range':'0x4000-0x63FF (code/state rematerialized; persistent tracker state handoff via OPL4 RAM 0x2FFC00)','dynamic_window':'0x6400-0x7FFF','binary_bytes':len(engine_bin),'xm_ft2_profiles':profile_info['profiles'] if profile_info else 0,'xm_profile_bytes':profile_info['bytes'] if profile_info else 0},
++                      'resident_range':'0x4000-0x67FF (code/state + extended tracker state; persistent tracker state handoff via OPL4 RAM 0x2FFC00)','dynamic_window':'0x6800-0x7FFF','binary_bytes':len(engine_bin),'xm_ft2_profiles':profile_info['profiles'] if profile_info else 0,'xm_profile_bytes':profile_info['bytes'] if profile_info else 0},
+             'semantic_stream':{**semantic_stats,'raw_bytes':len(stream),'page_count':page_count,'page_capacity':STREAM_PAGE_CAPACITY,
+                                'packed_page_bytes':packed_pages,'mapper_segments_for_preload':mapper_segments,
+                                'ksp1play_preload_eligible':page_count<=MAX_PRELOADED_PAGES and mapper_segments<=12,
+                                'pages':[{k:('ZX0' if v==1 else 'none') if k=='compression' else v for k,v in r.items() if k!='payload_offset'} for r in records]},
+             'mwk':{'revision':'0x0C','custom_tones':len(waves),'pcm_payload_bytes':sum(int(w['payload_bytes']) for w in waves),'shared_alias_tones':sum(1 for w in waves if w.get('init_header_patch')),'raw_bytes':len(mwk),'stored_bytes':len(mwkp),'compression':'ZX0' if mcomp else 'none','waves':waves},
+             'ksp_format_changes_required':False,'ksp1play_0_48_changes_required':False,
+-            'tracker_profile':{'selected':source_format,'s3m_cwtv':(f'0x{getattr(module,"s3m_cwtv",0):04X}' if source_format in ('S3M','IT-S3M') else None),'creator':getattr(module,'s3m_tracker_name',source_format),'default_panning_table':bool(getattr(module,'s3m_has_default_panning',False))},
+-            'accuracy_notes':['strict Scream Tracker 3 S3Ms use the unchanged ST3 engine and ST3 shared-effect-memory rules','Impulse Tracker-authored S3Ms use a separate IT-S3M engine with command-local effect memory, IT Qxy countdowns, default-panning-table import and portamento sample swap/restart','MOD uses a separate ProTracker/Paula engine binary','XM uses a separate FastTracker II engine with linear-period/envelope/vibrato state','ordinary note pitches are converted to OPL4 registers on the host; realtime pitch effects remain in the selected tracker engine domain']}
++            'tracker_profile':{'selected':source_format,'s3m_cwtv':(f'0x{getattr(module,"s3m_cwtv",0):04X}' if source_format in ('S3M','IT-S3M','MODERN-S3M') else None),'creator':getattr(module,'s3m_tracker_name',source_format),'default_panning_table':bool(getattr(module,'s3m_has_default_panning',False))},
++            'accuracy_notes':['strict Scream Tracker 3 S3Ms use a dedicated ST3 engine with ST3 shared-effect-memory, combined-slide and retrigger timing rules','Impulse Tracker-authored S3Ms use the IT-S3M engine with command-local effect memory','modern/non-ST3 S3Ms (OpenMPT/Schism/Orpheus-style) are kept out of the strict ST3 quirk profile and use the compatible S3M runtime','MOD uses a separate ProTracker/Paula engine binary','XM uses a separate FastTracker II engine with linear-period/envelope/vibrato state','ordinary note pitches are converted to OPL4 registers on the host; realtime pitch effects remain in the selected tracker engine domain']}
+ 
+ def main():
+-    ap=argparse.ArgumentParser(description='Convert S3M/IT-authored S3M/XM/MOD to compact realtime MoonSound KSP 1.05')
++    ap=argparse.ArgumentParser(description='Convert S3M/IT/modern-S3M/XM/MOD to compact realtime MoonSound KSP 1.05')
+     ap.add_argument('input',type=Path); ap.add_argument('-o','--output',type=Path); ap.add_argument('--title')
+     ap.add_argument('--start-order',type=int,default=0); ap.add_argument('--stop-order',type=int); ap.add_argument('--max-seconds',type=float,default=1800)
+     ap.add_argument('--compression',choices=('auto','zx0','none'),default='auto'); ap.add_argument('--report',type=Path)
+diff -ruN '--exclude=*.bin' '--exclude=*.lst' '--exclude=*.map' '--exclude=*.ksp' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=S3M_v0.4.4_to_v0.4.5.patch' /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/tests/test_s3m_v045.py /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/tests/test_s3m_v045.py
+--- /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/tests/test_s3m_v045.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/tests/test_s3m_v045.py	2026-08-22 13:58:47.397021450 +0000
+@@ -0,0 +1,119 @@
++#!/usr/bin/env python3
++from pathlib import Path
++from tempfile import TemporaryDirectory
++from types import SimpleNamespace
++import sys
++sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
++
++import _s3m2opl4_backend as core
++import compact_stream as cs
++import module_formats
++
++
++def make_header(cwtv=0x1300, speed=6, tempo=125, master=0x80, flags=0, pattern=False):
++    size = 0x180 if pattern else 0x61
++    b = bytearray(size)
++    b[:8] = b'TESTS3M\0'
++    b[0x1C] = 0x1A; b[0x1D] = 0x10
++    b[0x20:0x22] = (1).to_bytes(2,'little')
++    b[0x22:0x24] = (0).to_bytes(2,'little')
++    b[0x24:0x26] = (1 if pattern else 0).to_bytes(2,'little')
++    b[0x26:0x28] = flags.to_bytes(2,'little')
++    b[0x28:0x2A] = cwtv.to_bytes(2,'little')
++    b[0x2A:0x2C] = (1).to_bytes(2,'little')
++    b[0x2C:0x30] = b'SCRM'
++    b[0x30]=64; b[0x31]=speed; b[0x32]=tempo; b[0x33]=master
++    b[0x40:0x60] = bytes([0] + [255]*31)
++    b[0x60]=0
++    if pattern:
++        # parapointer immediately follows the one order byte
++        b[0x61:0x63] = (0x10).to_bytes(2,'little')
++        p=0x100
++        b[p:p+2]=(1).to_bytes(2,'little')  # deliberately wrong packed length
++        p+=2
++        # Three tokens for the same channel. Correct parsing merges fields.
++        b[p:p+3]=bytes([0x20, 0x40, 1]); p+=3  # note + instrument, row still open
++        b[p:p+2]=bytes([0x40, 160]); p+=2          # volume-column pan = 32
++        b[p:p+3]=bytes([0x80, 8, 0x47]); p+=3      # H47
++        b[p]=0; p+=1
++        # Complete all 64 rows so ignoring the bogus packed length is safe.
++        b[p:p+63]=bytes(63)
++    return bytes(b)
++
++
++def test_effect_memory():
++    dummy = SimpleNamespace(s3m_cwtv=0x1300)
++    cc = object.__new__(cs.CompactCompiler); cc.fmt='S3M'; cc.m=dummy
++    st=cs.ResolveState()
++    assert cc._resolve(st, cs.CMD_H, 0x81)==0x81
++    assert st.global_mem==0x81
++    assert cc._resolve(st, cs.CMD_D, 0)==0x81
++    # NONE + nonzero must not overwrite shared ST3 memory.
++    assert cc._resolve(st, 0, 0x77)==0x77
++    assert st.global_mem==0x81
++    # Any real non-zero command, even Axx, updates the shared byte.
++    assert cc._resolve(st, cs.CMD_A, 0x06)==0x06
++    assert cc._resolve(st, cs.CMD_D, 0)==0x06
++
++    # Keep the legacy backend in sync too.
++    c=core.Channel()
++    legacy=object.__new__(core.Compiler)
++    assert legacy._resolve_param(c,'H',0x81)==0x81
++    assert legacy._resolve_param(c,'D',0)==0x81
++    legacy._resolve_param(c,'',0x77)
++    assert c.global_mem==0x81
++    legacy._resolve_param(c,'A',0x06)
++    assert legacy._resolve_param(c,'D',0)==0x06
++
++
++def test_profile_defaults_and_parser_merge():
++    with TemporaryDirectory() as td:
++        td=Path(td)
++        p=td/'strict.s3m'; p.write_bytes(make_header(cwtv=0x1300,speed=0,tempo=0,master=0))
++        m,fmt=module_formats.parse_s3m_profile(p)
++        assert fmt=='S3M' and m.s3m_profile.startswith('ST3-')
++        assert (m.speed,m.tempo)==(6,125)
++        assert not m.s3m_is_stereo
++
++        p=td/'modern.s3m'; p.write_bytes(make_header(cwtv=0x5132,speed=0,tempo=0,master=0x80))
++        m,fmt=module_formats.parse_s3m_profile(p)
++        assert fmt=='MODERN-S3M'
++        assert (m.speed,m.tempo)==(6,32)
++
++        p=td/'merge.s3m'; p.write_bytes(make_header(cwtv=0x5132,pattern=True))
++        m=core.parse_s3m(p)
++        e=m.patterns[0][0][0]
++        assert len(m.patterns[0][0])==1
++        assert (e.note,e.ins,e.cmd,e.param)==(0x40,1,8,0x47)
++        assert getattr(e,'volume_pan')==32
++
++
++def test_stereo_16bit_decode():
++    # Signed 16-bit split stereo planes: averages are +0x2000 and -0x2000,
++    # which become signed 8-bit 0x20 and 0xE0.
++    left=(0x4000).to_bytes(2,'little',signed=True)+(-0x4000).to_bytes(2,'little',signed=True)
++    right=(0).to_bytes(2,'little',signed=True)+(0).to_bytes(2,'little',signed=True)
++    out=core._decode_s3m_pcm(left+right,2,0x06,1)
++    assert out==bytes([0x20,0xE0])
++
++
++def test_mono_pan_and_runtime_guards():
++    m=SimpleNamespace(channel_panning_nibbles=[None]*32,s3m_is_stereo=False,channel_settings=[0]*32)
++    cc=object.__new__(cs.CompactCompiler); cc.m=m; cc.fmt='S3M'
++    assert cc._pan_nibble(0)==0
++
++    asm=(Path(__file__).resolve().parents[1]/'source'/'compact_engine_s3m.asm').read_text()
++    combined=asm.split('s3m_combined_volume_slide:',1)[1].split('\n\n',1)[0]
++    assert 'ld a,(TICK_NOW)' in combined and 'ret z' in combined
++    retrig=asm.split('effect_retrig:',1)[1].split('retrig_adjust_volume:',1)[0]
++    assert 'ST3 Qx0 behaves as interval 1' in retrig and 'inc a' in retrig
++    assert 'effect_tremor:' in asm and 'effect_tremolo:' in asm
++
++
++def main():
++    tests=[v for k,v in sorted(globals().items()) if k.startswith('test_') and callable(v)]
++    for fn in tests:
++        fn(); print('PASS',fn.__name__)
++    print(f'PASS {len(tests)} S3M v0.4.5 regression groups')
++
++if __name__=='__main__': main()
+diff -ruN '--exclude=*.bin' '--exclude=*.lst' '--exclude=*.map' '--exclude=*.ksp' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=S3M_v0.4.4_to_v0.4.5.patch' /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/tracker2ksp.py /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/tracker2ksp.py
+--- /mnt/data/t2ksp044/Tracker2KSP_v0.4.4_ST3_RUNTIME_FIX_COMPLETE/tracker2ksp.py	2026-08-22 12:58:01.000000000 +0000
++++ /mnt/data/Tracker2KSP_v0.4.5_S3M_GENERIC_COMPLETE/tracker2ksp.py	2026-08-22 13:55:25.196528068 +0000
+@@ -18,7 +18,7 @@
+ KSP_MINOR=5
+ PAGE_LOAD=0x4000
+ PAGE_SIZE=0x4000
+-STREAM_BASE=0x6400
++STREAM_BASE=0x6800
+ STREAM_OFFSET=STREAM_BASE-PAGE_LOAD
+ STREAM_DATA_OFFSET=STREAM_OFFSET+2
+ STREAM_PAGE_CAPACITY=PAGE_SIZE-STREAM_DATA_OFFSET
+@@ -273,7 +273,7 @@
+ def make_engine_template(module:core.Module,page_count:int,source_format:str,waves:list[dict]):
+     if source_format=='S3M':
+         engine_bin=S3M_ENGINE_BIN; sym=S3M_ENGINE_SYM
+-    elif source_format=='IT-S3M':
++    elif source_format in ('IT-S3M','MODERN-S3M'):
+         engine_bin=IT_S3M_ENGINE_BIN; sym=IT_S3M_ENGINE_SYM
+     elif source_format=='MOD':
+         engine_bin=MOD_ENGINE_BIN; sym=MOD_ENGINE_SYM
+@@ -331,16 +331,16 @@
+                         'compression':comp,'runtime_crc':crc32(runtime)})
+         payloads.append(stored)
+     strings=bytearray()
+-    engine_names={'S3M':'Tracker2KSP ST3/S3M MoonSound engine','IT-S3M':'Tracker2KSP Impulse Tracker S3M MoonSound engine','MOD':'Tracker2KSP ProTracker MOD MoonSound engine','XM':'Tracker2KSP FastTracker II XM MoonSound engine'}
++    engine_names={'S3M':'Tracker2KSP ST3/S3M MoonSound engine','IT-S3M':'Tracker2KSP Impulse Tracker S3M MoonSound engine','MODERN-S3M':'Tracker2KSP modern S3M MoonSound engine','MOD':'Tracker2KSP ProTracker MOD MoonSound engine','XM':'Tracker2KSP FastTracker II XM MoonSound engine'}
+     ename=add_string(strings,engine_names[source_format]); tname=add_string(strings,title)
+     metadata='\n'.join([
+         'metadata_version=2','default_language=en',f'title={title}',f'game={title}',
+-        'source_platform=PC tracker module',f'source_format={source_format}',f'source_tracker={getattr(module,"s3m_tracker_name",source_format)}',f's3m_cwtv=0x{getattr(module,"s3m_cwtv",0):04X}' if source_format in ('S3M','IT-S3M') else 'tracker_profile=not_applicable',f'source_file={source_name}',
++        'source_platform=PC tracker module',f'source_format={source_format}',f'source_tracker={getattr(module,"s3m_tracker_name",source_format)}',f's3m_cwtv=0x{getattr(module,"s3m_cwtv",0):04X}' if source_format in ('S3M','IT-S3M','MODERN-S3M') else 'tracker_profile=not_applicable',f'source_file={source_name}',
+         f'source_sha256={sha256(module.raw)}','target_platform=MSX2','target_hardware=MoonSound / OPL4',
+         'format=KSP 1.05',f'engine=native Z80 {source_format}-specific multi-page realtime engine',
+         'conversion=compact rows/effects + shared MWK PCM payloads + INIT-time OPL4 header aliases; no rendered PCM and no pre-expanded tick register stream',
+         f'initial_speed={module.speed}',f'initial_tempo={module.tempo}',f'active_channels={len(module.active_channels)}',
+-        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.4.4'
++        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.4.5'
+     ])+'\n'; meta=metadata.encode()
+     mwkp,mcomp=maybe_zx0(mwk,compression)
+     engine_off=80; page_off=engine_off+64; track_off=page_off+page_count*24; resource_off=track_off+32
+@@ -373,21 +373,21 @@
+     assert len(out)==file_size
+     output.parent.mkdir(parents=True,exist_ok=True); output.write_bytes(out)
+     packed_pages=sum(r['stored_bytes'] for r in records); mapper_segments=(packed_pages+PAGE_SIZE-1)//PAGE_SIZE
+-    return {'status':'built','format':'KSP 1.05','converter_version':'0.4.4','input':str(module.path),'output':str(output),
++    return {'status':'built','format':'KSP 1.05','converter_version':'0.4.5','input':str(module.path),'output':str(output),
+             'title':title,'duration_ms':round(semantic_stats['duration_seconds']*1000),'output_bytes':len(out),'output_sha256':sha256(out),
+             'engine':{'init':hex(engine_sym['init']),'play':hex(engine_sym['play']),'stop':hex(engine_sym['stop']),'play_hz':60,'hardware':'OPL4',
+-                      'resident_range':'0x4000-0x63FF (code/state rematerialized; persistent tracker state handoff via OPL4 RAM 0x2FFC00)','dynamic_window':'0x6400-0x7FFF','binary_bytes':len(engine_bin),'xm_ft2_profiles':profile_info['profiles'] if profile_info else 0,'xm_profile_bytes':profile_info['bytes'] if profile_info else 0},
++                      'resident_range':'0x4000-0x67FF (code/state + extended tracker state; persistent tracker state handoff via OPL4 RAM 0x2FFC00)','dynamic_window':'0x6800-0x7FFF','binary_bytes':len(engine_bin),'xm_ft2_profiles':profile_info['profiles'] if profile_info else 0,'xm_profile_bytes':profile_info['bytes'] if profile_info else 0},
+             'semantic_stream':{**semantic_stats,'raw_bytes':len(stream),'page_count':page_count,'page_capacity':STREAM_PAGE_CAPACITY,
+                                'packed_page_bytes':packed_pages,'mapper_segments_for_preload':mapper_segments,
+                                'ksp1play_preload_eligible':page_count<=MAX_PRELOADED_PAGES and mapper_segments<=12,
+                                'pages':[{k:('ZX0' if v==1 else 'none') if k=='compression' else v for k,v in r.items() if k!='payload_offset'} for r in records]},
+             'mwk':{'revision':'0x0C','custom_tones':len(waves),'pcm_payload_bytes':sum(int(w['payload_bytes']) for w in waves),'shared_alias_tones':sum(1 for w in waves if w.get('init_header_patch')),'raw_bytes':len(mwk),'stored_bytes':len(mwkp),'compression':'ZX0' if mcomp else 'none','waves':waves},
+             'ksp_format_changes_required':False,'ksp1play_0_48_changes_required':False,
+-            'tracker_profile':{'selected':source_format,'s3m_cwtv':(f'0x{getattr(module,"s3m_cwtv",0):04X}' if source_format in ('S3M','IT-S3M') else None),'creator':getattr(module,'s3m_tracker_name',source_format),'default_panning_table':bool(getattr(module,'s3m_has_default_panning',False))},
+-            'accuracy_notes':['strict Scream Tracker 3 S3Ms use the unchanged ST3 engine and ST3 shared-effect-memory rules','Impulse Tracker-authored S3Ms use a separate IT-S3M engine with command-local effect memory, IT Qxy countdowns, default-panning-table import and portamento sample swap/restart','MOD uses a separate ProTracker/Paula engine binary','XM uses a separate FastTracker II engine with linear-period/envelope/vibrato state','ordinary note pitches are converted to OPL4 registers on the host; realtime pitch effects remain in the selected tracker engine domain']}
++            'tracker_profile':{'selected':source_format,'s3m_cwtv':(f'0x{getattr(module,"s3m_cwtv",0):04X}' if source_format in ('S3M','IT-S3M','MODERN-S3M') else None),'creator':getattr(module,'s3m_tracker_name',source_format),'default_panning_table':bool(getattr(module,'s3m_has_default_panning',False))},
++            'accuracy_notes':['strict Scream Tracker 3 S3Ms use a dedicated ST3 engine with ST3 shared-effect-memory, combined-slide and retrigger timing rules','Impulse Tracker-authored S3Ms use the IT-S3M engine with command-local effect memory','modern/non-ST3 S3Ms (OpenMPT/Schism/Orpheus-style) are kept out of the strict ST3 quirk profile and use the compatible S3M runtime','MOD uses a separate ProTracker/Paula engine binary','XM uses a separate FastTracker II engine with linear-period/envelope/vibrato state','ordinary note pitches are converted to OPL4 registers on the host; realtime pitch effects remain in the selected tracker engine domain']}
+ 
+ def main():
+-    ap=argparse.ArgumentParser(description='Convert S3M/IT-authored S3M/XM/MOD to compact realtime MoonSound KSP 1.05')
++    ap=argparse.ArgumentParser(description='Convert S3M/IT/modern-S3M/XM/MOD to compact realtime MoonSound KSP 1.05')
+     ap.add_argument('input',type=Path); ap.add_argument('-o','--output',type=Path); ap.add_argument('--title')
+     ap.add_argument('--start-order',type=int,default=0); ap.add_argument('--stop-order',type=int); ap.add_argument('--max-seconds',type=float,default=1800)
+     ap.add_argument('--compression',choices=('auto','zx0','none'),default='auto'); ap.add_argument('--report',type=Path)

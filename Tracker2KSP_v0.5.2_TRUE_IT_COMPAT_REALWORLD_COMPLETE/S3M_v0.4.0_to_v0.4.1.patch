@@ -1,0 +1,114 @@
+--- /mnt/data/tracker2ksp_work/Tracker2KSP_v0.4.0_SPLIT_ENGINES_COMPLETE/source/compact_engine_s3m.asm	2026-08-22 09:26:31.000000000 +0000
++++ /mnt/data/tracker2ksp_work/Tracker2KSP_v0.4.1_S3M_ST3_SLIDE_FIX_COMPLETE/source/compact_engine_s3m.asm	2026-08-22 09:53:49.773469838 +0000
+@@ -696,9 +696,9 @@
+         jr nz,vol_not_fine_down
+         ld a,c
+         or a
+-        ret z
++        jr z,vol_regular          ; D F0 is ordinary slide-up 15, not fine-down 0
+         cp 0Fh
+-        ret z
++        ret z                     ; D FF is ambiguous/no-op in ST3
+         ld a,(TICK_NOW)
+         or a
+         ret nz
+@@ -710,9 +710,9 @@
+         jr nz,vol_regular
+         ld a,b
+         or a
+-        ret z
++        jr z,vol_regular          ; D 0F is ordinary slide-down 15, not fine-up 0
+         cp 0F0h
+-        ret z
++        ret z                     ; D FF is ambiguous/no-op in ST3
+         ld a,(TICK_NOW)
+         or a
+         ret nz
+--- /mnt/data/tracker2ksp_work/Tracker2KSP_v0.4.0_SPLIT_ENGINES_COMPLETE/source/compact_stream.py	2026-08-22 09:23:19.000000000 +0000
++++ /mnt/data/tracker2ksp_work/Tracker2KSP_v0.4.1_S3M_ST3_SLIDE_FIX_COMPLETE/source/compact_stream.py	2026-08-22 09:53:49.773775341 +0000
+@@ -6,8 +6,8 @@
+ import _s3m2opl4_backend as core
+ 
+ # Compact semantic commands use the S3M command numbers where possible.
+-CMD_A=1; CMD_B=2; CMD_C=3; CMD_D=4; CMD_E=5; CMD_F=6; CMD_G=7; CMD_H=8
+-CMD_J=10; CMD_K=11; CMD_L=12; CMD_O=15; CMD_Q=17; CMD_S=19; CMD_T=20; CMD_X=24
++CMD_A=1; CMD_B=2; CMD_C=3; CMD_D=4; CMD_E=5; CMD_F=6; CMD_G=7; CMD_H=8; CMD_I=9
++CMD_J=10; CMD_K=11; CMD_L=12; CMD_O=15; CMD_Q=17; CMD_R=18; CMD_S=19; CMD_T=20; CMD_X=24
+ CMD_NOTE_CUT=27
+ CMD_XM_PROFILE=28; CMD_VCTRL=29; CMD_GLISS=30; CMD_KEYOFF=31
+ 
+@@ -148,9 +148,12 @@
+     def _resolve(self, st:ResolveState, cmd:int, p:int)->int:
+         raw=p or 0
+         if self.fmt=='S3M':
+-            # Match the original S3M backend semantics.
+-            if cmd in (CMD_D,CMD_E,CMD_F,CMD_J,CMD_K,CMD_L,CMD_Q):
++            # ST3 shared parameter memory is used only by D/E/F/I/J/K/L/Q/R/S.
++            # G, H and O have independent memories; speed/tempo/flow commands
++            # must not poison a later D00/E00/F00/etc. recall.
++            if cmd in (CMD_D,CMD_E,CMD_F,CMD_I,CMD_J,CMD_K,CMD_L,CMD_Q,CMD_R,CMD_S):
+                 p = raw or st.global_mem
++                if raw: st.global_mem=raw
+             elif cmd==CMD_G:
+                 p = raw or st.g_mem
+                 if raw: st.g_mem=raw
+@@ -161,9 +164,6 @@
+             elif cmd==CMD_O:
+                 p=raw or st.o_mem
+                 if raw: st.o_mem=raw
+-            elif cmd==CMD_S and raw==0:
+-                p=st.global_mem
+-            if raw: st.global_mem=raw
+             return p
+         # XM/MOD: command-local memory, with nibble-wise vibrato and dedicated porta/offset memory.
+         if cmd==CMD_G:
+--- /mnt/data/tracker2ksp_work/Tracker2KSP_v0.4.0_SPLIT_ENGINES_COMPLETE/source/_s3m2opl4_backend.py	2026-08-22 08:47:26.000000000 +0000
++++ /mnt/data/tracker2ksp_work/Tracker2KSP_v0.4.1_S3M_ST3_SLIDE_FIX_COMPLETE/source/_s3m2opl4_backend.py	2026-08-22 09:53:49.774010590 +0000
+@@ -392,11 +392,13 @@
+ 
+     def _resolve_param(self, c: Channel, cmd: str, p: int) -> int:
+         # ST3 has the unusual "global" effect-parameter memory: commands marked
+-        # Global recall the most recent non-zero parameter in the effect column,
+-        # regardless of which command supplied it. G/H/O have their own memories.
++        # Global recall the most recent non-zero parameter supplied by the
++        # shared-memory group D/E/F/I/J/K/L/Q/R/S. G/H/O have their own memories.
+         raw = p
+-        if cmd in "DEFIJKLQ":
++        if cmd in "DEFIJKLQRS":
+             p = p or c.global_mem
++            if raw:
++                c.global_mem = raw
+         elif cmd == "G":
+             p = p or c.g_mem
+             if raw: c.g_mem = raw
+@@ -413,10 +415,6 @@
+         elif cmd == "O":
+             p = p or c.offset_mem
+             if raw: c.offset_mem = raw
+-        elif cmd == "S" and p == 0:
+-            p = c.global_mem
+-        if raw:
+-            c.global_mem = raw
+         return p
+ 
+     @staticmethod
+--- /mnt/data/tracker2ksp_work/Tracker2KSP_v0.4.0_SPLIT_ENGINES_COMPLETE/source/tracker2ksp.py	2026-08-22 09:29:49.000000000 +0000
++++ /mnt/data/tracker2ksp_work/Tracker2KSP_v0.4.1_S3M_ST3_SLIDE_FIX_COMPLETE/source/tracker2ksp.py	2026-08-22 09:53:49.774211107 +0000
+@@ -309,7 +309,7 @@
+         'format=KSP 1.05',f'engine=native Z80 {source_format}-specific multi-page realtime engine',
+         'conversion=compact rows/effects + shared MWK PCM payloads + INIT-time OPL4 header aliases; no rendered PCM and no pre-expanded tick register stream',
+         f'initial_speed={module.speed}',f'initial_tempo={module.tempo}',f'active_channels={len(module.active_channels)}',
+-        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.4.0'
++        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.4.1'
+     ])+'\n'; meta=metadata.encode()
+     mwkp,mcomp=maybe_zx0(mwk,compression)
+     engine_off=80; page_off=engine_off+64; track_off=page_off+page_count*24; resource_off=track_off+32
+@@ -342,7 +342,7 @@
+     assert len(out)==file_size
+     output.parent.mkdir(parents=True,exist_ok=True); output.write_bytes(out)
+     packed_pages=sum(r['stored_bytes'] for r in records); mapper_segments=(packed_pages+PAGE_SIZE-1)//PAGE_SIZE
+-    return {'status':'built','format':'KSP 1.05','converter_version':'0.4.0','input':str(module.path),'output':str(output),
++    return {'status':'built','format':'KSP 1.05','converter_version':'0.4.1','input':str(module.path),'output':str(output),
+             'title':title,'duration_ms':round(semantic_stats['duration_seconds']*1000),'output_bytes':len(out),'output_sha256':sha256(out),
+             'engine':{'init':hex(engine_sym['init']),'play':hex(engine_sym['play']),'stop':hex(engine_sym['stop']),'play_hz':60,'hardware':'OPL4',
+                       'resident_range':'0x4000-0x63FF (code/state rematerialized; persistent tracker state handoff via OPL4 RAM 0x2FFC00)','dynamic_window':'0x6400-0x7FFF','binary_bytes':len(engine_bin),'xm_ft2_profiles':profile_info['profiles'] if profile_info else 0,'xm_profile_bytes':profile_info['bytes'] if profile_info else 0},

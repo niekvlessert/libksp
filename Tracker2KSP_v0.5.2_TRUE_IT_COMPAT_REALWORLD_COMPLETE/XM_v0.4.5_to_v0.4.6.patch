@@ -1,0 +1,3741 @@
+--- a/VERSION.txt
++++ b/VERSION.txt
+@@ -1 +1 @@
+-0.4.5
++0.4.6
+--- a/README.md
++++ b/README.md
+@@ -1,15 +1,69 @@
+-# Tracker2KSP v0.4.5 — generic S3M/ST3 compatibility pass
++# Tracker2KSP v0.4.6 — generic XM / FastTracker II compatibility pass
+ 
+-Tracker2KSP converts S3M, IT-authored/modern S3M, XM and MOD modules to compact realtime MoonSound/OPL4 KSP 1.05 files. v0.4.5 concentrates on S3M correctness; the XM and MOD engines remain physically separate and are not routed through ST3 logic.
++Tracker2KSP converts XM, S3M, IT-authored/modern S3M and MOD modules to compact realtime MoonSound/OPL4 KSP 1.05 files. v0.4.6 concentrates on **XM / FastTracker II correctness** while retaining the v0.4.5 S3M fixes.
+ 
+ The tracker engines remain physically separate:
+ 
++- `compact_engine_xm.bin` — XM / FastTracker II semantics
+ - `compact_engine_s3m.bin` — genuine Scream Tracker 3 (`ST3-GUS` / `ST3-SB`)
+ - `compact_engine_it_s3m.bin` — IT-authored and modern/non-ST3 S3M compatibility route
+-- `compact_engine_xm.bin` — FastTracker II / XM
+ - `compact_engine_mod.bin` — ProTracker / MOD
+ 
+-KSP 1.05 and the KSP1PLAY interface are unchanged. The semantic stream window moved from `$6400` to `$6800` to reserve persistent S3M effect state; all bundled engines were rebuilt for that layout.
++KSP 1.05 and KSP1PLAY do **not** need a format change for v0.4.6. The semantic stream remains at `$6800`.
++
++## v0.4.6 XM fixes
++
++- XM playback state is no longer tied to the `linear periods` header bit. **Amiga-frequency-table XM files now keep XM envelopes, panning envelope, fadeout, auto-vibrato, key-off and waveform state.** `XM_LINEAR` selects only the pitch domain.
++- XM instrument numbers are preserved as instruments instead of being flattened to a sample during parsing. Runtime compilation resolves the active sample through the instrument's 96-note keymap and keeps current instrument, current sample and note state separate.
++- FT2 tone-portamento semantics are corrected: a new instrument beside tone-portamento does not replace the currently playing sample, and tone-portamento without an old playing note does not create a note.
++- FT2 effect memory is split correctly: `Axy/5xy/6xy` share normal volume-slide memory; E1/E2, X1/X2 and EA/EB use independent fine/extra-fine memories; panning/global-volume/retrigger have their own state; volume-column effects do **not** inherit effect memory.
++- `9xx` offset memory is only updated when a real note occurs on the row, matching FT2.
++- Added realtime FT2 effects: `7xy` tremolo, `Gxx` global volume, `Hxy` global-volume slide, `Lxx` envelope position, `Pxy` panning slide, `Rxy` multi-retrigger and `Txy` tremor.
++- Added/expanded extended effects: E1/E2 fine porta, E3 glissando state, E4 vibrato waveform, E5 finetune, E6 pattern loop, E7 tremolo waveform, E9 retrigger including E90, EA/EB fine volume, EC note cut, ED note delay, EE pattern delay, X1/X2 extra-fine porta and F00 stop semantics.
++- `Axy/5xy/6xy` and global-volume slide now use FT2 nibble priority rather than S3M-style fine-slide interpretation.
++- FT2 delayed-note / delayed-note-off corner cases are modelled, including `3xx + EDx`, delayed Note Off without normal fade/key-off, volume-column timing beside EDx, and the PanOff rule that ignores volume-column panning beside a delayed Note Off.
++- FT2 K00 suppresses the simultaneous note/instrument action and performs the key-off semantics instead.
++- Rxy first-tick behaviour now carries literal row note/instrument/volume-column state to the Z80 runtime. Rxy does not reset XM envelopes, interval 0 remains valid, and retrigger volume transform `x=6` is the exact 10/16 (=5/8) integer transform.
++- The XM realtime engine now has **three continuing effect slots** so legal FT2 effect-column + volume-column combinations are not silently truncated.
++- Notes that become invalid after XM `RelativeTone` transposition are ignored instead of clamped/played.
++- XM versions **1.02, 1.03 and 1.04** are accepted, including the old pre-1.04 instrument/sample layout and 1.02 row-count encoding. A zero pattern row count is interpreted as 64 rows where appropriate.
++- Initial speed/tempo fallbacks are FT2-compatible (`0 -> 6` and `0 -> 125`). Restart position is retained.
++- XM split-stereo 8/16-bit delta PCM is decoded and downmixed to mono for the OPL4 custom-wave path. ModPlug XM 4-bit ADPCM (`reserved=0xAD`) is decoded.
++- Basic creator profiling is reported for FT2, OpenMPT, MilkyTracker, MadTracker, Skale, ModPlug and generic XM. OpenMPT-style truly empty order lists are kept distinct from classic FT2's implicit pattern-0 behaviour.
++- XM files above 24 channels are rejected explicitly instead of overflowing the 24-voice runtime state.
++
++## Validation
++
++- `tests/test_xm_v046.py`: **10/10 XM regression groups PASS**.
++- `tests/test_s3m_v045.py`: **4/4 S3M regression groups PASS**.
++- OpenMPT's supplied `test/test.xm` builds successfully as `OPENMPT`, with no converter warnings.
++- The same OpenMPT test data with the XM linear-period flag cleared also builds successfully through the Amiga-frequency-table path while retaining XM instrument/envelope semantics.
++- All four Z80 engines rebuild from source. The v0.4.6 XM engine is 6,136 bytes; root and `source/` binaries are byte-identical.
++- `python3 -m py_compile *.py source/*.py` passes.
++
++## Known XM gaps after v0.4.6
++
++These are intentionally **not** claimed as solved:
++
++- OXM / Ogg-compressed XM samples are not decoded.
++- Creator identification exists, but every historical clone-specific playback deviation (notably some MadTracker/Skale/old ModPlug arpeggio/offset/porta quirks) is not yet reproduced individually.
++- Rare FT2/OpenMPT compatibility flags such as envelope escape, panning-sustain release, auto-vibrato sweep abort, porta-direction/target edge cases and E60 restart corner cases still need dedicated regression modules before claiming bit-exact behaviour.
++- Amiga-period arithmetic is implemented in the FT2 period domain, but the final realtime OPL4 frequency conversion remains a hardware-oriented lookup/approximation rather than an attempt to reproduce an Amiga mixer sample-for-sample.
++- More than 24 simultaneous XM channels cannot map one-to-one to the 24 OPL4 PCM voices and is therefore deliberately rejected.
++
++## Usage
++
++```text
++python3 CONVERT_TRACKER_TO_KSP.py song.xm
++python3 CONVERT_TRACKER_TO_KSP.py song.s3m
++python3 CONVERT_TRACKER_TO_KSP.py song.mod
++```
++
++Format-specific wrappers are included. `source/BUILD_ENGINES.py` rebuilds all four Z80 engines.
++
++---
++
++# Historical v0.4.5 S3M notes
+ 
+ ## v0.4.5 S3M generic fixes
+ 
+--- a/TEST_REPORT.md
++++ b/TEST_REPORT.md
+@@ -1,10 +1,33 @@
+-# Tracker2KSP v0.4.5 test report
++# Tracker2KSP v0.4.6 test report
+ 
+ ## Scope
+ 
+-v0.4.5 is an S3M/ST3 compatibility pass against the supplied OpenMPT source. XM and MOD remain separate engines and only inherit the semantic-stream relocation to `$6800`.
++v0.4.6 is the XM / FastTracker II compatibility pass against the supplied OpenMPT source. The v0.4.5 S3M/ST3 fixes remain intact and are regression-tested.
+ 
+-## Automated regression groups
++## Automated XM regressions
++
++Run:
++
++```text
++python3 tests/test_xm_v046.py
++```
++
++Result: **10/10 XM regression groups PASS**.
++
++Coverage includes:
++
++1. XM 1.02 / 1.03 / 1.04 pattern/header parsing and the old pre-1.04 instrument/sample layout.
++2. Safe rejection of >24 channels.
++3. Split-stereo PCM and ModPlug 4-bit ADPCM decoding.
++4. FT2 effect-memory separation and A/5/6 linkage.
++5. K00, tone-portamento-without-old-note, note-only instrument state and panning-preservation semantics.
++6. Runtime sample selection through XM instrument keymaps.
++7. EEx pattern delay, F00 termination and 9xx note-gated memory.
++8. Linear vs Amiga FT2 period domains and E5 finetune.
++9. RelativeTone note limits, EDx volume-column timing and delayed-Note-Off panning rules.
++10. Rxy literal-row markers / first-tick semantics, delayed Note Off envelope restart and the third realtime effect slot.
++
++## S3M regression preservation
+ 
+ Run:
+ 
+@@ -12,38 +35,42 @@
+ python3 tests/test_s3m_v045.py
+ ```
+ 
+-Result: **4/4 regression groups PASS**. The tests cover:
++Result: **4/4 S3M v0.4.5 regression groups PASS**.
+ 
+-1. Genuine ST3 shared effect memory, including `H81 -> D00`, a non-effect token that must not overwrite memory, and a non-D/E/F command that must update it. The legacy backend is checked for the same semantics.
+-2. Tracker profiling/defaults plus a synthetic S3M with a deliberately wrong packed length and duplicate same-channel tokens. The parser must merge note/instrument, volume-column panning and effect into one channel event.
+-3. Signed 16-bit split-stereo decoding and mono downmix.
+-4. Mono-channel centring and source-level guards for K/L tick-0 suppression, Qx0 interval-1, tremor and tremolo runtime handlers.
++## OpenMPT `test.xm`
+ 
+-## OpenMPT test.s3m
++Using the supplied OpenMPT source tree:
+ 
+-Input: supplied OpenMPT `test/test.s3m` (`cwtv 0x5132`).
++- creator profile: `OPENMPT`
++- converter: `0.4.6`
++- semantic rows: 96
++- semantic events: 19
++- duration before sequence-loop detection: about 8.633 s
++- warnings: none
++- XM engine binary: 6,136 bytes
++- linear-period path: PASS
+ 
+-- v0.4.4: aborts on the stereo/16-bit sample.
+-- v0.4.5: selects `MODERN-S3M`, identifies `OpenMPT / compatible`, parses the default panning table and builds KSP 1.05 successfully.
+-- 60-second conversion check: 4 semantic rows / 3 semantic events, no converter warnings, KSP size 18,481 bytes with compression disabled for the check.
++A smoke copy of the same module with the XM linear-period header bit cleared also builds with no warnings and reports `xm_linear_periods=false`, verifying that XM envelopes/instrument state no longer disappear in Amiga-frequency-table mode.
+ 
+ ## Engine rebuild
+ 
+-`python3 source/BUILD_ENGINES.py` succeeds for all engines:
++`python3 source/BUILD_ENGINES.py` succeeds:
+ 
+ - ST3/S3M: 9,054 bytes
+ - IT/modern-S3M: 8,926 bytes
+ - MOD: 8,926 bytes
+-- XM: 4,983 bytes
++- XM: 6,136 bytes
+ 
+-All engines use `STREAM_PAGE=$6800` / `STREAM_DATA=$6802`. The extra S3M persistent state starts at `$6400`, so it no longer collides with semantic stream pages.
++Root and `source/` copies of all four engine binaries are byte-identical. The semantic stream remains at `$6800`.
+ 
+ ## Python validation
+ 
+-`python3 -m py_compile *.py source/*.py` passes.
++```text
++python3 -m py_compile *.py source/*.py tests/test_xm_v046.py tests/test_s3m_v045.py
++```
+ 
+-## Remaining known gaps
++PASS.
+ 
+-Exact S1 glissando quantisation, ST3 GUS/SB short-sample retrigger-end behaviour, Amiga period limits, ST3 master/preamp gain, S3M ADPCM and AdLib instruments remain open. They are documented in README and are not counted as fixed by v0.4.5.
++## Remaining known XM gaps
+ 
+-The old `examples/` artifacts are retained as historical v0.4.4 playback examples; their JSON reports therefore still state converter v0.4.4 and the old dynamic window.
++OXM/Ogg sample payloads, exhaustive clone-specific MadTracker/Skale/old-ModPlug playback quirks, and a small group of rare FT2 compatibility edge flags (envelope escape, pan-sustain release, auto-vibrato sweep abort, porta direction/target corner cases, E60 restart edge behaviour) remain open and are not counted as fixed by v0.4.6.
+--- a/module_formats.py
++++ b/module_formats.py
+@@ -129,158 +129,271 @@
+     return m
+ 
+ 
++def _decode_xm_adpcm(raw: bytes, sample_len: int) -> bytes:
++    """Decode ModPlug's XM 4-bit ADPCM (16-byte signed delta table + nibbles)."""
++    if len(raw) < 16:
++        return b''
++    table=[_s8(x) for x in raw[:16]]
++    out=bytearray(); acc=0
++    for x in raw[16:16+(sample_len+1)//2]:
++        acc=(acc+table[x&15]) & 0xff; out.append(acc)
++        if len(out)>=sample_len: break
++        acc=(acc+table[(x>>4)&15]) & 0xff; out.append(acc)
++        if len(out)>=sample_len: break
++    return bytes(out)
++
++
++def _decode_xm_pcm(raw: bytes, typ: int, reserved: int, length_bytes: int):
++    """Return mono signed-8 PCM plus byte->sample divisor for XM sample geometry.
++
++    XM stereo is split-channel delta PCM, not interleaved.  The OPL4 path is
++    mono, so decode L/R independently and average them after delta decoding.
++    """
++    is16=bool(typ & 0x10); stereo=bool(typ & 0x20)
++    div=(2 if is16 else 1)*(2 if stereo else 1)
++    sample_len=length_bytes//div
++    if reserved==0xAD and not is16 and not stereo:
++        return _decode_xm_adpcm(raw,sample_len),div
++    if not stereo:
++        return (_decode_delta16(raw) if is16 else _decode_delta8(raw)),div
++    half=len(raw)//2
++    left_raw,right_raw=raw[:half],raw[half:]
++    left=_decode_delta16(left_raw) if is16 else _decode_delta8(left_raw)
++    right=_decode_delta16(right_raw) if is16 else _decode_delta8(right_raw)
++    n=min(len(left),len(right),sample_len)
++    out=bytearray(n)
++    for i in range(n):
++        l=_s8(left[i]); r=_s8(right[i])
++        v=max(-128,min(127,int((l+r)/2)))
++        out[i]=v & 0xff
++    return bytes(out),div
++
++
++def _xm_pattern_at(b:bytes,pos:int,channels:int,version:int):
++    min_header=8 if version==0x0102 else 9
++    if pos+min_header>len(b): raise ValueError('truncated XM pattern header')
++    phlen=struct.unpack_from('<I',b,pos)[0]
++    if phlen<8 or pos+phlen>len(b): raise ValueError('invalid XM pattern header length')
++    if version==0x0102:
++        rows=b[pos+5]+1; psz=struct.unpack_from('<H',b,pos+6)[0]
++    else:
++        rows=struct.unpack_from('<H',b,pos+5)[0]; psz=struct.unpack_from('<H',b,pos+7)[0]
++        if rows==0: rows=64
++    rows=max(1,min(256,rows))
++    pdata=b[pos+phlen:min(len(b),pos+phlen+psz)]
++    evrows=[[None for _ in range(channels)] for _ in range(rows)]
++    q=0
++    for r in range(rows):
++        for ch in range(channels):
++            vals=[0,0,0,0,0]
++            if q<len(pdata):
++                c=pdata[q]; q+=1
++                if c&0x80:
++                    for k,mask in enumerate((1,2,4,8,16)):
++                        if c&mask and q<len(pdata): vals[k]=pdata[q]; q+=1
++                else:
++                    vals[0]=c
++                    for k in range(1,5):
++                        if q<len(pdata): vals[k]=pdata[q]; q+=1
++            evrows[r][ch]=vals
++    return evrows,pos+phlen+psz
++
++
+ def parse_xm(path:Path)->core.Module:
+     b=path.read_bytes()
+     if not b.startswith(b'Extended Module: '): raise ValueError('not an XM file')
++    if len(b)<80: raise ValueError('truncated XM header')
+     title=b[17:37].split(b'\0')[0].decode('cp437','replace').rstrip()
++    tracker=b[38:58].decode('cp437','replace').rstrip(' \0')
++    version=struct.unpack_from('<H',b,58)[0]
++    if version not in (0x0102,0x0103,0x0104):
++        raise ValueError(f'unsupported XM version {version>>8}.{version&255:02d}')
+     hsize=struct.unpack_from('<I',b,60)[0]
+     songlen,restart,channels,npat,nins,flags,tempo,bpm=struct.unpack_from('<8H',b,64)
+-    orders=list(b[80:80+songlen]); pos=60+hsize
++    if channels<1 or channels>24: raise ValueError(f'XM channel count {channels} is unsupported by the 24-channel OPL4 runtime (1..24)')
++    orders=list(b[80:80+min(songlen,256)])
++    # FT2 treats a zero-length order list as pattern 0. OpenMPT/modern MPT XMs
++    # deliberately allow it to be truly empty.
++    modern_empty = tracker.startswith('OpenMPT ') or tracker.startswith('ModPlug Tracker') or tracker.startswith('FastTracker v 2.00')
++    if not orders and npat and not modern_empty: orders=[0]
++    pos=60+hsize
+     raw_patterns=[]
+-    for pi in range(npat):
+-        phlen=struct.unpack_from('<I',b,pos)[0]; packing=b[pos+4]; rows=struct.unpack_from('<H',b,pos+5)[0]; psz=struct.unpack_from('<H',b,pos+7)[0]
+-        pdata=b[pos+phlen:pos+phlen+psz]; pos+=phlen+psz
+-        evrows=[[None for _ in range(channels)] for _ in range(rows)]
+-        q=0
+-        for r in range(rows):
+-            for ch in range(channels):
+-                vals=[0,0,0,0,0]
+-                if q<len(pdata):
+-                    c=pdata[q]; q+=1
+-                    if c&0x80:
+-                        for k,mask in enumerate((1,2,4,8,16)):
+-                            if c&mask and q<len(pdata): vals[k]=pdata[q]; q+=1
+-                    else:
+-                        vals[0]=c
+-                        for k in range(1,5):
+-                            if q<len(pdata): vals[k]=pdata[q]; q+=1
+-                evrows[r][ch]=vals
+-        raw_patterns.append(evrows)
+-    samples:Dict[int,core.Sample]={}; inst_keymaps={}; inst_sample_ids={}; next_sid=1
++    if version>=0x0104:
++        for _ in range(npat):
++            pat,pos=_xm_pattern_at(b,pos,channels,version); raw_patterns.append(pat)
++
++    samples:Dict[int,core.Sample]={}; inst_keymaps={}; inst_sample_ids={}; inst_names={}; next_sid=1
++    pending_sample_data=[]
++
++    def add_sample(ii, iname, meta, raw):
++        nonlocal next_sid
++        length,ls,ll,vol,ft,typ,pan,rel,reserved,sname=meta
++        data,div=_decode_xm_pcm(raw,typ,reserved,length)
++        ls//=div; ll//=div
++        plen=len(data); le=min(plen,ls+ll); looped=(typ&3)!=0 and ll>1 and le>ls
++        if (typ&3)==2 and looped:
++            seg=data[ls:le]; data=data[:le]+seg[-2:0:-1]; ll=len(data)-ls; le=len(data); plen=len(data)
++        c2=int(round(8363*(2**((rel+ft/128.0)/12.0))))
++        prelimit_len=len(data)
++        data2, ls2, le2, c22 = _limit_sample(data, ls, le, c2)
++        plen2=len(data2); looped=looped and le2>ls2
++        sid=next_sid; next_sid+=1
++        smp=core.Sample(sid,sname,plen2,ls2,le2,min(64,vol),1 if looped else 0,max(1,c22),0,data2)
++        smp.xm_relative_note=rel; smp.xm_finetune=ft
++        smp.xm_period_offset=(int(round(768.0*math.log2(prelimit_len/float(plen2)))) if prelimit_len>plen2 and plen2 else 0)
++        smp.xm_pan=pan; smp.xm_reserved=reserved; smp.xm_stereo=bool(typ&0x20); smp.xm_16bit=bool(typ&0x10)
++        samples[sid]=smp
++        return sid
++
++    # Instruments/sample headers. v1.02/1.03 defer all sample payloads until after patterns.
++    sample_records=[]
+     for ii in range(1,nins+1):
+-        ihsize=struct.unpack_from('<I',b,pos)[0]; iname=b[pos+4:pos+26].split(b'\0')[0].decode('cp437','replace').rstrip(); ns=struct.unpack_from('<H',b,pos+27)[0]
++        if pos+29>len(b): raise ValueError(f'truncated XM instrument {ii}')
++        ihsize=struct.unpack_from('<I',b,pos)[0] or 263
++        if ihsize<29: raise ValueError(f'XM instrument {ii}: invalid header size {ihsize}')
++        iname=b[pos+4:pos+26].split(b'\0')[0].decode('cp437','replace').rstrip()
++        ns=struct.unpack_from('<H',b,pos+27)[0]
++        inst_names[ii]=iname
+         if ns:
+-            shsize=struct.unpack_from('<I',b,pos+29)[0]; keymap=list(b[pos+33:pos+129])
+-            # Preserve the complete FT2 instrument modulation state. Envelopes
+-            # belong to the instrument, while default panning is sample-local.
+-            if ihsize >= 243:
++            shsize=struct.unpack_from('<I',b,pos+29)[0] if pos+33<=len(b) else 40
++            if shsize==0: shsize=40
++            keymap=list(b[pos+33:pos+129]) if ihsize>=129 and pos+129<=len(b) else [0]*96
++            if ihsize>=243 and pos+243<=len(b):
+                 vol_pts=[struct.unpack_from('<HH',b,pos+129+4*j) for j in range(12)]
+                 pan_pts=[struct.unpack_from('<HH',b,pos+177+4*j) for j in range(12)]
+-                vlen=min(12,b[pos+225]); plen=min(12,b[pos+226])
+-                inst_env={
+-                    'vol_points':tuple(vol_pts[:vlen]), 'pan_points':tuple(pan_pts[:plen]),
+-                    'vol_sustain':b[pos+227], 'vol_loop_start':b[pos+228], 'vol_loop_end':b[pos+229],
+-                    'pan_sustain':b[pos+230], 'pan_loop_start':b[pos+231], 'pan_loop_end':b[pos+232],
+-                    'vol_flags':b[pos+233]&7, 'pan_flags':b[pos+234]&7,
+-                    'auto_vib_type':b[pos+235]&3, 'auto_vib_sweep':b[pos+236],
+-                    'auto_vib_depth':b[pos+237], 'auto_vib_rate':b[pos+238],
+-                    'fadeout':struct.unpack_from('<H',b,pos+239)[0]
+-                }
++                vlen=min(12,b[pos+225]); plen_env=min(12,b[pos+226])
++                inst_env={'vol_points':tuple(vol_pts[:vlen]),'pan_points':tuple(pan_pts[:plen_env]),
++                    'vol_sustain':b[pos+227],'vol_loop_start':b[pos+228],'vol_loop_end':b[pos+229],
++                    'pan_sustain':b[pos+230],'pan_loop_start':b[pos+231],'pan_loop_end':b[pos+232],
++                    'vol_flags':b[pos+233]&7,'pan_flags':b[pos+234]&7,
++                    'auto_vib_type':b[pos+235]&3,'auto_vib_sweep':b[pos+236],
++                    'auto_vib_depth':b[pos+237],'auto_vib_rate':b[pos+238],
++                    'fadeout':struct.unpack_from('<H',b,pos+239)[0]}
+             else:
+-                inst_env={'vol_points':(), 'pan_points':(), 'vol_sustain':0,'vol_loop_start':0,'vol_loop_end':0,
+-                          'pan_sustain':0,'pan_loop_start':0,'pan_loop_end':0,'vol_flags':0,'pan_flags':0,
+-                          'auto_vib_type':0,'auto_vib_sweep':0,'auto_vib_depth':0,'auto_vib_rate':0,'fadeout':0}
++                inst_env={'vol_points':(),'pan_points':(),'vol_sustain':0,'vol_loop_start':0,'vol_loop_end':0,
++                    'pan_sustain':0,'pan_loop_start':0,'pan_loop_end':0,'vol_flags':0,'pan_flags':0,
++                    'auto_vib_type':0,'auto_vib_sweep':0,'auto_vib_depth':0,'auto_vib_rate':0,'fadeout':0}
+         else:
+             shsize=0; keymap=[0]*96
+-            inst_env={'vol_points':(), 'pan_points':(), 'vol_sustain':0,'vol_loop_start':0,'vol_loop_end':0,
+-                      'pan_sustain':0,'pan_loop_start':0,'pan_loop_end':0,'vol_flags':0,'pan_flags':0,
+-                      'auto_vib_type':0,'auto_vib_sweep':0,'auto_vib_depth':0,'auto_vib_rate':0,'fadeout':0}
+-        ih_end=pos+ihsize; pos=ih_end
+-        hdrs=[]
++            inst_env={'vol_points':(),'pan_points':(),'vol_sustain':0,'vol_loop_start':0,'vol_loop_end':0,
++                'pan_sustain':0,'pan_loop_start':0,'pan_loop_end':0,'vol_flags':0,'pan_flags':0,
++                'auto_vib_type':0,'auto_vib_sweep':0,'auto_vib_depth':0,'auto_vib_rate':0,'fadeout':0}
++        pos += ihsize
++        recs=[]
+         for si in range(ns):
+-            o=pos+si*shsize
++            if pos+40>len(b): raise ValueError(f'XM instrument {ii}: truncated sample header {si}')
++            o=pos
+             length,loop_start,loop_len=struct.unpack_from('<III',b,o)
+-            vol=b[o+12]; finetune=struct.unpack_from('<b',b,o+13)[0]; typ=b[o+14]; pan=b[o+15]; rel=struct.unpack_from('<b',b,o+16)[0]
++            vol=b[o+12]; finetune=struct.unpack_from('<b',b,o+13)[0]; typ=b[o+14]; pan=b[o+15]; rel=struct.unpack_from('<b',b,o+16)[0]; reserved=b[o+17]
+             sname=b[o+18:o+40].split(b'\0')[0].decode('cp437','replace').rstrip() or iname
+-            hdrs.append((length,loop_start,loop_len,vol,finetune,typ,pan,rel,sname))
+-        pos+=ns*shsize; ids=[]
+-        for meta in hdrs:
+-            length,ls,ll,vol,ft,typ,pan,rel,sname=meta; raw=b[pos:pos+length]; pos+=length
+-            if typ&0x10: data=_decode_delta16(raw); ls//=2; ll//=2
+-            else: data=_decode_delta8(raw)
+-            plen=len(data); le=min(plen,ls+ll); looped=(typ&3)!=0 and ll>1 and le>ls
+-            # Ping-pong loops are unfolded to a forward loop.
+-            if (typ&3)==2 and looped:
+-                seg=data[ls:le]; data=data[:le]+seg[-2:0:-1]; ll=len(data)-ls; le=len(data); plen=len(data)
+-            c2=int(round(8363*(2**((rel+ft/128.0)/12.0))))
+-            prelimit_len=len(data)
+-            data, ls, le, c2 = _limit_sample(data, ls, le, c2)
+-            plen=len(data); looped=looped and le>ls
+-            sid=next_sid; next_sid+=1; ids.append(sid)
+-            smp=core.Sample(sid,sname,plen,ls,le,min(64,vol),1 if looped else 0,max(1,c2),0,data)
+-            # Keep the original FT2 tuning data. In linear-frequency mode FT2
+-            # quantizes finetune to the upper five bits and performs all slides
+-            # in its linear period domain; c2spd alone cannot reproduce that.
+-            smp.xm_relative_note=rel
+-            smp.xm_finetune=ft
+-            # Samples longer than the OPL4 16-bit wave length are decimated by
+-            # _limit_sample(). Compensate that resampling as a constant offset
+-            # in the linear-period domain (768 units per octave).
+-            smp.xm_period_offset=(int(round(768.0*math.log2(prelimit_len/float(plen)))) if prelimit_len>plen and plen else 0)
+-            smp.xm_pan=pan
+-            for _k,_v in inst_env.items(): setattr(smp,'xm_'+_k,_v)
+-            samples[sid]=smp
++            recs.append((length,loop_start,loop_len,vol,finetune,typ,pan,rel,reserved,sname))
++            pos += max(40,shsize)
++        ids=[]
++        if version>=0x0104:
++            for meta in recs:
++                length=meta[0]; reserved=meta[8]
++                encoded_len=(16+(length+1)//2) if reserved==0xAD and not (meta[5]&0x30) else length
++                raw=b[pos:pos+encoded_len]; pos+=encoded_len
++                sid=add_sample(ii,iname,meta,raw); ids.append(sid)
++                for k,v in inst_env.items(): setattr(samples[sid],'xm_'+k,v)
++        else:
++            for meta in recs:
++                sid=next_sid; next_sid+=1; ids.append(sid)
++                sample_records.append((sid,ii,iname,meta,inst_env))
+         inst_keymaps[ii]=keymap; inst_sample_ids[ii]=ids
+-    # Resolve XM instrument/keymap to flat sample ids while tracking last note per channel.
++
++    if version<0x0104:
++        for _ in range(npat):
++            pat,pos=_xm_pattern_at(b,pos,channels,version); raw_patterns.append(pat)
++        for sid,ii,iname,meta,inst_env in sample_records:
++            length=meta[0]; reserved=meta[8]
++            encoded_len=(16+(length+1)//2) if reserved==0xAD and not (meta[5]&0x30) else length
++            raw=b[pos:pos+encoded_len]; pos+=encoded_len
++            # add_sample allocates a new ID; force this old-version reserved ID by remapping.
++            new_sid=add_sample(ii,iname,meta,raw)
++            smp=samples.pop(new_sid); smp.number=sid; samples[sid]=smp
++            for k,v in inst_env.items(): setattr(smp,'xm_'+k,v)
++        next_sid=max(samples.keys(),default=0)+1
++
++    # Resolve keymaps but preserve whether an instrument column actually existed.
+     patterns=[]
+     for evrows in raw_patterns:
+-        rows=[[] for _ in range(len(evrows))]; last_note=[48]*channels; last_inst=[0]*channels
++        rows=[[] for _ in range(len(evrows))]
+         for r,row in enumerate(evrows):
+             for ch,(note,ins,volcol,eff,param) in enumerate(row):
+-                note_b=None; flat_ins=None; volume=None
++                note_b=None; volume=None
++                note_present=1<=note<=96
+                 if note==97: note_b=254
+-                elif 1<=note<=96: last_note[ch]=note-1; note_b=_note_byte(note-1)
+-                if ins: last_inst[ch]=ins
+-                use_inst=ins or last_inst[ch]
+-                if use_inst in inst_sample_ids and inst_sample_ids[use_inst]:
+-                    km=inst_keymaps[use_inst]; idx=km[max(0,min(95,last_note[ch]))]
+-                    if idx<len(inst_sample_ids[use_inst]): flat_ins=inst_sample_ids[use_inst][idx]
++                elif 1<=note<=96: note_b=_note_byte(note-1)
+                 extra=[]
+-                if 0x10<=volcol<=0x50:
+-                    volume=min(64,volcol-0x10)
+-                elif 0x60<=volcol<=0x6F:
+-                    extra.append((4, volcol & 0x0F))
+-                elif 0x70<=volcol<=0x7F:
+-                    extra.append((4, (volcol & 0x0F) << 4))
+-                elif 0x80<=volcol<=0x8F:
+-                    extra.append((4, 0xF0 | (volcol & 0x0F)))
+-                elif 0x90<=volcol<=0x9F:
+-                    extra.append((4, ((volcol & 0x0F) << 4) | 0x0F))
+-                elif 0xA0<=volcol<=0xAF:
+-                    extra.append((8, (volcol & 0x0F) << 4))
+-                elif 0xB0<=volcol<=0xBF:
+-                    extra.append((8, volcol & 0x0F))
+-                elif 0xC0<=volcol<=0xCF:
+-                    extra.append((24, (volcol & 0x0F) * 17))
+-                elif 0xF0<=volcol<=0xFF:
+-                    extra.append((7, (volcol & 0x0F) << 4))
+-                # XM-specific pitch/control effects outside the ProTracker 0..F set.
+-                # Internal commands 28..31 are private to the semantic engine and
+-                # do not alter the KSP file format.
+-                if eff==0x0E and (param>>4)==4:      # E4x vibrato waveform/control
+-                    cmd,p=29,param&0x0F
+-                elif eff==0x0E and (param>>4)==3:    # E3x glissando control
+-                    cmd,p=30,param&0x0F
+-                elif eff==0x21 and (param>>4)==1:    # X1x extra-fine slide up
+-                    cmd,p=6,0xE0|(param&0x0F)
+-                elif eff==0x21 and (param>>4)==2:    # X2x extra-fine slide down
+-                    cmd,p=5,0xE0|(param&0x0F)
+-                elif eff==0x14:                      # Kxx key-off at tick xx
+-                    cmd,p=31,param
++                if 0x10<=volcol<=0x50: volume=min(64,volcol-0x10)
++                elif 0x60<=volcol<=0x6F: extra.append((66,volcol&15,False))      # FT2 vol-column slide down
++                elif 0x70<=volcol<=0x7F: extra.append((67,volcol&15,False))      # FT2 vol-column slide up
++                elif 0x80<=volcol<=0x8F: extra.append((41,volcol&15,False))       # FT2 fine vol down
++                elif 0x90<=volcol<=0x9F: extra.append((42,volcol&15,False))       # FT2 fine vol up
++                elif 0xA0<=volcol<=0xAF: extra.append((43,volcol&15,False))       # set vibrato speed only
++                elif 0xB0<=volcol<=0xBF: extra.append((44,volcol&15,False))       # vibrato depth
++                elif 0xC0<=volcol<=0xCF: extra.append((24,(volcol&15)*4,False))   # FT2 exact 0..60 pan
++                elif 0xD0<=volcol<=0xDF: extra.append((45,volcol&15,False))       # pan left, no memory
++                elif 0xE0<=volcol<=0xEF: extra.append((46,volcol&15,False))       # pan right, no memory
++                elif 0xF0<=volcol<=0xFF: extra.append((47,volcol&15,False))       # volume-column tone porta
++
++                cmd=None; p=param
++                if eff==0x07: cmd,p=40,param                         # 7xy tremolo
++                elif eff==0x0E:
++                    sub=param>>4; lo=param&15
++                    if sub==1: cmd,p=48,lo                           # E1 fine porta up
++                    elif sub==2: cmd,p=49,lo                         # E2 fine porta down
++                    elif sub==3: cmd,p=30,lo                         # E3 gliss
++                    elif sub==4: cmd,p=29,lo                         # E4 vibrato waveform
++                    elif sub==5: cmd,p=50,lo                         # E5 finetune
++                    elif sub==6: cmd,p=51,lo                         # E6 pattern loop
++                    elif sub==7: cmd,p=52,lo                         # E7 tremolo waveform
++                    elif sub==9: cmd,p=53,lo                         # E9 ProTracker-style retrig
++                    elif sub==0xA: cmd,p=54,lo                       # EA fine vol up
++                    elif sub==0xB: cmd,p=55,lo                       # EB fine vol down
++                    elif sub==0xC: cmd,p=27,lo                       # EC cut
++                    elif sub==0xD: cmd,p=19,0xD0|lo                  # ED delay
++                    elif sub==0xE: cmd,p=56,lo                       # EE pattern delay
++                elif eff==0x10: cmd,p=57,param                       # G global volume
++                elif eff==0x11: cmd,p=58,param                       # H global volume slide
++                elif eff==0x14: cmd,p=31,param                       # K key off
++                elif eff==0x15: cmd,p=59,param                       # L envelope position
++                elif eff==0x19: cmd,p=60,param                       # P panning slide
++                elif eff==0x1B: cmd,p=61,param                       # R multi retrig
++                elif eff==0x1D: cmd,p=62,param                       # T tremor
++                elif eff==0x0F and param==0: cmd,p=65,0              # F00: FT2 stop / indefinitely long row
++                elif eff==0x21 and (param>>4)==1: cmd,p=63,param&15  # X1 extra-fine up
++                elif eff==0x21 and (param>>4)==2: cmd,p=64,param&15  # X2 extra-fine down (semantic >63 remapped by stream below)
+                 else:
+                     cmd,p,volume=_mod_effect(eff,param,volume)
+                 if note_b is not None or ins or volume is not None or cmd is not None or extra:
+-                    ev=core.Event(ch=ch,note=note_b,ins=flat_ins if ins or note_b is not None else None,vol=volume,cmd=cmd,param=p if cmd else None)
++                    # Preserve the literal XM instrument number. Sample selection is
++                    # resolved at playback-compile time from the real channel instrument
++                    # state and the instrument's 96-note keymap.
++                    ev=core.Event(ch=ch,note=note_b,ins=None,vol=volume,cmd=cmd,param=p if cmd is not None else None)
++                    ev.xm_sample=None; ev.xm_instrument_present=bool(ins and ins!=0xFF); ev.xm_instrument_number=(ins if ins and ins!=0xFF else 0); ev.xm_note_present=note_present; ev.xm_volume_column=volcol
+                     ev.extra_effects=extra
+                     rows[r].append(ev)
+-        # backend assumes 64 rows; pad/truncate (common XM patterns can vary)
+         patterns.append(rows)
++
+     chset=[255]*32
+     for ch in range(min(channels,32)): chset[ch]=0 if ch%4 in (0,3) else 8
+-    m=core.Module(path,b,title,orders,patterns,samples,chset,max(1,tempo),max(32,bpm),64,0,1)
+-    m.source_format='XM'; m.offset_quantum=256
+-    m.xm_flags=flags; m.xm_linear=bool(flags & 1)
+-    # Deduplicate sample-local FT2 profiles. Profile 0 is the neutral fallback.
++    m=core.Module(path,b,title,orders,patterns,samples,chset,(tempo or 6),(bpm or 125),64,0,1)
++    m.source_format='XM'; m.offset_quantum=256; m.xm_flags=flags; m.xm_linear=bool(flags&1)
++    m.xm_version=version; m.xm_restart=min(restart,max(0,len(orders)-1)) if orders else 0; m.xm_tracker_name=tracker
++    m.xm_instrument_keymaps={k:tuple(v) for k,v in inst_keymaps.items()}
++    m.xm_instrument_sample_ids={k:tuple(v) for k,v in inst_sample_ids.items()}
++    m.xm_instrument_names=dict(inst_names)
++    if tracker.startswith('FastTracker v2.00') or tracker.startswith('Fasttracker II clone'): profile='FT2'
++    elif tracker.startswith('OpenMPT '): profile='OPENMPT'
++    elif tracker.startswith('MilkyTracker '): profile='MILKYTRACKER'
++    elif tracker.startswith('MadTracker 2.0'): profile='MADTRACKER'
++    elif tracker.startswith('Skale Tracker') or tracker.startswith('Sk@le Tracker'): profile='SKALE'
++    elif tracker.startswith('FastTracker v 2.00') or tracker.startswith('ModPlug Tracker'): profile='MODPLUG'
++    else: profile='GENERIC-XM'
++    m.xm_profile=profile
++
+     neutral=((),(),0,0,0,0,0,0,0,0,0,0,0,0,0,128)
+     profiles=[neutral]; profile_ids={neutral:0}
+     for smp in samples.values():
+@@ -296,7 +409,6 @@
+         smp.xm_profile_id=profile_ids[prof]
+     m.xm_profiles=profiles
+     return m
+-
+ 
+ def parse_s3m_profile(path:Path)->Tuple[core.Module,str]:
+     """Parse S3M and choose an explicit playback profile.
+--- a/compact_stream.py
++++ b/compact_stream.py
+@@ -13,6 +13,11 @@
+ CMD_ST3_COMBINED_D=32; CMD_ST3_COMBINED_H=33; CMD_ST3_COMBINED_G=34
+ CMD_ST3_PATTERN_DELAY=35; CMD_ST3_VIB_WAVE=36; CMD_ST3_TREM_WAVE=37
+ CMD_ST3_FINETUNE=38; CMD_ST3_TICK_DELAY=39
++CMD_XM_TREMOLO=40; CMD_XM_VFINE_DOWN=41; CMD_XM_VFINE_UP=42; CMD_XM_VIBSPD=43; CMD_XM_VIBDEP=44
++CMD_XM_PANLEFT=45; CMD_XM_PANRIGHT=46; CMD_XM_VOLPORTA=47; CMD_XM_FINE_UP=48; CMD_XM_FINE_DOWN=49
++CMD_XM_FINETUNE=50; CMD_XM_PATLOOP=51; CMD_XM_TREMWAVE=52; CMD_XM_E9RETRIG=53; CMD_XM_FINEVOLUP=54; CMD_XM_FINEVOLDOWN=55
++CMD_XM_PATDELAY=56; CMD_XM_GVOL=57; CMD_XM_GVOLSLIDE=58; CMD_XM_ENVPOS=59; CMD_XM_PANSLIDE=60; CMD_XM_RETRIG=61; CMD_XM_TREMOR=62; CMD_XM_XFINE_UP=63; CMD_XM_XFINE_DOWN=64; CMD_XM_STOP=65
++CMD_XM_VC_VOLDN=66; CMD_XM_VC_VOLUP=67; CMD_XM_ROWINS=68; CMD_XM_ROWDELAY=69; CMD_XM_ROWNOTE=70; CMD_XM_ROWVOL=71
+ S3M_FMTS=('S3M','IT-S3M','MODERN-S3M')
+ S3M_FINETUNE=(7895,7941,7985,8046,8107,8169,8232,8280,8363,8413,8463,8529,8581,8651,8723,8757)
+ 
+@@ -33,6 +38,17 @@
+     vib_depth: int = 0
+     high_offset: int = 0
+     finetune_c5: int = 0
++    xm_instrument_num: int = 0
++    xm_volslide_mem: int = 0
++    xm_fine_porta_mem: int = 0
++    xm_xfine_porta_mem: int = 0
++    xm_fine_vol_mem: int = 0
++    xm_pan_mem: int = 0
++    xm_gvol_mem: int = 0
++    xm_retrig_mem: int = 0
++    xm_tremolo_speed: int = 0
++    xm_tremolo_depth: int = 0
++    xm_channel_finetune: int = 0
+     loop_start_row: int = 0
+     loop_count: int = 0
+     mem: Dict[int,int] = field(default_factory=dict)
+@@ -50,6 +66,7 @@
+     delay_tick: int=-1
+     volume: Optional[int]=None
+     effects: List[Tuple[int,int,Optional[Tuple[int,int]]]] = field(default_factory=list)
++    xm_instrument_present: bool=False
+ 
+ 
+ class SharedPayloadWaveBank:
+@@ -205,7 +222,7 @@
+                 if raw: st.mem[cmd]=raw
+                 return raw or st.mem.get(cmd,0)
+             return raw
+-        # XM/MOD: command-local memory, with nibble-wise vibrato and dedicated porta/offset memory.
++        # XM / MOD. XM has several deliberately unlinked FT2 memories.
+         if cmd==CMD_G:
+             p=raw or st.g_mem
+             if raw: st.g_mem=raw
+@@ -214,13 +231,54 @@
+             if raw & 0xF0: st.vib_speed=(raw>>4)&15
+             if raw & 0x0F: st.vib_depth=raw&15
+             return (st.vib_speed<<4)|st.vib_depth
++        if cmd==CMD_XM_TREMOLO:
++            if raw & 0xF0: st.xm_tremolo_speed=(raw>>4)&15
++            if raw & 0x0F: st.xm_tremolo_depth=raw&15
++            return (st.xm_tremolo_speed<<4)|st.xm_tremolo_depth
+         if cmd==CMD_O:
++            # FT2 only updates 9xx memory when a note is present; caller can
++            # suppress the write by setting xm_offset_no_store on the event.
+             p=raw or st.o_mem
+             if raw: st.o_mem=raw
+             return p
+-        # Arpeggio 000 is no effect in XM/MOD, not memory recall.
+-        if cmd==CMD_J and raw==0:
+-            return 0
++        if cmd==CMD_J and raw==0: return 0
++        if self.fmt=='XM':
++            if cmd in (CMD_D,CMD_K,CMD_L):
++                if raw: st.xm_volslide_mem=raw
++                return raw or st.xm_volslide_mem
++            if cmd==CMD_XM_FINE_UP:
++                if raw: st.xm_fine_porta_mem=(st.xm_fine_porta_mem&0x0F)|(raw<<4)
++                return raw or ((st.xm_fine_porta_mem>>4)&15)
++            if cmd==CMD_XM_FINE_DOWN:
++                if raw: st.xm_fine_porta_mem=(st.xm_fine_porta_mem&0xF0)|raw
++                return raw or (st.xm_fine_porta_mem&15)
++            if cmd==CMD_XM_XFINE_UP:
++                if raw: st.xm_xfine_porta_mem=(st.xm_xfine_porta_mem&0x0F)|(raw<<4)
++                return raw or ((st.xm_xfine_porta_mem>>4)&15)
++            if cmd==CMD_XM_XFINE_DOWN:
++                if raw: st.xm_xfine_porta_mem=(st.xm_xfine_porta_mem&0xF0)|raw
++                return raw or (st.xm_xfine_porta_mem&15)
++            if cmd==CMD_XM_FINEVOLUP:
++                if raw: st.xm_fine_vol_mem=(st.xm_fine_vol_mem&0x0F)|(raw<<4)
++                return raw or ((st.xm_fine_vol_mem>>4)&15)
++            if cmd==CMD_XM_FINEVOLDOWN:
++                if raw: st.xm_fine_vol_mem=(st.xm_fine_vol_mem&0xF0)|raw
++                return raw or (st.xm_fine_vol_mem&15)
++            if cmd==CMD_XM_PANSLIDE:
++                if raw: st.xm_pan_mem=raw
++                return raw or st.xm_pan_mem
++            if cmd==CMD_XM_GVOLSLIDE:
++                if raw: st.xm_gvol_mem=raw
++                return raw or st.xm_gvol_mem
++            if cmd==CMD_XM_RETRIG:
++                hi=raw&0xF0; lo=raw&0x0F
++                if hi: st.xm_retrig_mem=(st.xm_retrig_mem&0x0F)|hi
++                if lo: st.xm_retrig_mem=(st.xm_retrig_mem&0xF0)|lo
++                return st.xm_retrig_mem
++            if cmd in (CMD_E,CMD_F,CMD_Q):
++                if raw: st.mem[cmd]=raw
++                return raw or st.mem.get(cmd,0)
++            return raw
+         if cmd in (CMD_D,CMD_E,CMD_F,CMD_K,CMD_L,CMD_Q):
+             if raw: st.mem[cmd]=raw
+             return raw or st.mem.get(cmd,0)
+@@ -248,6 +306,17 @@
+         setting=self.m.channel_settings[ch] if ch < len(self.m.channel_settings) else 0
+         return 11 if setting < 8 else 5
+ 
++    def _xm_resolve_sample(self,instrument_num:int,noteidx:int):
++        if self.fmt!='XM' or instrument_num<=0 or noteidx<0:
++            return None
++        ids=getattr(self.m,'xm_instrument_sample_ids',{}).get(int(instrument_num),())
++        if not ids:
++            return None
++        km=getattr(self.m,'xm_instrument_keymaps',{}).get(int(instrument_num),())
++        key=max(0,min(95,int(noteidx)))
++        si=(int(km[key]) if key<len(km) else 0)
++        return ids[si] if 0<=si<len(ids) and ids[si] in self.m.samples else None
++
+     def _period(self,ins,noteidx):
+         s=self.m.samples[ins]
+         freq=s.c2spd*(2.0**((noteidx-48)/12.0))
+@@ -270,7 +339,41 @@
+         # period_q is exactly four times the physical/reference period.
+         return core.Compiler._pitch_regs(max(0.25,float(period_q)/4.0))
+ 
+-    def _xm_linear_period(self,ins,noteidx):
++    XM_AMIGA_TABLE=(907,900,894,887,881,875,868,862,856,850,844,838,832,826,820,814,
++        808,802,796,791,785,779,774,768,762,757,752,746,741,736,730,725,720,715,709,704,
++        699,694,689,684,678,675,670,665,660,655,651,646,640,636,632,628,623,619,614,610,
++        604,601,597,592,588,584,580,575,570,567,563,559,555,551,547,543,538,535,532,528,
++        524,520,516,513,508,505,502,498,494,491,487,484,480,477,474,470,467,463,460,457,
++        453,450,447,443,440,437,434,431)
++
++    def _xm_amiga_period(self,ins,noteidx,ft_override=None):
++        """FT2 Amiga-frequency-table period, in the same native period units
++        used by OpenMPT/FT2. Slides use parameter*4 in this domain.
++        """
++        smp=self.m.samples[ins]
++        note=int(noteidx)+int(getattr(smp,'xm_relative_note',0))
++        # OpenMPT's note passed to this branch has already been shifted down by
++        # one octave (XM C-0 -> internal table note 0 after clamp at C-0).
++        note=max(0,note)
++        ft=int(getattr(smp,'xm_finetune',0)) if ft_override is None else int(ft_override)
++        # FT2 truncates the low 3 finetune bits before period lookup.
++        ft &= ~7
++        rnote=(note%12)<<3; roct=note//12; rfine=int(ft/16)
++        i=max(0,min(103,rnote+rfine+8)); p1=self.XM_AMIGA_TABLE[i]
++        if ft<0:
++            rfine-=1; af=-ft
++        else:
++            rfine+=1; af=ft
++        i=max(0,min(103,rnote+rfine+8)); p2=self.XM_AMIGA_TABLE[i]
++        frac=af&15
++        per=((p1*(16-frac)+p2*frac)<<1)>>roct
++        # Oversize-sample decimation is a frequency multiplier. Apply it to
++        # Amiga periods as a reciprocal scale.
++        off=int(getattr(smp,'xm_period_offset',0))
++        if off: per=int(round(per*(2.0**(off/768.0))))
++        return max(1,min(65535,per))
++
++    def _xm_linear_period(self,ins,noteidx,ft_override=None):
+         """Return the bit-exact FT2 linear-period state for a note/sample.
+ 
+         FT2's table is linearPeriodLUT[i] = (1936-i)*4. For a zero-based
+@@ -280,7 +383,7 @@
+         """
+         smp=self.m.samples[ins]
+         rel=int(getattr(smp,'xm_relative_note',0))
+-        ft=int(getattr(smp,'xm_finetune',0))
++        ft=int(getattr(smp,'xm_finetune',0)) if ft_override is None else int(ft_override)
+         # Python's right shift is arithmetic for negative integers, matching
+         # FT2's ((int8_t)finetune >> 3).
+         period=7680 - (noteidx+rel)*64 - (ft>>3)*4 + int(getattr(smp,'xm_period_offset',0))
+@@ -298,7 +401,20 @@
+ 
+     def _event_action(self,e, st:ResolveState)->Optional[Action]:
+         cmd=e.cmd or 0; p=e.param or 0
+-        if cmd: p=self._resolve(st,cmd,p)
++        semantic_cmd=cmd
++        if cmd:
++            if self.fmt=='XM' and cmd==CMD_O and p and not bool(getattr(e,'xm_note_present',False)):
++                p = st.o_mem  # FT2: 9xx without a note does not store new offset memory
++            else:
++                p=self._resolve(st,cmd,p)
++        if semantic_cmd==CMD_XM_XFINE_DOWN:
++            cmd=CMD_E; p=0xE0|(p&15)
++        elif semantic_cmd==CMD_XM_XFINE_UP:
++            cmd=CMD_F; p=0xE0|(p&15)
++        elif semantic_cmd==CMD_XM_FINE_UP:
++            cmd=CMD_F; p=0xF0|(p&15)
++        elif semantic_cmd==CMD_XM_FINE_DOWN:
++            cmd=CMD_E; p=0xF0|(p&15)
+         # Keep the resolved command for compile-time flow effects (SBx loops).
+         e.resolved_param=p
+         effects=[]
+@@ -341,6 +457,8 @@
+                 effects=[(CMD_ST3_COMBINED_G,st.g_mem,None),(CMD_ST3_COMBINED_D,p,None)]
+             else:
+                 effects=[(CMD_G,st.g_mem,None),(CMD_D,p,None)]
++        elif self.fmt=='XM' and cmd in (CMD_XM_FINETUNE,CMD_XM_PATLOOP,CMD_XM_STOP):
++            pass  # E5/E6/F00 are handled by the host compiler.
+         elif cmd not in (0,CMD_B,CMD_C,CMD_O):
+             effects.append((cmd,p,None))
+ 
+@@ -350,26 +468,92 @@
+             effects.insert(0,(CMD_X,(max(0,min(64,int(vpan)))*255+32)//64,None))
+ 
+         # Extra semantic effects from XM volume column etc.
+-        for vc,vp in getattr(e,'extra_effects',[]):
+-            rp=self._resolve(st,vc,vp)
++        for ex in getattr(e,'extra_effects',[]):
++            if len(ex)>=3: vc,vp,usemem=ex[:3]
++            else: vc,vp=ex; usemem=True
++            # FT2 PanOff.xm quirk: volume-column Cx is ignored next to a
++            # delayed Note Off. Effect-column panning on the same row survives.
++            volcol=int(getattr(e,'xm_volume_column',0) or 0)
++            if self.fmt=='XM' and e.note==254 and delay>0 and 0xC0<=volcol<=0xCF and vc==CMD_X:
++                continue
++            rp=self._resolve(st,vc,vp) if usemem else vp
+             effects.append((vc,rp,None))
+-        if len(effects)>4:
+-            self.warnings.append(f'row event on channel {e.ch}: more than four semantic effects; extras dropped')
+-            effects=effects[:4]
++        if len(effects)>6:
++            self.warnings.append(f'row event on channel {e.ch}: more than six semantic effects; extras dropped')
++            effects=effects[:6]
++
++        # FT2 row semantics that affect note/instrument handling have to be
++        # known before default-volume/profile actions are generated.
++        row_wants_porta=(cmd in (CMD_G,CMD_L) or any(ec==CMD_XM_VOLPORTA for ec,_,_ in effects))
++        k00_suppresses_note=(self.fmt=='XM' and cmd==CMD_KEYOFF and p==0)
++        xm_out_of_range_delay=(self.fmt=='XM' and delay>=0 and delay>=self.speed)
++        if self.fmt=='XM' and delay>0:
++            # FT2: note + tone-portamento + EDx becomes a delayed normal note.
++            row_wants_porta=False
+ 
+         a=Action(e.ch)
+         a.delay_tick=delay
+-        valid_ins = e.ins if e.ins in self.m.samples else None
+         old_ins=st.instrument
+-        use_ins=valid_ins or old_ins
++        xm_ins_present = bool(getattr(e,'xm_instrument_present',False)) if self.fmt=='XM' else False
++        if self.fmt=='XM':
++            literal_inum=int(getattr(e,'xm_instrument_number',0)) if xm_ins_present else 0
++            effective_inum=literal_inum or st.xm_instrument_num
++            map_note=(self._note_index(e.note) if e.note is not None and e.note<254 else st.note_index)
++            mapped_sample=self._xm_resolve_sample(effective_inum,map_note)
++            # FT2 ignores notes whose pattern note + sample RelativeTone leaves
++            # its real-note range. OpenMPT checks the internal note against
++            # NOTE_MIN+11..NOTE_MIN+130; XM file note 1 maps to internal +12.
++            xm_note_limit_bad=False
++            if e.note is not None and e.note < 254 and mapped_sample in self.m.samples:
++                ni_lim=self._note_index(e.note)
++                rel_lim=int(getattr(self.m.samples[mapped_sample],'xm_relative_note',0))
++                computed_internal=ni_lim + 13 + rel_lim
++                xm_note_limit_bad=not (12 <= computed_internal <= 131)
++            literal_ins=(mapped_sample if xm_ins_present else None)
++            valid_ins=literal_ins
++            # A tone-portamento target always belongs to the currently playing
++            # sample; a normal note is re-keymapped through the current XM instrument.
++            note_sample=(old_ins if row_wants_porta and st.period_seen else mapped_sample)
++            use_ins=note_sample
++        else:
++            xm_note_limit_bad=False
++            literal_inum=0
++            literal_ins=e.ins if e.ins in self.m.samples else None
++            valid_ins=literal_ins
++            note_sample=valid_ins or old_ins
++            use_ins=note_sample or old_ins
++            xm_ins_present=bool(valid_ins)
++        a.xm_instrument_present=xm_ins_present
++        # Runtime needs this literal-instrument marker for FT2's bizarre
++        # volume-column + EDx timing. It is parser-immediate and consumes no
++        # realtime effect slot.
++        if self.fmt=='XM' and delay>0 and getattr(e,'extra_effects',[]):
++            effects.insert(0,(CMD_XM_ROWDELAY,delay&15,None))
++            if xm_ins_present:
++                effects.insert(1,(CMD_XM_ROWINS,1,None))
++        if self.fmt=='XM' and any(ec==CMD_XM_RETRIG for ec,_,_ in effects):
++            # FT2 Rxy tick-0 logic depends on the literal row fields, not only
++            # on playback state. Carry the relevant bits as parser-immediate
++            # semantic markers; they consume no realtime effect slot.
++            if e.note is not None and e.note < 254:
++                effects.insert(0,(CMD_XM_ROWNOTE,1,None))
++            if xm_ins_present and e.note != 254 and not any(ec==CMD_XM_ROWINS for ec,_,_ in effects):
++                effects.insert(0,(CMD_XM_ROWINS,1,None))
++            vc=int(getattr(e,'xm_volume_column',0) or 0)
++            if 0x11 <= vc <= 0x50:
++                effects.insert(0,(CMD_XM_ROWVOL,1,None))
+         if valid_ins and not (cmd==CMD_S and sx==0x2):
+             # Loading an instrument/sample restores its native C5 speed; S2x on
+             # the same row then overrides it again below.
+             st.finetune_c5=0
+ 
+-        # Immediate volume semantics. Instrument changes reset to the sample default except when delayed.
+-        if delay < 0 and valid_ins:
+-            a.volume=self.m.samples[valid_ins].volume
++        # Immediate volume semantics. FT2 new-instrument + tone-portamento
++        # ignores the new instrument but reloads the OLD instrument settings.
++        # K00 ignores note+instrument on the row altogether.
++        if delay < 0 and valid_ins and (self.fmt!='XM' or xm_ins_present) and not k00_suppresses_note:
++            vol_ins=(old_ins if self.fmt=='XM' and old_ins and (row_wants_porta or xm_note_limit_bad or e.note==254) else valid_ins)
++            if vol_ins in self.m.samples:
++                a.volume=self.m.samples[vol_ins].volume
+         if e.vol is not None and e.vol<=64:
+             a.volume=e.vol
+         # S3M/ST3 volume is a true 0..64 range.  Do not fold 64 to 63:
+@@ -378,7 +562,8 @@
+         if self.fmt in S3M_FMTS and a.volume is not None:
+             a.volume=min(64,a.volume)
+ 
+-        if e.note is not None:
++        xm_ft_override=(((p & 15)-8)*16 if self.fmt=='XM' and cmd==CMD_XM_FINETUNE and e.note is not None and e.note<254 else None)
++        if e.note is not None and not k00_suppresses_note and not xm_out_of_range_delay and not xm_note_limit_bad:
+             if e.note==254:
+                 a.note_kind='delay_off' if delay>=0 else 'off'
+                 # FT2 key-off releases the volume envelope/fadeout; it does not
+@@ -386,14 +571,18 @@
+                 # runtime decides this from the current profile.
+                 if self.fmt!='XM' and delay<0:
+                     a.volume=0
+-                a.delayed_volume=(0 if (delay>=0 and self.fmt!='XM') else 0xFF)
++                if self.fmt=='XM' and delay>=0 and xm_ins_present and old_ins in self.m.samples:
++                    a.delayed_volume=self.m.samples[old_ins].volume
++                else:
++                    a.delayed_volume=(0 if (delay>=0 and self.fmt!='XM') else 0xFF)
+             elif e.note<254 and use_ins in self.m.samples:
+                 ni=self._note_index(e.note)
+-                if self.xm_linear:
+-                    # Store FT2's native linear period directly. The Z80 engine
+-                    # then applies 1xx/2xx/3xx/4xy in exactly that domain.
+-                    pq=self._xm_linear_period(use_ins,ni)
+-                    lo,hi=self._xm_linear_pitch_regs(pq)
++                if self.fmt=='XM':
++                    pitch_ft=(xm_ft_override if xm_ft_override is not None else (st.xm_channel_finetune if row_wants_porta and st.period_seen else None))
++                    if self.xm_linear:
++                        pq=self._xm_linear_period(use_ins,ni,pitch_ft); lo,hi=self._xm_linear_pitch_regs(pq)
++                    else:
++                        pq=self._xm_amiga_period(use_ins,ni,pitch_ft); lo,hi=core.Compiler._pitch_regs(max(0.25,float(pq)/4.0))
+                 elif self.fmt in S3M_FMTS:
+                     # S3M profiles use their own integer period/C5-speed domain and C4-speed domain.
+                     # Keep that exact period as runtime state so slides/porta/vibrato
+@@ -411,8 +600,19 @@
+                             period=float(e.mod_period)
+                     pq=max(1,min(65535,int(round(period*4.0))))
+                     lo,hi=core.Compiler._pitch_regs(period)
+-                porta=(cmd in (CMD_G,CMD_L)) and st.period_seen
+-                if porta:
++                wants_porta=row_wants_porta
++                porta=wants_porta and st.period_seen
++                suppress_new_note=(self.fmt=='XM' and wants_porta and not st.period_seen)
++                if self.fmt=='XM' and porta and xm_ins_present and old_ins:
++                    # FT2 ignores the new instrument number on tone-portamento rows.
++                    use_ins=old_ins
++                    if self.xm_linear: pq=self._xm_linear_period(use_ins,ni,pitch_ft)
++                    else: pq=self._xm_amiga_period(use_ins,ni,pitch_ft)
++                if suppress_new_note:
++                    # 3xx / volume-column Fx with no active note has no note trigger.
++                    # Effects on the row still execute, but no period/sample state is created.
++                    pass
++                elif porta:
+                     if self.fmt in S3M_FMTS and bool(getattr(self.m,'s3m_porta_sample_change',False)) and delay<0 and valid_ins and old_ins and valid_ins!=old_ins:
+                         # IT's S3M profile swaps/restarts the new sample while
+                         # keeping the old pitch and sliding towards the new note.
+@@ -445,13 +645,29 @@
+                     a.note_kind='delay_normal' if delay>=0 else 'normal'
+                     if self.fmt=='S3M':
+                         st.note_offset=off
+-                if delay>=0 and valid_ins and e.vol is None:
++                if delay>=0 and valid_ins and e.vol is None and (self.fmt!='XM' or xm_ins_present):
+                     a.delayed_volume=min(64,self.m.samples[valid_ins].volume) if self.fmt in S3M_FMTS else self.m.samples[valid_ins].volume
+-                st.note_index=ni
+-                st.period_seen=True
++                if not suppress_new_note:
++                    st.note_index=ni
++                    st.period_seen=True
++                    if self.fmt=='XM' and not porta:
++                        st.xm_channel_finetune=(int(xm_ft_override) if xm_ft_override is not None else int(getattr(self.m.samples[use_ins],'xm_finetune',0)))
+         elif valid_ins and delay>=0:
+             # Delayed instrument without a note is unusual; preserve its eventual default volume.
+             a.delayed_volume=self.m.samples[valid_ins].volume
++
++        # FT2 EDx (x>0) with no note retriggers the previous note at tick x.
++        # It behaves as a bare note: envelopes retrigger, existing panning stays.
++        if (self.fmt=='XM' and delay>0 and delay<self.speed and e.note is None
++                and st.period_seen and old_ins in self.m.samples and a.note_kind is None):
++            ni=st.note_index; use_ins=old_ins
++            if self.xm_linear:
++                pq=self._xm_linear_period(use_ins,ni); lo,hi=self._xm_linear_pitch_regs(pq)
++            else:
++                pq=self._xm_amiga_period(use_ins,ni); lo,hi=core.Compiler._pitch_regs(max(0.25,float(pq)/4.0))
++            wave=self.bank.get(use_ins,0)
++            a.note_kind='delay_normal'; a.tone=wave-384; a.period_q=pq; a.pitch_lo=lo|1; a.pitch_hi=hi
++            a.delay_tick=delay; a.delayed_volume=0xFF; a.xm_instrument_present=False
+ 
+         # ST3 switches the active sample on an instrument-only cell without
+         # retriggering the voice or converting the current period. The default
+@@ -467,22 +683,26 @@
+         # FT2 resets instrument envelope/fadeout/auto-vibrato state on an
+         # instrument-only row and on instrument+tone-portamento. Normal notes
+         # derive the profile directly from the custom-tone table at trigger time.
+-        if self.fmt=='XM' and valid_ins and (a.note_kind in ('porta','delay_porta') or a.note_kind is None):
+-            pid=int(getattr(self.m.samples[valid_ins],'xm_profile_id',0)) & 0x3F
++        if (self.fmt=='XM' and xm_ins_present and not xm_out_of_range_delay and (valid_ins or old_ins)
++                and (a.note_kind in ('porta','delay_porta') or a.note_kind is None)):
++            prof_ins=(old_ins if old_ins and (a.note_kind in ('porta','delay_porta') or xm_note_limit_bad) else valid_ins)
++            pid=int(getattr(self.m.samples[prof_ins],'xm_profile_id',0)) & 0x3F
+             effects.insert(0,(CMD_XM_PROFILE,pid,None))
+-            if len(effects)>4:
+-                self.warnings.append(f'row event on channel {e.ch}: FT2 profile reset plus >3 simultaneous effects; extras dropped')
+-                effects=effects[:4]
++            if len(effects)>6:
++                self.warnings.append(f'row event on channel {e.ch}: FT2 profile reset plus >5 simultaneous effects; extras dropped')
++                effects=effects[:6]
+ 
+         # J/arpeggio needs two alternate absolute periods; encode them as command-specific payload.
+         outfx=[]
+-        arp_ins=valid_ins or st.instrument
++        arp_ins=(note_sample if note_sample in self.m.samples else valid_ins or st.instrument)
+         for ec,ep,_ in effects:
+             extra=None
+             if ec==CMD_J and ep and arp_ins in self.m.samples and st.note_index>=0:
+-                if self.xm_linear:
+-                    p1=self._xm_linear_period(arp_ins,st.note_index+((ep>>4)&15))
+-                    p2=self._xm_linear_period(arp_ins,st.note_index+(ep&15))
++                if self.fmt=='XM':
++                    if self.xm_linear:
++                        p1=self._xm_linear_period(arp_ins,st.note_index+((ep>>4)&15)); p2=self._xm_linear_period(arp_ins,st.note_index+(ep&15))
++                    else:
++                        p1=self._xm_amiga_period(arp_ins,st.note_index+((ep>>4)&15)); p2=self._xm_amiga_period(arp_ins,st.note_index+(ep&15))
+                     extra=(p1,p2)
+                 elif self.fmt in S3M_FMTS:
+                     p1=self._s3m_period_q(arp_ins,st.note_index+((ep>>4)&15),st.finetune_c5)
+@@ -495,7 +715,19 @@
+             outfx.append((ec,ep,extra))
+         a.effects=outfx
+ 
+-        if valid_ins:
++        if self.fmt=='XM':
++            if k00_suppresses_note or xm_out_of_range_delay or xm_note_limit_bad:
++                pass
++            elif a.note_kind in ('porta','delay_porta') and old_ins:
++                st.instrument=old_ins
++            elif note_sample in self.m.samples and e.note is not None and e.note<254:
++                st.instrument=note_sample
++            elif valid_ins:
++                st.instrument=valid_ins
++            if (xm_ins_present and not k00_suppresses_note and not xm_out_of_range_delay and not xm_note_limit_bad
++                    and not (row_wants_porta and old_ins and st.period_seen)):
++                st.xm_instrument_num=literal_inum
++        elif valid_ins:
+             st.instrument=valid_ins
+         # No runtime-relevant action? B/C/O only can disappear completely.
+         if a.note_kind is None and a.volume is None and not a.effects:
+@@ -512,8 +744,9 @@
+             kinds={'normal':0,'delay_normal':0x40,'porta':0x80,'delay_porta':0x81,'porta_swap':0x82,'sample_swap':0x83,'off':0xFE,'delay_off':0xFF}
+             d=kinds[a.note_kind]
+             if a.note_kind in ('normal','delay_normal'):
+-                # Stream v4 stores a full 7-bit custom-wave index separately.
+-                # This exposes OPL4 waves 384..511 without changing KSP/MWK.
++                # Stream v4: bit 1 marks an XM note without a literal instrument
++                # column. FT2 retriggers envelopes but preserves sample panning.
++                if not a.xm_instrument_present: d |= 0x02
+                 out += bytes((d,a.tone & 0x7F))
+                 out += struct.pack('<HBB',a.period_q,a.pitch_lo,a.pitch_hi)
+                 if a.note_kind=='delay_normal': out += bytes((a.delayed_volume&0xFF,a.delay_tick&0x0F))
+@@ -561,7 +794,7 @@
+             if self.row>=len(pat): self.order+=1; self.row=0; continue
+             evs=pat[self.row]
+             # later channel wins for B/C, matching the backend's channel-order walk.
+-            pending_jump=None; pending_break=None; pending_loop_row=None
++            pending_jump=None; pending_break=None; pending_loop_row=None; pending_stop=False; xm_row_delay=0
+             actions=[]
+             row_events=sorted((e for e in evs if e.ch in self.states),key=lambda x:x.ch)
+             for e in row_events:
+@@ -572,6 +805,10 @@
+                     # Genuine ST3 stores Cxx as packed decimal. IT-authored
+                     # S3M writes/interprets the parameter as a raw row number.
+                     pending_break=((raw_break>>4)*10+(raw_break&15)) if self.fmt=='S3M' else raw_break
++                elif self.fmt=='XM' and e.cmd==CMD_XM_STOP:
++                    pending_stop=True
++                if self.fmt=='XM' and e.cmd==CMD_XM_PATDELAY:
++                    xm_row_delay=(e.param or 0)&15  # last channel wins in FT2/XM
+                 a=self._event_action(e,self.states[e.ch])
+                 if a: actions.append(a)
+                 # SBx pattern loop is flattened at conversion time. ST3 uses
+@@ -590,6 +827,19 @@
+                     else:
+                         lst.loop_count=lp
+                         pending_loop_row=lst.loop_start_row
++                # FT2 E6x is a per-channel pattern loop. Flatten it so the Z80
++                # stream needs no pattern/order state at runtime.
++                if self.fmt=='XM' and e.cmd==CMD_XM_PATLOOP:
++                    lp=(e.param or 0)&15; lst=self.states[e.ch]
++                    if lp==0:
++                        lst.loop_start_row=self.row
++                    elif lst.loop_count:
++                        lst.loop_count-=1
++                        if lst.loop_count:
++                            pending_loop_row=lst.loop_start_row
++                    else:
++                        lst.loop_count=lp
++                        pending_loop_row=lst.loop_start_row
+                 # Global tempo/speed commands are effective on this row.
+                 if e.cmd==CMD_A and (e.param or 0): self.speed=max(1,e.param or 0)
+                 if e.cmd==CMD_T and (e.param or 0)>=32: self.tempo=max(32,e.param or 0)
+@@ -598,7 +848,9 @@
+             for a in actions: rb+=self._encode_action(a)
+             rows_encoded.append(bytes(rb)); max_events=max(max_events,len(actions)); total_events+=len(actions)
+             self.rows+=1
+-            self.seconds += self.speed*2.5/self.tempo
++            self.seconds += self.speed*(1+xm_row_delay)*2.5/self.tempo
++            if pending_stop:
++                self.ended_reason='FT2 F00 stop'; break
+             # advance flattened playback order
+             if pending_loop_row is not None:
+                 self.row=pending_loop_row
+@@ -613,6 +865,11 @@
+                 if self.row>=len(pat): self.row=0; self.order+=1
+             while self.order<self.stop_order and self.order<len(self.m.orders) and self.m.orders[self.order]==254:
+                 self.order+=1
++            if self.fmt=='XM' and self.order>=self.stop_order and self.stop_order==len(self.m.orders):
++                restart=int(getattr(self.m,'xm_restart',0))
++                if self.start_order<=restart<self.stop_order:
++                    self.order=restart; self.row=0
++                    continue
+             if self.order>=self.stop_order or self.order>=len(self.m.orders) or self.m.orders[self.order]==255:
+                 self.ended_reason='end of subsong/order list'; break
+         if not self.ended_reason:
+@@ -628,8 +885,8 @@
+         stream_flags = 1 if (self.fmt in S3M_FMTS and (bool(self.m.flags & 0x40) or st3_fast)) else 0
+         if self.fmt in S3M_FMTS and bool(getattr(self.m,'s3m_old_vibrato',False)): stream_flags |= 0x04
+         if self.xm_linear: stream_flags |= 0x02
+-        header += bytes((STREAM_VERSION,min(24,len(self.m.active_channels)),max(1,self.m.speed),stream_flags))
+-        header += struct.pack('<H',max(32,self.m.tempo))
++        header += bytes((STREAM_VERSION,min(24,len(self.m.active_channels)),(self.m.speed or (6 if self.fmt=='XM' else 1)),stream_flags))
++        header += struct.pack('<H',(self.m.tempo or (125 if self.fmt=='XM' else 32)))
+         header += struct.pack('<I',self.rows)
+         header += pans
+         header.append(0)          # alias-patch count; tracker2ksp fills this after MWK layout
+@@ -638,7 +895,7 @@
+         return stream, rows_encoded, {
+             'semantic_rows':self.rows,'semantic_events':total_events,'max_events_per_row':max_events,
+             'semantic_stream_bytes':len(stream),'duration_seconds':self.seconds,'end_reason':self.ended_reason,
+-            'xm_linear_periods':self.xm_linear,'warnings':self.warnings,
++            'xm_linear_periods':self.xm_linear,'xm_tracker_profile':getattr(self.m,'xm_profile',None),'warnings':self.warnings,
+         }
+ 
+ 
+--- a/tracker2ksp.py
++++ b/tracker2ksp.py
+@@ -340,7 +340,7 @@
+         'format=KSP 1.05',f'engine=native Z80 {source_format}-specific multi-page realtime engine',
+         'conversion=compact rows/effects + shared MWK PCM payloads + INIT-time OPL4 header aliases; no rendered PCM and no pre-expanded tick register stream',
+         f'initial_speed={module.speed}',f'initial_tempo={module.tempo}',f'active_channels={len(module.active_channels)}',
+-        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.4.5'
++        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.4.6'
+     ])+'\n'; meta=metadata.encode()
+     mwkp,mcomp=maybe_zx0(mwk,compression)
+     engine_off=80; page_off=engine_off+64; track_off=page_off+page_count*24; resource_off=track_off+32
+@@ -373,7 +373,7 @@
+     assert len(out)==file_size
+     output.parent.mkdir(parents=True,exist_ok=True); output.write_bytes(out)
+     packed_pages=sum(r['stored_bytes'] for r in records); mapper_segments=(packed_pages+PAGE_SIZE-1)//PAGE_SIZE
+-    return {'status':'built','format':'KSP 1.05','converter_version':'0.4.5','input':str(module.path),'output':str(output),
++    return {'status':'built','format':'KSP 1.05','converter_version':'0.4.6','input':str(module.path),'output':str(output),
+             'title':title,'duration_ms':round(semantic_stats['duration_seconds']*1000),'output_bytes':len(out),'output_sha256':sha256(out),
+             'engine':{'init':hex(engine_sym['init']),'play':hex(engine_sym['play']),'stop':hex(engine_sym['stop']),'play_hz':60,'hardware':'OPL4',
+                       'resident_range':'0x4000-0x67FF (code/state + extended tracker state; persistent tracker state handoff via OPL4 RAM 0x2FFC00)','dynamic_window':'0x6800-0x7FFF','binary_bytes':len(engine_bin),'xm_ft2_profiles':profile_info['profiles'] if profile_info else 0,'xm_profile_bytes':profile_info['bytes'] if profile_info else 0},
+@@ -384,7 +384,7 @@
+             'mwk':{'revision':'0x0C','custom_tones':len(waves),'pcm_payload_bytes':sum(int(w['payload_bytes']) for w in waves),'shared_alias_tones':sum(1 for w in waves if w.get('init_header_patch')),'raw_bytes':len(mwk),'stored_bytes':len(mwkp),'compression':'ZX0' if mcomp else 'none','waves':waves},
+             'ksp_format_changes_required':False,'ksp1play_0_48_changes_required':False,
+             'tracker_profile':{'selected':source_format,'s3m_cwtv':(f'0x{getattr(module,"s3m_cwtv",0):04X}' if source_format in ('S3M','IT-S3M','MODERN-S3M') else None),'creator':getattr(module,'s3m_tracker_name',source_format),'default_panning_table':bool(getattr(module,'s3m_has_default_panning',False))},
+-            'accuracy_notes':['strict Scream Tracker 3 S3Ms use a dedicated ST3 engine with ST3 shared-effect-memory, combined-slide and retrigger timing rules','Impulse Tracker-authored S3Ms use the IT-S3M engine with command-local effect memory','modern/non-ST3 S3Ms (OpenMPT/Schism/Orpheus-style) are kept out of the strict ST3 quirk profile and use the compatible S3M runtime','MOD uses a separate ProTracker/Paula engine binary','XM uses a separate FastTracker II engine with linear-period/envelope/vibrato state','ordinary note pitches are converted to OPL4 registers on the host; realtime pitch effects remain in the selected tracker engine domain']}
++            'accuracy_notes':['strict Scream Tracker 3 S3Ms use a dedicated ST3 engine with ST3 shared-effect-memory, combined-slide and retrigger timing rules','Impulse Tracker-authored S3Ms use the IT-S3M engine with command-local effect memory','modern/non-ST3 S3Ms (OpenMPT/Schism/Orpheus-style) are kept out of the strict ST3 quirk profile and use the compatible S3M runtime','MOD uses a separate ProTracker/Paula engine binary','XM uses a separate FastTracker II engine with XM instrument/envelope state independent of linear-vs-Amiga frequency-table selection','ordinary note pitches are converted to OPL4 registers on the host; realtime pitch effects remain in the selected tracker engine domain']}
+ 
+ def main():
+     ap=argparse.ArgumentParser(description='Convert S3M/IT/modern-S3M/XM/MOD to compact realtime MoonSound KSP 1.05')
+--- a/source/module_formats.py
++++ b/source/module_formats.py
+@@ -129,158 +129,271 @@
+     return m
+ 
+ 
++def _decode_xm_adpcm(raw: bytes, sample_len: int) -> bytes:
++    """Decode ModPlug's XM 4-bit ADPCM (16-byte signed delta table + nibbles)."""
++    if len(raw) < 16:
++        return b''
++    table=[_s8(x) for x in raw[:16]]
++    out=bytearray(); acc=0
++    for x in raw[16:16+(sample_len+1)//2]:
++        acc=(acc+table[x&15]) & 0xff; out.append(acc)
++        if len(out)>=sample_len: break
++        acc=(acc+table[(x>>4)&15]) & 0xff; out.append(acc)
++        if len(out)>=sample_len: break
++    return bytes(out)
++
++
++def _decode_xm_pcm(raw: bytes, typ: int, reserved: int, length_bytes: int):
++    """Return mono signed-8 PCM plus byte->sample divisor for XM sample geometry.
++
++    XM stereo is split-channel delta PCM, not interleaved.  The OPL4 path is
++    mono, so decode L/R independently and average them after delta decoding.
++    """
++    is16=bool(typ & 0x10); stereo=bool(typ & 0x20)
++    div=(2 if is16 else 1)*(2 if stereo else 1)
++    sample_len=length_bytes//div
++    if reserved==0xAD and not is16 and not stereo:
++        return _decode_xm_adpcm(raw,sample_len),div
++    if not stereo:
++        return (_decode_delta16(raw) if is16 else _decode_delta8(raw)),div
++    half=len(raw)//2
++    left_raw,right_raw=raw[:half],raw[half:]
++    left=_decode_delta16(left_raw) if is16 else _decode_delta8(left_raw)
++    right=_decode_delta16(right_raw) if is16 else _decode_delta8(right_raw)
++    n=min(len(left),len(right),sample_len)
++    out=bytearray(n)
++    for i in range(n):
++        l=_s8(left[i]); r=_s8(right[i])
++        v=max(-128,min(127,int((l+r)/2)))
++        out[i]=v & 0xff
++    return bytes(out),div
++
++
++def _xm_pattern_at(b:bytes,pos:int,channels:int,version:int):
++    min_header=8 if version==0x0102 else 9
++    if pos+min_header>len(b): raise ValueError('truncated XM pattern header')
++    phlen=struct.unpack_from('<I',b,pos)[0]
++    if phlen<8 or pos+phlen>len(b): raise ValueError('invalid XM pattern header length')
++    if version==0x0102:
++        rows=b[pos+5]+1; psz=struct.unpack_from('<H',b,pos+6)[0]
++    else:
++        rows=struct.unpack_from('<H',b,pos+5)[0]; psz=struct.unpack_from('<H',b,pos+7)[0]
++        if rows==0: rows=64
++    rows=max(1,min(256,rows))
++    pdata=b[pos+phlen:min(len(b),pos+phlen+psz)]
++    evrows=[[None for _ in range(channels)] for _ in range(rows)]
++    q=0
++    for r in range(rows):
++        for ch in range(channels):
++            vals=[0,0,0,0,0]
++            if q<len(pdata):
++                c=pdata[q]; q+=1
++                if c&0x80:
++                    for k,mask in enumerate((1,2,4,8,16)):
++                        if c&mask and q<len(pdata): vals[k]=pdata[q]; q+=1
++                else:
++                    vals[0]=c
++                    for k in range(1,5):
++                        if q<len(pdata): vals[k]=pdata[q]; q+=1
++            evrows[r][ch]=vals
++    return evrows,pos+phlen+psz
++
++
+ def parse_xm(path:Path)->core.Module:
+     b=path.read_bytes()
+     if not b.startswith(b'Extended Module: '): raise ValueError('not an XM file')
++    if len(b)<80: raise ValueError('truncated XM header')
+     title=b[17:37].split(b'\0')[0].decode('cp437','replace').rstrip()
++    tracker=b[38:58].decode('cp437','replace').rstrip(' \0')
++    version=struct.unpack_from('<H',b,58)[0]
++    if version not in (0x0102,0x0103,0x0104):
++        raise ValueError(f'unsupported XM version {version>>8}.{version&255:02d}')
+     hsize=struct.unpack_from('<I',b,60)[0]
+     songlen,restart,channels,npat,nins,flags,tempo,bpm=struct.unpack_from('<8H',b,64)
+-    orders=list(b[80:80+songlen]); pos=60+hsize
++    if channels<1 or channels>24: raise ValueError(f'XM channel count {channels} is unsupported by the 24-channel OPL4 runtime (1..24)')
++    orders=list(b[80:80+min(songlen,256)])
++    # FT2 treats a zero-length order list as pattern 0. OpenMPT/modern MPT XMs
++    # deliberately allow it to be truly empty.
++    modern_empty = tracker.startswith('OpenMPT ') or tracker.startswith('ModPlug Tracker') or tracker.startswith('FastTracker v 2.00')
++    if not orders and npat and not modern_empty: orders=[0]
++    pos=60+hsize
+     raw_patterns=[]
+-    for pi in range(npat):
+-        phlen=struct.unpack_from('<I',b,pos)[0]; packing=b[pos+4]; rows=struct.unpack_from('<H',b,pos+5)[0]; psz=struct.unpack_from('<H',b,pos+7)[0]
+-        pdata=b[pos+phlen:pos+phlen+psz]; pos+=phlen+psz
+-        evrows=[[None for _ in range(channels)] for _ in range(rows)]
+-        q=0
+-        for r in range(rows):
+-            for ch in range(channels):
+-                vals=[0,0,0,0,0]
+-                if q<len(pdata):
+-                    c=pdata[q]; q+=1
+-                    if c&0x80:
+-                        for k,mask in enumerate((1,2,4,8,16)):
+-                            if c&mask and q<len(pdata): vals[k]=pdata[q]; q+=1
+-                    else:
+-                        vals[0]=c
+-                        for k in range(1,5):
+-                            if q<len(pdata): vals[k]=pdata[q]; q+=1
+-                evrows[r][ch]=vals
+-        raw_patterns.append(evrows)
+-    samples:Dict[int,core.Sample]={}; inst_keymaps={}; inst_sample_ids={}; next_sid=1
++    if version>=0x0104:
++        for _ in range(npat):
++            pat,pos=_xm_pattern_at(b,pos,channels,version); raw_patterns.append(pat)
++
++    samples:Dict[int,core.Sample]={}; inst_keymaps={}; inst_sample_ids={}; inst_names={}; next_sid=1
++    pending_sample_data=[]
++
++    def add_sample(ii, iname, meta, raw):
++        nonlocal next_sid
++        length,ls,ll,vol,ft,typ,pan,rel,reserved,sname=meta
++        data,div=_decode_xm_pcm(raw,typ,reserved,length)
++        ls//=div; ll//=div
++        plen=len(data); le=min(plen,ls+ll); looped=(typ&3)!=0 and ll>1 and le>ls
++        if (typ&3)==2 and looped:
++            seg=data[ls:le]; data=data[:le]+seg[-2:0:-1]; ll=len(data)-ls; le=len(data); plen=len(data)
++        c2=int(round(8363*(2**((rel+ft/128.0)/12.0))))
++        prelimit_len=len(data)
++        data2, ls2, le2, c22 = _limit_sample(data, ls, le, c2)
++        plen2=len(data2); looped=looped and le2>ls2
++        sid=next_sid; next_sid+=1
++        smp=core.Sample(sid,sname,plen2,ls2,le2,min(64,vol),1 if looped else 0,max(1,c22),0,data2)
++        smp.xm_relative_note=rel; smp.xm_finetune=ft
++        smp.xm_period_offset=(int(round(768.0*math.log2(prelimit_len/float(plen2)))) if prelimit_len>plen2 and plen2 else 0)
++        smp.xm_pan=pan; smp.xm_reserved=reserved; smp.xm_stereo=bool(typ&0x20); smp.xm_16bit=bool(typ&0x10)
++        samples[sid]=smp
++        return sid
++
++    # Instruments/sample headers. v1.02/1.03 defer all sample payloads until after patterns.
++    sample_records=[]
+     for ii in range(1,nins+1):
+-        ihsize=struct.unpack_from('<I',b,pos)[0]; iname=b[pos+4:pos+26].split(b'\0')[0].decode('cp437','replace').rstrip(); ns=struct.unpack_from('<H',b,pos+27)[0]
++        if pos+29>len(b): raise ValueError(f'truncated XM instrument {ii}')
++        ihsize=struct.unpack_from('<I',b,pos)[0] or 263
++        if ihsize<29: raise ValueError(f'XM instrument {ii}: invalid header size {ihsize}')
++        iname=b[pos+4:pos+26].split(b'\0')[0].decode('cp437','replace').rstrip()
++        ns=struct.unpack_from('<H',b,pos+27)[0]
++        inst_names[ii]=iname
+         if ns:
+-            shsize=struct.unpack_from('<I',b,pos+29)[0]; keymap=list(b[pos+33:pos+129])
+-            # Preserve the complete FT2 instrument modulation state. Envelopes
+-            # belong to the instrument, while default panning is sample-local.
+-            if ihsize >= 243:
++            shsize=struct.unpack_from('<I',b,pos+29)[0] if pos+33<=len(b) else 40
++            if shsize==0: shsize=40
++            keymap=list(b[pos+33:pos+129]) if ihsize>=129 and pos+129<=len(b) else [0]*96
++            if ihsize>=243 and pos+243<=len(b):
+                 vol_pts=[struct.unpack_from('<HH',b,pos+129+4*j) for j in range(12)]
+                 pan_pts=[struct.unpack_from('<HH',b,pos+177+4*j) for j in range(12)]
+-                vlen=min(12,b[pos+225]); plen=min(12,b[pos+226])
+-                inst_env={
+-                    'vol_points':tuple(vol_pts[:vlen]), 'pan_points':tuple(pan_pts[:plen]),
+-                    'vol_sustain':b[pos+227], 'vol_loop_start':b[pos+228], 'vol_loop_end':b[pos+229],
+-                    'pan_sustain':b[pos+230], 'pan_loop_start':b[pos+231], 'pan_loop_end':b[pos+232],
+-                    'vol_flags':b[pos+233]&7, 'pan_flags':b[pos+234]&7,
+-                    'auto_vib_type':b[pos+235]&3, 'auto_vib_sweep':b[pos+236],
+-                    'auto_vib_depth':b[pos+237], 'auto_vib_rate':b[pos+238],
+-                    'fadeout':struct.unpack_from('<H',b,pos+239)[0]
+-                }
++                vlen=min(12,b[pos+225]); plen_env=min(12,b[pos+226])
++                inst_env={'vol_points':tuple(vol_pts[:vlen]),'pan_points':tuple(pan_pts[:plen_env]),
++                    'vol_sustain':b[pos+227],'vol_loop_start':b[pos+228],'vol_loop_end':b[pos+229],
++                    'pan_sustain':b[pos+230],'pan_loop_start':b[pos+231],'pan_loop_end':b[pos+232],
++                    'vol_flags':b[pos+233]&7,'pan_flags':b[pos+234]&7,
++                    'auto_vib_type':b[pos+235]&3,'auto_vib_sweep':b[pos+236],
++                    'auto_vib_depth':b[pos+237],'auto_vib_rate':b[pos+238],
++                    'fadeout':struct.unpack_from('<H',b,pos+239)[0]}
+             else:
+-                inst_env={'vol_points':(), 'pan_points':(), 'vol_sustain':0,'vol_loop_start':0,'vol_loop_end':0,
+-                          'pan_sustain':0,'pan_loop_start':0,'pan_loop_end':0,'vol_flags':0,'pan_flags':0,
+-                          'auto_vib_type':0,'auto_vib_sweep':0,'auto_vib_depth':0,'auto_vib_rate':0,'fadeout':0}
++                inst_env={'vol_points':(),'pan_points':(),'vol_sustain':0,'vol_loop_start':0,'vol_loop_end':0,
++                    'pan_sustain':0,'pan_loop_start':0,'pan_loop_end':0,'vol_flags':0,'pan_flags':0,
++                    'auto_vib_type':0,'auto_vib_sweep':0,'auto_vib_depth':0,'auto_vib_rate':0,'fadeout':0}
+         else:
+             shsize=0; keymap=[0]*96
+-            inst_env={'vol_points':(), 'pan_points':(), 'vol_sustain':0,'vol_loop_start':0,'vol_loop_end':0,
+-                      'pan_sustain':0,'pan_loop_start':0,'pan_loop_end':0,'vol_flags':0,'pan_flags':0,
+-                      'auto_vib_type':0,'auto_vib_sweep':0,'auto_vib_depth':0,'auto_vib_rate':0,'fadeout':0}
+-        ih_end=pos+ihsize; pos=ih_end
+-        hdrs=[]
++            inst_env={'vol_points':(),'pan_points':(),'vol_sustain':0,'vol_loop_start':0,'vol_loop_end':0,
++                'pan_sustain':0,'pan_loop_start':0,'pan_loop_end':0,'vol_flags':0,'pan_flags':0,
++                'auto_vib_type':0,'auto_vib_sweep':0,'auto_vib_depth':0,'auto_vib_rate':0,'fadeout':0}
++        pos += ihsize
++        recs=[]
+         for si in range(ns):
+-            o=pos+si*shsize
++            if pos+40>len(b): raise ValueError(f'XM instrument {ii}: truncated sample header {si}')
++            o=pos
+             length,loop_start,loop_len=struct.unpack_from('<III',b,o)
+-            vol=b[o+12]; finetune=struct.unpack_from('<b',b,o+13)[0]; typ=b[o+14]; pan=b[o+15]; rel=struct.unpack_from('<b',b,o+16)[0]
++            vol=b[o+12]; finetune=struct.unpack_from('<b',b,o+13)[0]; typ=b[o+14]; pan=b[o+15]; rel=struct.unpack_from('<b',b,o+16)[0]; reserved=b[o+17]
+             sname=b[o+18:o+40].split(b'\0')[0].decode('cp437','replace').rstrip() or iname
+-            hdrs.append((length,loop_start,loop_len,vol,finetune,typ,pan,rel,sname))
+-        pos+=ns*shsize; ids=[]
+-        for meta in hdrs:
+-            length,ls,ll,vol,ft,typ,pan,rel,sname=meta; raw=b[pos:pos+length]; pos+=length
+-            if typ&0x10: data=_decode_delta16(raw); ls//=2; ll//=2
+-            else: data=_decode_delta8(raw)
+-            plen=len(data); le=min(plen,ls+ll); looped=(typ&3)!=0 and ll>1 and le>ls
+-            # Ping-pong loops are unfolded to a forward loop.
+-            if (typ&3)==2 and looped:
+-                seg=data[ls:le]; data=data[:le]+seg[-2:0:-1]; ll=len(data)-ls; le=len(data); plen=len(data)
+-            c2=int(round(8363*(2**((rel+ft/128.0)/12.0))))
+-            prelimit_len=len(data)
+-            data, ls, le, c2 = _limit_sample(data, ls, le, c2)
+-            plen=len(data); looped=looped and le>ls
+-            sid=next_sid; next_sid+=1; ids.append(sid)
+-            smp=core.Sample(sid,sname,plen,ls,le,min(64,vol),1 if looped else 0,max(1,c2),0,data)
+-            # Keep the original FT2 tuning data. In linear-frequency mode FT2
+-            # quantizes finetune to the upper five bits and performs all slides
+-            # in its linear period domain; c2spd alone cannot reproduce that.
+-            smp.xm_relative_note=rel
+-            smp.xm_finetune=ft
+-            # Samples longer than the OPL4 16-bit wave length are decimated by
+-            # _limit_sample(). Compensate that resampling as a constant offset
+-            # in the linear-period domain (768 units per octave).
+-            smp.xm_period_offset=(int(round(768.0*math.log2(prelimit_len/float(plen)))) if prelimit_len>plen and plen else 0)
+-            smp.xm_pan=pan
+-            for _k,_v in inst_env.items(): setattr(smp,'xm_'+_k,_v)
+-            samples[sid]=smp
++            recs.append((length,loop_start,loop_len,vol,finetune,typ,pan,rel,reserved,sname))
++            pos += max(40,shsize)
++        ids=[]
++        if version>=0x0104:
++            for meta in recs:
++                length=meta[0]; reserved=meta[8]
++                encoded_len=(16+(length+1)//2) if reserved==0xAD and not (meta[5]&0x30) else length
++                raw=b[pos:pos+encoded_len]; pos+=encoded_len
++                sid=add_sample(ii,iname,meta,raw); ids.append(sid)
++                for k,v in inst_env.items(): setattr(samples[sid],'xm_'+k,v)
++        else:
++            for meta in recs:
++                sid=next_sid; next_sid+=1; ids.append(sid)
++                sample_records.append((sid,ii,iname,meta,inst_env))
+         inst_keymaps[ii]=keymap; inst_sample_ids[ii]=ids
+-    # Resolve XM instrument/keymap to flat sample ids while tracking last note per channel.
++
++    if version<0x0104:
++        for _ in range(npat):
++            pat,pos=_xm_pattern_at(b,pos,channels,version); raw_patterns.append(pat)
++        for sid,ii,iname,meta,inst_env in sample_records:
++            length=meta[0]; reserved=meta[8]
++            encoded_len=(16+(length+1)//2) if reserved==0xAD and not (meta[5]&0x30) else length
++            raw=b[pos:pos+encoded_len]; pos+=encoded_len
++            # add_sample allocates a new ID; force this old-version reserved ID by remapping.
++            new_sid=add_sample(ii,iname,meta,raw)
++            smp=samples.pop(new_sid); smp.number=sid; samples[sid]=smp
++            for k,v in inst_env.items(): setattr(smp,'xm_'+k,v)
++        next_sid=max(samples.keys(),default=0)+1
++
++    # Resolve keymaps but preserve whether an instrument column actually existed.
+     patterns=[]
+     for evrows in raw_patterns:
+-        rows=[[] for _ in range(len(evrows))]; last_note=[48]*channels; last_inst=[0]*channels
++        rows=[[] for _ in range(len(evrows))]
+         for r,row in enumerate(evrows):
+             for ch,(note,ins,volcol,eff,param) in enumerate(row):
+-                note_b=None; flat_ins=None; volume=None
++                note_b=None; volume=None
++                note_present=1<=note<=96
+                 if note==97: note_b=254
+-                elif 1<=note<=96: last_note[ch]=note-1; note_b=_note_byte(note-1)
+-                if ins: last_inst[ch]=ins
+-                use_inst=ins or last_inst[ch]
+-                if use_inst in inst_sample_ids and inst_sample_ids[use_inst]:
+-                    km=inst_keymaps[use_inst]; idx=km[max(0,min(95,last_note[ch]))]
+-                    if idx<len(inst_sample_ids[use_inst]): flat_ins=inst_sample_ids[use_inst][idx]
++                elif 1<=note<=96: note_b=_note_byte(note-1)
+                 extra=[]
+-                if 0x10<=volcol<=0x50:
+-                    volume=min(64,volcol-0x10)
+-                elif 0x60<=volcol<=0x6F:
+-                    extra.append((4, volcol & 0x0F))
+-                elif 0x70<=volcol<=0x7F:
+-                    extra.append((4, (volcol & 0x0F) << 4))
+-                elif 0x80<=volcol<=0x8F:
+-                    extra.append((4, 0xF0 | (volcol & 0x0F)))
+-                elif 0x90<=volcol<=0x9F:
+-                    extra.append((4, ((volcol & 0x0F) << 4) | 0x0F))
+-                elif 0xA0<=volcol<=0xAF:
+-                    extra.append((8, (volcol & 0x0F) << 4))
+-                elif 0xB0<=volcol<=0xBF:
+-                    extra.append((8, volcol & 0x0F))
+-                elif 0xC0<=volcol<=0xCF:
+-                    extra.append((24, (volcol & 0x0F) * 17))
+-                elif 0xF0<=volcol<=0xFF:
+-                    extra.append((7, (volcol & 0x0F) << 4))
+-                # XM-specific pitch/control effects outside the ProTracker 0..F set.
+-                # Internal commands 28..31 are private to the semantic engine and
+-                # do not alter the KSP file format.
+-                if eff==0x0E and (param>>4)==4:      # E4x vibrato waveform/control
+-                    cmd,p=29,param&0x0F
+-                elif eff==0x0E and (param>>4)==3:    # E3x glissando control
+-                    cmd,p=30,param&0x0F
+-                elif eff==0x21 and (param>>4)==1:    # X1x extra-fine slide up
+-                    cmd,p=6,0xE0|(param&0x0F)
+-                elif eff==0x21 and (param>>4)==2:    # X2x extra-fine slide down
+-                    cmd,p=5,0xE0|(param&0x0F)
+-                elif eff==0x14:                      # Kxx key-off at tick xx
+-                    cmd,p=31,param
++                if 0x10<=volcol<=0x50: volume=min(64,volcol-0x10)
++                elif 0x60<=volcol<=0x6F: extra.append((66,volcol&15,False))      # FT2 vol-column slide down
++                elif 0x70<=volcol<=0x7F: extra.append((67,volcol&15,False))      # FT2 vol-column slide up
++                elif 0x80<=volcol<=0x8F: extra.append((41,volcol&15,False))       # FT2 fine vol down
++                elif 0x90<=volcol<=0x9F: extra.append((42,volcol&15,False))       # FT2 fine vol up
++                elif 0xA0<=volcol<=0xAF: extra.append((43,volcol&15,False))       # set vibrato speed only
++                elif 0xB0<=volcol<=0xBF: extra.append((44,volcol&15,False))       # vibrato depth
++                elif 0xC0<=volcol<=0xCF: extra.append((24,(volcol&15)*4,False))   # FT2 exact 0..60 pan
++                elif 0xD0<=volcol<=0xDF: extra.append((45,volcol&15,False))       # pan left, no memory
++                elif 0xE0<=volcol<=0xEF: extra.append((46,volcol&15,False))       # pan right, no memory
++                elif 0xF0<=volcol<=0xFF: extra.append((47,volcol&15,False))       # volume-column tone porta
++
++                cmd=None; p=param
++                if eff==0x07: cmd,p=40,param                         # 7xy tremolo
++                elif eff==0x0E:
++                    sub=param>>4; lo=param&15
++                    if sub==1: cmd,p=48,lo                           # E1 fine porta up
++                    elif sub==2: cmd,p=49,lo                         # E2 fine porta down
++                    elif sub==3: cmd,p=30,lo                         # E3 gliss
++                    elif sub==4: cmd,p=29,lo                         # E4 vibrato waveform
++                    elif sub==5: cmd,p=50,lo                         # E5 finetune
++                    elif sub==6: cmd,p=51,lo                         # E6 pattern loop
++                    elif sub==7: cmd,p=52,lo                         # E7 tremolo waveform
++                    elif sub==9: cmd,p=53,lo                         # E9 ProTracker-style retrig
++                    elif sub==0xA: cmd,p=54,lo                       # EA fine vol up
++                    elif sub==0xB: cmd,p=55,lo                       # EB fine vol down
++                    elif sub==0xC: cmd,p=27,lo                       # EC cut
++                    elif sub==0xD: cmd,p=19,0xD0|lo                  # ED delay
++                    elif sub==0xE: cmd,p=56,lo                       # EE pattern delay
++                elif eff==0x10: cmd,p=57,param                       # G global volume
++                elif eff==0x11: cmd,p=58,param                       # H global volume slide
++                elif eff==0x14: cmd,p=31,param                       # K key off
++                elif eff==0x15: cmd,p=59,param                       # L envelope position
++                elif eff==0x19: cmd,p=60,param                       # P panning slide
++                elif eff==0x1B: cmd,p=61,param                       # R multi retrig
++                elif eff==0x1D: cmd,p=62,param                       # T tremor
++                elif eff==0x0F and param==0: cmd,p=65,0              # F00: FT2 stop / indefinitely long row
++                elif eff==0x21 and (param>>4)==1: cmd,p=63,param&15  # X1 extra-fine up
++                elif eff==0x21 and (param>>4)==2: cmd,p=64,param&15  # X2 extra-fine down (semantic >63 remapped by stream below)
+                 else:
+                     cmd,p,volume=_mod_effect(eff,param,volume)
+                 if note_b is not None or ins or volume is not None or cmd is not None or extra:
+-                    ev=core.Event(ch=ch,note=note_b,ins=flat_ins if ins or note_b is not None else None,vol=volume,cmd=cmd,param=p if cmd else None)
++                    # Preserve the literal XM instrument number. Sample selection is
++                    # resolved at playback-compile time from the real channel instrument
++                    # state and the instrument's 96-note keymap.
++                    ev=core.Event(ch=ch,note=note_b,ins=None,vol=volume,cmd=cmd,param=p if cmd is not None else None)
++                    ev.xm_sample=None; ev.xm_instrument_present=bool(ins and ins!=0xFF); ev.xm_instrument_number=(ins if ins and ins!=0xFF else 0); ev.xm_note_present=note_present; ev.xm_volume_column=volcol
+                     ev.extra_effects=extra
+                     rows[r].append(ev)
+-        # backend assumes 64 rows; pad/truncate (common XM patterns can vary)
+         patterns.append(rows)
++
+     chset=[255]*32
+     for ch in range(min(channels,32)): chset[ch]=0 if ch%4 in (0,3) else 8
+-    m=core.Module(path,b,title,orders,patterns,samples,chset,max(1,tempo),max(32,bpm),64,0,1)
+-    m.source_format='XM'; m.offset_quantum=256
+-    m.xm_flags=flags; m.xm_linear=bool(flags & 1)
+-    # Deduplicate sample-local FT2 profiles. Profile 0 is the neutral fallback.
++    m=core.Module(path,b,title,orders,patterns,samples,chset,(tempo or 6),(bpm or 125),64,0,1)
++    m.source_format='XM'; m.offset_quantum=256; m.xm_flags=flags; m.xm_linear=bool(flags&1)
++    m.xm_version=version; m.xm_restart=min(restart,max(0,len(orders)-1)) if orders else 0; m.xm_tracker_name=tracker
++    m.xm_instrument_keymaps={k:tuple(v) for k,v in inst_keymaps.items()}
++    m.xm_instrument_sample_ids={k:tuple(v) for k,v in inst_sample_ids.items()}
++    m.xm_instrument_names=dict(inst_names)
++    if tracker.startswith('FastTracker v2.00') or tracker.startswith('Fasttracker II clone'): profile='FT2'
++    elif tracker.startswith('OpenMPT '): profile='OPENMPT'
++    elif tracker.startswith('MilkyTracker '): profile='MILKYTRACKER'
++    elif tracker.startswith('MadTracker 2.0'): profile='MADTRACKER'
++    elif tracker.startswith('Skale Tracker') or tracker.startswith('Sk@le Tracker'): profile='SKALE'
++    elif tracker.startswith('FastTracker v 2.00') or tracker.startswith('ModPlug Tracker'): profile='MODPLUG'
++    else: profile='GENERIC-XM'
++    m.xm_profile=profile
++
+     neutral=((),(),0,0,0,0,0,0,0,0,0,0,0,0,0,128)
+     profiles=[neutral]; profile_ids={neutral:0}
+     for smp in samples.values():
+@@ -296,7 +409,6 @@
+         smp.xm_profile_id=profile_ids[prof]
+     m.xm_profiles=profiles
+     return m
+-
+ 
+ def parse_s3m_profile(path:Path)->Tuple[core.Module,str]:
+     """Parse S3M and choose an explicit playback profile.
+--- a/source/compact_stream.py
++++ b/source/compact_stream.py
+@@ -13,6 +13,11 @@
+ CMD_ST3_COMBINED_D=32; CMD_ST3_COMBINED_H=33; CMD_ST3_COMBINED_G=34
+ CMD_ST3_PATTERN_DELAY=35; CMD_ST3_VIB_WAVE=36; CMD_ST3_TREM_WAVE=37
+ CMD_ST3_FINETUNE=38; CMD_ST3_TICK_DELAY=39
++CMD_XM_TREMOLO=40; CMD_XM_VFINE_DOWN=41; CMD_XM_VFINE_UP=42; CMD_XM_VIBSPD=43; CMD_XM_VIBDEP=44
++CMD_XM_PANLEFT=45; CMD_XM_PANRIGHT=46; CMD_XM_VOLPORTA=47; CMD_XM_FINE_UP=48; CMD_XM_FINE_DOWN=49
++CMD_XM_FINETUNE=50; CMD_XM_PATLOOP=51; CMD_XM_TREMWAVE=52; CMD_XM_E9RETRIG=53; CMD_XM_FINEVOLUP=54; CMD_XM_FINEVOLDOWN=55
++CMD_XM_PATDELAY=56; CMD_XM_GVOL=57; CMD_XM_GVOLSLIDE=58; CMD_XM_ENVPOS=59; CMD_XM_PANSLIDE=60; CMD_XM_RETRIG=61; CMD_XM_TREMOR=62; CMD_XM_XFINE_UP=63; CMD_XM_XFINE_DOWN=64; CMD_XM_STOP=65
++CMD_XM_VC_VOLDN=66; CMD_XM_VC_VOLUP=67; CMD_XM_ROWINS=68; CMD_XM_ROWDELAY=69; CMD_XM_ROWNOTE=70; CMD_XM_ROWVOL=71
+ S3M_FMTS=('S3M','IT-S3M','MODERN-S3M')
+ S3M_FINETUNE=(7895,7941,7985,8046,8107,8169,8232,8280,8363,8413,8463,8529,8581,8651,8723,8757)
+ 
+@@ -33,6 +38,17 @@
+     vib_depth: int = 0
+     high_offset: int = 0
+     finetune_c5: int = 0
++    xm_instrument_num: int = 0
++    xm_volslide_mem: int = 0
++    xm_fine_porta_mem: int = 0
++    xm_xfine_porta_mem: int = 0
++    xm_fine_vol_mem: int = 0
++    xm_pan_mem: int = 0
++    xm_gvol_mem: int = 0
++    xm_retrig_mem: int = 0
++    xm_tremolo_speed: int = 0
++    xm_tremolo_depth: int = 0
++    xm_channel_finetune: int = 0
+     loop_start_row: int = 0
+     loop_count: int = 0
+     mem: Dict[int,int] = field(default_factory=dict)
+@@ -50,6 +66,7 @@
+     delay_tick: int=-1
+     volume: Optional[int]=None
+     effects: List[Tuple[int,int,Optional[Tuple[int,int]]]] = field(default_factory=list)
++    xm_instrument_present: bool=False
+ 
+ 
+ class SharedPayloadWaveBank:
+@@ -205,7 +222,7 @@
+                 if raw: st.mem[cmd]=raw
+                 return raw or st.mem.get(cmd,0)
+             return raw
+-        # XM/MOD: command-local memory, with nibble-wise vibrato and dedicated porta/offset memory.
++        # XM / MOD. XM has several deliberately unlinked FT2 memories.
+         if cmd==CMD_G:
+             p=raw or st.g_mem
+             if raw: st.g_mem=raw
+@@ -214,13 +231,54 @@
+             if raw & 0xF0: st.vib_speed=(raw>>4)&15
+             if raw & 0x0F: st.vib_depth=raw&15
+             return (st.vib_speed<<4)|st.vib_depth
++        if cmd==CMD_XM_TREMOLO:
++            if raw & 0xF0: st.xm_tremolo_speed=(raw>>4)&15
++            if raw & 0x0F: st.xm_tremolo_depth=raw&15
++            return (st.xm_tremolo_speed<<4)|st.xm_tremolo_depth
+         if cmd==CMD_O:
++            # FT2 only updates 9xx memory when a note is present; caller can
++            # suppress the write by setting xm_offset_no_store on the event.
+             p=raw or st.o_mem
+             if raw: st.o_mem=raw
+             return p
+-        # Arpeggio 000 is no effect in XM/MOD, not memory recall.
+-        if cmd==CMD_J and raw==0:
+-            return 0
++        if cmd==CMD_J and raw==0: return 0
++        if self.fmt=='XM':
++            if cmd in (CMD_D,CMD_K,CMD_L):
++                if raw: st.xm_volslide_mem=raw
++                return raw or st.xm_volslide_mem
++            if cmd==CMD_XM_FINE_UP:
++                if raw: st.xm_fine_porta_mem=(st.xm_fine_porta_mem&0x0F)|(raw<<4)
++                return raw or ((st.xm_fine_porta_mem>>4)&15)
++            if cmd==CMD_XM_FINE_DOWN:
++                if raw: st.xm_fine_porta_mem=(st.xm_fine_porta_mem&0xF0)|raw
++                return raw or (st.xm_fine_porta_mem&15)
++            if cmd==CMD_XM_XFINE_UP:
++                if raw: st.xm_xfine_porta_mem=(st.xm_xfine_porta_mem&0x0F)|(raw<<4)
++                return raw or ((st.xm_xfine_porta_mem>>4)&15)
++            if cmd==CMD_XM_XFINE_DOWN:
++                if raw: st.xm_xfine_porta_mem=(st.xm_xfine_porta_mem&0xF0)|raw
++                return raw or (st.xm_xfine_porta_mem&15)
++            if cmd==CMD_XM_FINEVOLUP:
++                if raw: st.xm_fine_vol_mem=(st.xm_fine_vol_mem&0x0F)|(raw<<4)
++                return raw or ((st.xm_fine_vol_mem>>4)&15)
++            if cmd==CMD_XM_FINEVOLDOWN:
++                if raw: st.xm_fine_vol_mem=(st.xm_fine_vol_mem&0xF0)|raw
++                return raw or (st.xm_fine_vol_mem&15)
++            if cmd==CMD_XM_PANSLIDE:
++                if raw: st.xm_pan_mem=raw
++                return raw or st.xm_pan_mem
++            if cmd==CMD_XM_GVOLSLIDE:
++                if raw: st.xm_gvol_mem=raw
++                return raw or st.xm_gvol_mem
++            if cmd==CMD_XM_RETRIG:
++                hi=raw&0xF0; lo=raw&0x0F
++                if hi: st.xm_retrig_mem=(st.xm_retrig_mem&0x0F)|hi
++                if lo: st.xm_retrig_mem=(st.xm_retrig_mem&0xF0)|lo
++                return st.xm_retrig_mem
++            if cmd in (CMD_E,CMD_F,CMD_Q):
++                if raw: st.mem[cmd]=raw
++                return raw or st.mem.get(cmd,0)
++            return raw
+         if cmd in (CMD_D,CMD_E,CMD_F,CMD_K,CMD_L,CMD_Q):
+             if raw: st.mem[cmd]=raw
+             return raw or st.mem.get(cmd,0)
+@@ -248,6 +306,17 @@
+         setting=self.m.channel_settings[ch] if ch < len(self.m.channel_settings) else 0
+         return 11 if setting < 8 else 5
+ 
++    def _xm_resolve_sample(self,instrument_num:int,noteidx:int):
++        if self.fmt!='XM' or instrument_num<=0 or noteidx<0:
++            return None
++        ids=getattr(self.m,'xm_instrument_sample_ids',{}).get(int(instrument_num),())
++        if not ids:
++            return None
++        km=getattr(self.m,'xm_instrument_keymaps',{}).get(int(instrument_num),())
++        key=max(0,min(95,int(noteidx)))
++        si=(int(km[key]) if key<len(km) else 0)
++        return ids[si] if 0<=si<len(ids) and ids[si] in self.m.samples else None
++
+     def _period(self,ins,noteidx):
+         s=self.m.samples[ins]
+         freq=s.c2spd*(2.0**((noteidx-48)/12.0))
+@@ -270,7 +339,41 @@
+         # period_q is exactly four times the physical/reference period.
+         return core.Compiler._pitch_regs(max(0.25,float(period_q)/4.0))
+ 
+-    def _xm_linear_period(self,ins,noteidx):
++    XM_AMIGA_TABLE=(907,900,894,887,881,875,868,862,856,850,844,838,832,826,820,814,
++        808,802,796,791,785,779,774,768,762,757,752,746,741,736,730,725,720,715,709,704,
++        699,694,689,684,678,675,670,665,660,655,651,646,640,636,632,628,623,619,614,610,
++        604,601,597,592,588,584,580,575,570,567,563,559,555,551,547,543,538,535,532,528,
++        524,520,516,513,508,505,502,498,494,491,487,484,480,477,474,470,467,463,460,457,
++        453,450,447,443,440,437,434,431)
++
++    def _xm_amiga_period(self,ins,noteidx,ft_override=None):
++        """FT2 Amiga-frequency-table period, in the same native period units
++        used by OpenMPT/FT2. Slides use parameter*4 in this domain.
++        """
++        smp=self.m.samples[ins]
++        note=int(noteidx)+int(getattr(smp,'xm_relative_note',0))
++        # OpenMPT's note passed to this branch has already been shifted down by
++        # one octave (XM C-0 -> internal table note 0 after clamp at C-0).
++        note=max(0,note)
++        ft=int(getattr(smp,'xm_finetune',0)) if ft_override is None else int(ft_override)
++        # FT2 truncates the low 3 finetune bits before period lookup.
++        ft &= ~7
++        rnote=(note%12)<<3; roct=note//12; rfine=int(ft/16)
++        i=max(0,min(103,rnote+rfine+8)); p1=self.XM_AMIGA_TABLE[i]
++        if ft<0:
++            rfine-=1; af=-ft
++        else:
++            rfine+=1; af=ft
++        i=max(0,min(103,rnote+rfine+8)); p2=self.XM_AMIGA_TABLE[i]
++        frac=af&15
++        per=((p1*(16-frac)+p2*frac)<<1)>>roct
++        # Oversize-sample decimation is a frequency multiplier. Apply it to
++        # Amiga periods as a reciprocal scale.
++        off=int(getattr(smp,'xm_period_offset',0))
++        if off: per=int(round(per*(2.0**(off/768.0))))
++        return max(1,min(65535,per))
++
++    def _xm_linear_period(self,ins,noteidx,ft_override=None):
+         """Return the bit-exact FT2 linear-period state for a note/sample.
+ 
+         FT2's table is linearPeriodLUT[i] = (1936-i)*4. For a zero-based
+@@ -280,7 +383,7 @@
+         """
+         smp=self.m.samples[ins]
+         rel=int(getattr(smp,'xm_relative_note',0))
+-        ft=int(getattr(smp,'xm_finetune',0))
++        ft=int(getattr(smp,'xm_finetune',0)) if ft_override is None else int(ft_override)
+         # Python's right shift is arithmetic for negative integers, matching
+         # FT2's ((int8_t)finetune >> 3).
+         period=7680 - (noteidx+rel)*64 - (ft>>3)*4 + int(getattr(smp,'xm_period_offset',0))
+@@ -298,7 +401,20 @@
+ 
+     def _event_action(self,e, st:ResolveState)->Optional[Action]:
+         cmd=e.cmd or 0; p=e.param or 0
+-        if cmd: p=self._resolve(st,cmd,p)
++        semantic_cmd=cmd
++        if cmd:
++            if self.fmt=='XM' and cmd==CMD_O and p and not bool(getattr(e,'xm_note_present',False)):
++                p = st.o_mem  # FT2: 9xx without a note does not store new offset memory
++            else:
++                p=self._resolve(st,cmd,p)
++        if semantic_cmd==CMD_XM_XFINE_DOWN:
++            cmd=CMD_E; p=0xE0|(p&15)
++        elif semantic_cmd==CMD_XM_XFINE_UP:
++            cmd=CMD_F; p=0xE0|(p&15)
++        elif semantic_cmd==CMD_XM_FINE_UP:
++            cmd=CMD_F; p=0xF0|(p&15)
++        elif semantic_cmd==CMD_XM_FINE_DOWN:
++            cmd=CMD_E; p=0xF0|(p&15)
+         # Keep the resolved command for compile-time flow effects (SBx loops).
+         e.resolved_param=p
+         effects=[]
+@@ -341,6 +457,8 @@
+                 effects=[(CMD_ST3_COMBINED_G,st.g_mem,None),(CMD_ST3_COMBINED_D,p,None)]
+             else:
+                 effects=[(CMD_G,st.g_mem,None),(CMD_D,p,None)]
++        elif self.fmt=='XM' and cmd in (CMD_XM_FINETUNE,CMD_XM_PATLOOP,CMD_XM_STOP):
++            pass  # E5/E6/F00 are handled by the host compiler.
+         elif cmd not in (0,CMD_B,CMD_C,CMD_O):
+             effects.append((cmd,p,None))
+ 
+@@ -350,26 +468,92 @@
+             effects.insert(0,(CMD_X,(max(0,min(64,int(vpan)))*255+32)//64,None))
+ 
+         # Extra semantic effects from XM volume column etc.
+-        for vc,vp in getattr(e,'extra_effects',[]):
+-            rp=self._resolve(st,vc,vp)
++        for ex in getattr(e,'extra_effects',[]):
++            if len(ex)>=3: vc,vp,usemem=ex[:3]
++            else: vc,vp=ex; usemem=True
++            # FT2 PanOff.xm quirk: volume-column Cx is ignored next to a
++            # delayed Note Off. Effect-column panning on the same row survives.
++            volcol=int(getattr(e,'xm_volume_column',0) or 0)
++            if self.fmt=='XM' and e.note==254 and delay>0 and 0xC0<=volcol<=0xCF and vc==CMD_X:
++                continue
++            rp=self._resolve(st,vc,vp) if usemem else vp
+             effects.append((vc,rp,None))
+-        if len(effects)>4:
+-            self.warnings.append(f'row event on channel {e.ch}: more than four semantic effects; extras dropped')
+-            effects=effects[:4]
++        if len(effects)>6:
++            self.warnings.append(f'row event on channel {e.ch}: more than six semantic effects; extras dropped')
++            effects=effects[:6]
++
++        # FT2 row semantics that affect note/instrument handling have to be
++        # known before default-volume/profile actions are generated.
++        row_wants_porta=(cmd in (CMD_G,CMD_L) or any(ec==CMD_XM_VOLPORTA for ec,_,_ in effects))
++        k00_suppresses_note=(self.fmt=='XM' and cmd==CMD_KEYOFF and p==0)
++        xm_out_of_range_delay=(self.fmt=='XM' and delay>=0 and delay>=self.speed)
++        if self.fmt=='XM' and delay>0:
++            # FT2: note + tone-portamento + EDx becomes a delayed normal note.
++            row_wants_porta=False
+ 
+         a=Action(e.ch)
+         a.delay_tick=delay
+-        valid_ins = e.ins if e.ins in self.m.samples else None
+         old_ins=st.instrument
+-        use_ins=valid_ins or old_ins
++        xm_ins_present = bool(getattr(e,'xm_instrument_present',False)) if self.fmt=='XM' else False
++        if self.fmt=='XM':
++            literal_inum=int(getattr(e,'xm_instrument_number',0)) if xm_ins_present else 0
++            effective_inum=literal_inum or st.xm_instrument_num
++            map_note=(self._note_index(e.note) if e.note is not None and e.note<254 else st.note_index)
++            mapped_sample=self._xm_resolve_sample(effective_inum,map_note)
++            # FT2 ignores notes whose pattern note + sample RelativeTone leaves
++            # its real-note range. OpenMPT checks the internal note against
++            # NOTE_MIN+11..NOTE_MIN+130; XM file note 1 maps to internal +12.
++            xm_note_limit_bad=False
++            if e.note is not None and e.note < 254 and mapped_sample in self.m.samples:
++                ni_lim=self._note_index(e.note)
++                rel_lim=int(getattr(self.m.samples[mapped_sample],'xm_relative_note',0))
++                computed_internal=ni_lim + 13 + rel_lim
++                xm_note_limit_bad=not (12 <= computed_internal <= 131)
++            literal_ins=(mapped_sample if xm_ins_present else None)
++            valid_ins=literal_ins
++            # A tone-portamento target always belongs to the currently playing
++            # sample; a normal note is re-keymapped through the current XM instrument.
++            note_sample=(old_ins if row_wants_porta and st.period_seen else mapped_sample)
++            use_ins=note_sample
++        else:
++            xm_note_limit_bad=False
++            literal_inum=0
++            literal_ins=e.ins if e.ins in self.m.samples else None
++            valid_ins=literal_ins
++            note_sample=valid_ins or old_ins
++            use_ins=note_sample or old_ins
++            xm_ins_present=bool(valid_ins)
++        a.xm_instrument_present=xm_ins_present
++        # Runtime needs this literal-instrument marker for FT2's bizarre
++        # volume-column + EDx timing. It is parser-immediate and consumes no
++        # realtime effect slot.
++        if self.fmt=='XM' and delay>0 and getattr(e,'extra_effects',[]):
++            effects.insert(0,(CMD_XM_ROWDELAY,delay&15,None))
++            if xm_ins_present:
++                effects.insert(1,(CMD_XM_ROWINS,1,None))
++        if self.fmt=='XM' and any(ec==CMD_XM_RETRIG for ec,_,_ in effects):
++            # FT2 Rxy tick-0 logic depends on the literal row fields, not only
++            # on playback state. Carry the relevant bits as parser-immediate
++            # semantic markers; they consume no realtime effect slot.
++            if e.note is not None and e.note < 254:
++                effects.insert(0,(CMD_XM_ROWNOTE,1,None))
++            if xm_ins_present and e.note != 254 and not any(ec==CMD_XM_ROWINS for ec,_,_ in effects):
++                effects.insert(0,(CMD_XM_ROWINS,1,None))
++            vc=int(getattr(e,'xm_volume_column',0) or 0)
++            if 0x11 <= vc <= 0x50:
++                effects.insert(0,(CMD_XM_ROWVOL,1,None))
+         if valid_ins and not (cmd==CMD_S and sx==0x2):
+             # Loading an instrument/sample restores its native C5 speed; S2x on
+             # the same row then overrides it again below.
+             st.finetune_c5=0
+ 
+-        # Immediate volume semantics. Instrument changes reset to the sample default except when delayed.
+-        if delay < 0 and valid_ins:
+-            a.volume=self.m.samples[valid_ins].volume
++        # Immediate volume semantics. FT2 new-instrument + tone-portamento
++        # ignores the new instrument but reloads the OLD instrument settings.
++        # K00 ignores note+instrument on the row altogether.
++        if delay < 0 and valid_ins and (self.fmt!='XM' or xm_ins_present) and not k00_suppresses_note:
++            vol_ins=(old_ins if self.fmt=='XM' and old_ins and (row_wants_porta or xm_note_limit_bad or e.note==254) else valid_ins)
++            if vol_ins in self.m.samples:
++                a.volume=self.m.samples[vol_ins].volume
+         if e.vol is not None and e.vol<=64:
+             a.volume=e.vol
+         # S3M/ST3 volume is a true 0..64 range.  Do not fold 64 to 63:
+@@ -378,7 +562,8 @@
+         if self.fmt in S3M_FMTS and a.volume is not None:
+             a.volume=min(64,a.volume)
+ 
+-        if e.note is not None:
++        xm_ft_override=(((p & 15)-8)*16 if self.fmt=='XM' and cmd==CMD_XM_FINETUNE and e.note is not None and e.note<254 else None)
++        if e.note is not None and not k00_suppresses_note and not xm_out_of_range_delay and not xm_note_limit_bad:
+             if e.note==254:
+                 a.note_kind='delay_off' if delay>=0 else 'off'
+                 # FT2 key-off releases the volume envelope/fadeout; it does not
+@@ -386,14 +571,18 @@
+                 # runtime decides this from the current profile.
+                 if self.fmt!='XM' and delay<0:
+                     a.volume=0
+-                a.delayed_volume=(0 if (delay>=0 and self.fmt!='XM') else 0xFF)
++                if self.fmt=='XM' and delay>=0 and xm_ins_present and old_ins in self.m.samples:
++                    a.delayed_volume=self.m.samples[old_ins].volume
++                else:
++                    a.delayed_volume=(0 if (delay>=0 and self.fmt!='XM') else 0xFF)
+             elif e.note<254 and use_ins in self.m.samples:
+                 ni=self._note_index(e.note)
+-                if self.xm_linear:
+-                    # Store FT2's native linear period directly. The Z80 engine
+-                    # then applies 1xx/2xx/3xx/4xy in exactly that domain.
+-                    pq=self._xm_linear_period(use_ins,ni)
+-                    lo,hi=self._xm_linear_pitch_regs(pq)
++                if self.fmt=='XM':
++                    pitch_ft=(xm_ft_override if xm_ft_override is not None else (st.xm_channel_finetune if row_wants_porta and st.period_seen else None))
++                    if self.xm_linear:
++                        pq=self._xm_linear_period(use_ins,ni,pitch_ft); lo,hi=self._xm_linear_pitch_regs(pq)
++                    else:
++                        pq=self._xm_amiga_period(use_ins,ni,pitch_ft); lo,hi=core.Compiler._pitch_regs(max(0.25,float(pq)/4.0))
+                 elif self.fmt in S3M_FMTS:
+                     # S3M profiles use their own integer period/C5-speed domain and C4-speed domain.
+                     # Keep that exact period as runtime state so slides/porta/vibrato
+@@ -411,8 +600,19 @@
+                             period=float(e.mod_period)
+                     pq=max(1,min(65535,int(round(period*4.0))))
+                     lo,hi=core.Compiler._pitch_regs(period)
+-                porta=(cmd in (CMD_G,CMD_L)) and st.period_seen
+-                if porta:
++                wants_porta=row_wants_porta
++                porta=wants_porta and st.period_seen
++                suppress_new_note=(self.fmt=='XM' and wants_porta and not st.period_seen)
++                if self.fmt=='XM' and porta and xm_ins_present and old_ins:
++                    # FT2 ignores the new instrument number on tone-portamento rows.
++                    use_ins=old_ins
++                    if self.xm_linear: pq=self._xm_linear_period(use_ins,ni,pitch_ft)
++                    else: pq=self._xm_amiga_period(use_ins,ni,pitch_ft)
++                if suppress_new_note:
++                    # 3xx / volume-column Fx with no active note has no note trigger.
++                    # Effects on the row still execute, but no period/sample state is created.
++                    pass
++                elif porta:
+                     if self.fmt in S3M_FMTS and bool(getattr(self.m,'s3m_porta_sample_change',False)) and delay<0 and valid_ins and old_ins and valid_ins!=old_ins:
+                         # IT's S3M profile swaps/restarts the new sample while
+                         # keeping the old pitch and sliding towards the new note.
+@@ -445,13 +645,29 @@
+                     a.note_kind='delay_normal' if delay>=0 else 'normal'
+                     if self.fmt=='S3M':
+                         st.note_offset=off
+-                if delay>=0 and valid_ins and e.vol is None:
++                if delay>=0 and valid_ins and e.vol is None and (self.fmt!='XM' or xm_ins_present):
+                     a.delayed_volume=min(64,self.m.samples[valid_ins].volume) if self.fmt in S3M_FMTS else self.m.samples[valid_ins].volume
+-                st.note_index=ni
+-                st.period_seen=True
++                if not suppress_new_note:
++                    st.note_index=ni
++                    st.period_seen=True
++                    if self.fmt=='XM' and not porta:
++                        st.xm_channel_finetune=(int(xm_ft_override) if xm_ft_override is not None else int(getattr(self.m.samples[use_ins],'xm_finetune',0)))
+         elif valid_ins and delay>=0:
+             # Delayed instrument without a note is unusual; preserve its eventual default volume.
+             a.delayed_volume=self.m.samples[valid_ins].volume
++
++        # FT2 EDx (x>0) with no note retriggers the previous note at tick x.
++        # It behaves as a bare note: envelopes retrigger, existing panning stays.
++        if (self.fmt=='XM' and delay>0 and delay<self.speed and e.note is None
++                and st.period_seen and old_ins in self.m.samples and a.note_kind is None):
++            ni=st.note_index; use_ins=old_ins
++            if self.xm_linear:
++                pq=self._xm_linear_period(use_ins,ni); lo,hi=self._xm_linear_pitch_regs(pq)
++            else:
++                pq=self._xm_amiga_period(use_ins,ni); lo,hi=core.Compiler._pitch_regs(max(0.25,float(pq)/4.0))
++            wave=self.bank.get(use_ins,0)
++            a.note_kind='delay_normal'; a.tone=wave-384; a.period_q=pq; a.pitch_lo=lo|1; a.pitch_hi=hi
++            a.delay_tick=delay; a.delayed_volume=0xFF; a.xm_instrument_present=False
+ 
+         # ST3 switches the active sample on an instrument-only cell without
+         # retriggering the voice or converting the current period. The default
+@@ -467,22 +683,26 @@
+         # FT2 resets instrument envelope/fadeout/auto-vibrato state on an
+         # instrument-only row and on instrument+tone-portamento. Normal notes
+         # derive the profile directly from the custom-tone table at trigger time.
+-        if self.fmt=='XM' and valid_ins and (a.note_kind in ('porta','delay_porta') or a.note_kind is None):
+-            pid=int(getattr(self.m.samples[valid_ins],'xm_profile_id',0)) & 0x3F
++        if (self.fmt=='XM' and xm_ins_present and not xm_out_of_range_delay and (valid_ins or old_ins)
++                and (a.note_kind in ('porta','delay_porta') or a.note_kind is None)):
++            prof_ins=(old_ins if old_ins and (a.note_kind in ('porta','delay_porta') or xm_note_limit_bad) else valid_ins)
++            pid=int(getattr(self.m.samples[prof_ins],'xm_profile_id',0)) & 0x3F
+             effects.insert(0,(CMD_XM_PROFILE,pid,None))
+-            if len(effects)>4:
+-                self.warnings.append(f'row event on channel {e.ch}: FT2 profile reset plus >3 simultaneous effects; extras dropped')
+-                effects=effects[:4]
++            if len(effects)>6:
++                self.warnings.append(f'row event on channel {e.ch}: FT2 profile reset plus >5 simultaneous effects; extras dropped')
++                effects=effects[:6]
+ 
+         # J/arpeggio needs two alternate absolute periods; encode them as command-specific payload.
+         outfx=[]
+-        arp_ins=valid_ins or st.instrument
++        arp_ins=(note_sample if note_sample in self.m.samples else valid_ins or st.instrument)
+         for ec,ep,_ in effects:
+             extra=None
+             if ec==CMD_J and ep and arp_ins in self.m.samples and st.note_index>=0:
+-                if self.xm_linear:
+-                    p1=self._xm_linear_period(arp_ins,st.note_index+((ep>>4)&15))
+-                    p2=self._xm_linear_period(arp_ins,st.note_index+(ep&15))
++                if self.fmt=='XM':
++                    if self.xm_linear:
++                        p1=self._xm_linear_period(arp_ins,st.note_index+((ep>>4)&15)); p2=self._xm_linear_period(arp_ins,st.note_index+(ep&15))
++                    else:
++                        p1=self._xm_amiga_period(arp_ins,st.note_index+((ep>>4)&15)); p2=self._xm_amiga_period(arp_ins,st.note_index+(ep&15))
+                     extra=(p1,p2)
+                 elif self.fmt in S3M_FMTS:
+                     p1=self._s3m_period_q(arp_ins,st.note_index+((ep>>4)&15),st.finetune_c5)
+@@ -495,7 +715,19 @@
+             outfx.append((ec,ep,extra))
+         a.effects=outfx
+ 
+-        if valid_ins:
++        if self.fmt=='XM':
++            if k00_suppresses_note or xm_out_of_range_delay or xm_note_limit_bad:
++                pass
++            elif a.note_kind in ('porta','delay_porta') and old_ins:
++                st.instrument=old_ins
++            elif note_sample in self.m.samples and e.note is not None and e.note<254:
++                st.instrument=note_sample
++            elif valid_ins:
++                st.instrument=valid_ins
++            if (xm_ins_present and not k00_suppresses_note and not xm_out_of_range_delay and not xm_note_limit_bad
++                    and not (row_wants_porta and old_ins and st.period_seen)):
++                st.xm_instrument_num=literal_inum
++        elif valid_ins:
+             st.instrument=valid_ins
+         # No runtime-relevant action? B/C/O only can disappear completely.
+         if a.note_kind is None and a.volume is None and not a.effects:
+@@ -512,8 +744,9 @@
+             kinds={'normal':0,'delay_normal':0x40,'porta':0x80,'delay_porta':0x81,'porta_swap':0x82,'sample_swap':0x83,'off':0xFE,'delay_off':0xFF}
+             d=kinds[a.note_kind]
+             if a.note_kind in ('normal','delay_normal'):
+-                # Stream v4 stores a full 7-bit custom-wave index separately.
+-                # This exposes OPL4 waves 384..511 without changing KSP/MWK.
++                # Stream v4: bit 1 marks an XM note without a literal instrument
++                # column. FT2 retriggers envelopes but preserves sample panning.
++                if not a.xm_instrument_present: d |= 0x02
+                 out += bytes((d,a.tone & 0x7F))
+                 out += struct.pack('<HBB',a.period_q,a.pitch_lo,a.pitch_hi)
+                 if a.note_kind=='delay_normal': out += bytes((a.delayed_volume&0xFF,a.delay_tick&0x0F))
+@@ -561,7 +794,7 @@
+             if self.row>=len(pat): self.order+=1; self.row=0; continue
+             evs=pat[self.row]
+             # later channel wins for B/C, matching the backend's channel-order walk.
+-            pending_jump=None; pending_break=None; pending_loop_row=None
++            pending_jump=None; pending_break=None; pending_loop_row=None; pending_stop=False; xm_row_delay=0
+             actions=[]
+             row_events=sorted((e for e in evs if e.ch in self.states),key=lambda x:x.ch)
+             for e in row_events:
+@@ -572,6 +805,10 @@
+                     # Genuine ST3 stores Cxx as packed decimal. IT-authored
+                     # S3M writes/interprets the parameter as a raw row number.
+                     pending_break=((raw_break>>4)*10+(raw_break&15)) if self.fmt=='S3M' else raw_break
++                elif self.fmt=='XM' and e.cmd==CMD_XM_STOP:
++                    pending_stop=True
++                if self.fmt=='XM' and e.cmd==CMD_XM_PATDELAY:
++                    xm_row_delay=(e.param or 0)&15  # last channel wins in FT2/XM
+                 a=self._event_action(e,self.states[e.ch])
+                 if a: actions.append(a)
+                 # SBx pattern loop is flattened at conversion time. ST3 uses
+@@ -590,6 +827,19 @@
+                     else:
+                         lst.loop_count=lp
+                         pending_loop_row=lst.loop_start_row
++                # FT2 E6x is a per-channel pattern loop. Flatten it so the Z80
++                # stream needs no pattern/order state at runtime.
++                if self.fmt=='XM' and e.cmd==CMD_XM_PATLOOP:
++                    lp=(e.param or 0)&15; lst=self.states[e.ch]
++                    if lp==0:
++                        lst.loop_start_row=self.row
++                    elif lst.loop_count:
++                        lst.loop_count-=1
++                        if lst.loop_count:
++                            pending_loop_row=lst.loop_start_row
++                    else:
++                        lst.loop_count=lp
++                        pending_loop_row=lst.loop_start_row
+                 # Global tempo/speed commands are effective on this row.
+                 if e.cmd==CMD_A and (e.param or 0): self.speed=max(1,e.param or 0)
+                 if e.cmd==CMD_T and (e.param or 0)>=32: self.tempo=max(32,e.param or 0)
+@@ -598,7 +848,9 @@
+             for a in actions: rb+=self._encode_action(a)
+             rows_encoded.append(bytes(rb)); max_events=max(max_events,len(actions)); total_events+=len(actions)
+             self.rows+=1
+-            self.seconds += self.speed*2.5/self.tempo
++            self.seconds += self.speed*(1+xm_row_delay)*2.5/self.tempo
++            if pending_stop:
++                self.ended_reason='FT2 F00 stop'; break
+             # advance flattened playback order
+             if pending_loop_row is not None:
+                 self.row=pending_loop_row
+@@ -613,6 +865,11 @@
+                 if self.row>=len(pat): self.row=0; self.order+=1
+             while self.order<self.stop_order and self.order<len(self.m.orders) and self.m.orders[self.order]==254:
+                 self.order+=1
++            if self.fmt=='XM' and self.order>=self.stop_order and self.stop_order==len(self.m.orders):
++                restart=int(getattr(self.m,'xm_restart',0))
++                if self.start_order<=restart<self.stop_order:
++                    self.order=restart; self.row=0
++                    continue
+             if self.order>=self.stop_order or self.order>=len(self.m.orders) or self.m.orders[self.order]==255:
+                 self.ended_reason='end of subsong/order list'; break
+         if not self.ended_reason:
+@@ -628,8 +885,8 @@
+         stream_flags = 1 if (self.fmt in S3M_FMTS and (bool(self.m.flags & 0x40) or st3_fast)) else 0
+         if self.fmt in S3M_FMTS and bool(getattr(self.m,'s3m_old_vibrato',False)): stream_flags |= 0x04
+         if self.xm_linear: stream_flags |= 0x02
+-        header += bytes((STREAM_VERSION,min(24,len(self.m.active_channels)),max(1,self.m.speed),stream_flags))
+-        header += struct.pack('<H',max(32,self.m.tempo))
++        header += bytes((STREAM_VERSION,min(24,len(self.m.active_channels)),(self.m.speed or (6 if self.fmt=='XM' else 1)),stream_flags))
++        header += struct.pack('<H',(self.m.tempo or (125 if self.fmt=='XM' else 32)))
+         header += struct.pack('<I',self.rows)
+         header += pans
+         header.append(0)          # alias-patch count; tracker2ksp fills this after MWK layout
+@@ -638,7 +895,7 @@
+         return stream, rows_encoded, {
+             'semantic_rows':self.rows,'semantic_events':total_events,'max_events_per_row':max_events,
+             'semantic_stream_bytes':len(stream),'duration_seconds':self.seconds,'end_reason':self.ended_reason,
+-            'xm_linear_periods':self.xm_linear,'warnings':self.warnings,
++            'xm_linear_periods':self.xm_linear,'xm_tracker_profile':getattr(self.m,'xm_profile',None),'warnings':self.warnings,
+         }
+ 
+ 
+--- a/source/tracker2ksp.py
++++ b/source/tracker2ksp.py
+@@ -340,7 +340,7 @@
+         'format=KSP 1.05',f'engine=native Z80 {source_format}-specific multi-page realtime engine',
+         'conversion=compact rows/effects + shared MWK PCM payloads + INIT-time OPL4 header aliases; no rendered PCM and no pre-expanded tick register stream',
+         f'initial_speed={module.speed}',f'initial_tempo={module.tempo}',f'active_channels={len(module.active_channels)}',
+-        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.4.5'
++        f'custom_opl4_waves={len(waves)}',f'event_pages={page_count}','converter=tracker2ksp.py','converter_version=0.4.6'
+     ])+'\n'; meta=metadata.encode()
+     mwkp,mcomp=maybe_zx0(mwk,compression)
+     engine_off=80; page_off=engine_off+64; track_off=page_off+page_count*24; resource_off=track_off+32
+@@ -373,7 +373,7 @@
+     assert len(out)==file_size
+     output.parent.mkdir(parents=True,exist_ok=True); output.write_bytes(out)
+     packed_pages=sum(r['stored_bytes'] for r in records); mapper_segments=(packed_pages+PAGE_SIZE-1)//PAGE_SIZE
+-    return {'status':'built','format':'KSP 1.05','converter_version':'0.4.5','input':str(module.path),'output':str(output),
++    return {'status':'built','format':'KSP 1.05','converter_version':'0.4.6','input':str(module.path),'output':str(output),
+             'title':title,'duration_ms':round(semantic_stats['duration_seconds']*1000),'output_bytes':len(out),'output_sha256':sha256(out),
+             'engine':{'init':hex(engine_sym['init']),'play':hex(engine_sym['play']),'stop':hex(engine_sym['stop']),'play_hz':60,'hardware':'OPL4',
+                       'resident_range':'0x4000-0x67FF (code/state + extended tracker state; persistent tracker state handoff via OPL4 RAM 0x2FFC00)','dynamic_window':'0x6800-0x7FFF','binary_bytes':len(engine_bin),'xm_ft2_profiles':profile_info['profiles'] if profile_info else 0,'xm_profile_bytes':profile_info['bytes'] if profile_info else 0},
+@@ -384,7 +384,7 @@
+             'mwk':{'revision':'0x0C','custom_tones':len(waves),'pcm_payload_bytes':sum(int(w['payload_bytes']) for w in waves),'shared_alias_tones':sum(1 for w in waves if w.get('init_header_patch')),'raw_bytes':len(mwk),'stored_bytes':len(mwkp),'compression':'ZX0' if mcomp else 'none','waves':waves},
+             'ksp_format_changes_required':False,'ksp1play_0_48_changes_required':False,
+             'tracker_profile':{'selected':source_format,'s3m_cwtv':(f'0x{getattr(module,"s3m_cwtv",0):04X}' if source_format in ('S3M','IT-S3M','MODERN-S3M') else None),'creator':getattr(module,'s3m_tracker_name',source_format),'default_panning_table':bool(getattr(module,'s3m_has_default_panning',False))},
+-            'accuracy_notes':['strict Scream Tracker 3 S3Ms use a dedicated ST3 engine with ST3 shared-effect-memory, combined-slide and retrigger timing rules','Impulse Tracker-authored S3Ms use the IT-S3M engine with command-local effect memory','modern/non-ST3 S3Ms (OpenMPT/Schism/Orpheus-style) are kept out of the strict ST3 quirk profile and use the compatible S3M runtime','MOD uses a separate ProTracker/Paula engine binary','XM uses a separate FastTracker II engine with linear-period/envelope/vibrato state','ordinary note pitches are converted to OPL4 registers on the host; realtime pitch effects remain in the selected tracker engine domain']}
++            'accuracy_notes':['strict Scream Tracker 3 S3Ms use a dedicated ST3 engine with ST3 shared-effect-memory, combined-slide and retrigger timing rules','Impulse Tracker-authored S3Ms use the IT-S3M engine with command-local effect memory','modern/non-ST3 S3Ms (OpenMPT/Schism/Orpheus-style) are kept out of the strict ST3 quirk profile and use the compatible S3M runtime','MOD uses a separate ProTracker/Paula engine binary','XM uses a separate FastTracker II engine with XM instrument/envelope state independent of linear-vs-Amiga frequency-table selection','ordinary note pitches are converted to OPL4 registers on the host; realtime pitch effects remain in the selected tracker engine domain']}
+ 
+ def main():
+     ap=argparse.ArgumentParser(description='Convert S3M/IT/modern-S3M/XM/MOD to compact realtime MoonSound KSP 1.05')
+--- a/source/compact_engine_xm.asm
++++ b/source/compact_engine_xm.asm
+@@ -51,6 +51,12 @@
+ PAR1            equ 060C0h
+ CMD2            equ 060D8h
+ PAR2            equ 060F0h
++CMD3            equ 06400h      ; 24 bytes, third FT2 realtime effect slot
++PAR3            equ 06418h      ; 24 bytes
++ROWDELAY        equ 06430h      ; 24 bytes, original FT2 EDx tick for vol-column quirks
++ROWINS          equ 06448h      ; 24 bytes, literal instrument marker for FT2 row quirks
++ROWNOTE         equ 06460h      ; 24 bytes, literal real note on current row
++ROWVOL          equ 06478h      ; 24 bytes, nonzero volume-column volume on current row
+ VIBSPD          equ 06108h
+ VIBDEP          equ 06120h
+ VIBPH           equ 06138h
+@@ -68,9 +74,20 @@
+ AUTOPOS         equ 062B8h      ; 24 bytes
+ AUTOAMP         equ 062D0h      ; 24 words, Q8 depth sweep
+ GLISS           equ 06300h      ; 24 bytes, E3x semitone-porta control
++TREMSPD         equ 06318h      ; 24 bytes, FT2 7xy speed
++TREMDEP         equ 06330h      ; 24 bytes, FT2 7xy depth
++TREMPH          equ 06348h      ; 24 bytes, FT2 tremolo phase
++TREMWAVE        equ 06360h      ; 24 bytes, E7x waveform/control
++TREMORPAR       equ 06378h      ; 24 bytes, FT2 Txy memory
++TREMORCNT       equ 06390h      ; 24 bytes, FT2 tremor state
++RETRIGCNT       equ 063A8h      ; 24 bytes, FT2 Rxy running counter
++GLOBALVOL       equ 063C0h      ; 0..64
++TREMOFF         equ 063C1h      ; 24 signed bytes, transient tremolo volume offset
++PATDELAY        equ 063D9h      ; FT2 EEx row-delay multiplier minus one
++ROW_LIMIT       equ 063DAh      ; ticks on current row, clamped to 255
+ PAGE_TOTAL_CFG  equ 063FCh      ; patched by converter
+ STATE_CLEAR     equ 05F00h
+-STATE_CLEAR_END equ 06318h
++STATE_CLEAR_END equ 063DBh
+ 
+ CMD_A           equ 1
+ CMD_D           equ 4
+@@ -88,6 +105,31 @@
+ CMD_VCTRL       equ 29
+ CMD_GLISS       equ 30
+ CMD_KEYOFF      equ 31
++CMD_XM_TREMOLO  equ 40
++CMD_XM_VFNDN    equ 41
++CMD_XM_VFNUP    equ 42
++CMD_XM_VIBSPD   equ 43
++CMD_XM_VIBDEP   equ 44
++CMD_XM_PANLEFT  equ 45
++CMD_XM_PANRIGHT equ 46
++CMD_XM_VOLPORTA equ 47
++CMD_XM_TREMWAVE equ 52
++CMD_XM_E9RETRIG equ 53
++CMD_XM_FVUP     equ 54
++CMD_XM_FVDN     equ 55
++CMD_XM_PATDELAY equ 56
++CMD_XM_GVOL     equ 57
++CMD_XM_GVOLSL   equ 58
++CMD_XM_ENVPOS   equ 59
++CMD_XM_PANSLIDE equ 60
++CMD_XM_RETRIG   equ 61
++CMD_XM_TREMOR   equ 62
++CMD_XM_VC_VOLDN equ 66
++CMD_XM_VC_VOLUP equ 67
++CMD_XM_ROWINS   equ 68
++CMD_XM_ROWDELAY equ 69
++CMD_XM_ROWNOTE  equ 70
++CMD_XM_ROWVOL   equ 71
+ 
+ init:
+         xor a
+@@ -111,9 +153,12 @@
+         ld a,(STREAM_DATA+6)
+         or a
+         jr nz,init_speed_ok
+-        inc a
++        ld a,6                    ; FT2 default when header speed is zero
+ init_speed_ok:
+         ld (SPEED),a
++        ld (ROW_LIMIT),a
++        ld a,64
++        ld (GLOBALVOL),a
+         ld a,(STREAM_DATA+7)
+         ld b,a
+         and 1
+@@ -184,7 +229,7 @@
+         ld a,(ROW_TICK)
+         inc a
+         ld b,a
+-        ld a,(SPEED)
++        ld a,(ROW_LIMIT)
+         cp b
+         jr c,process_row_done
+         jr z,process_row_done
+@@ -199,9 +244,20 @@
+ parse_row:
+         ; Clear row-local effects and expire delayed actions from a malformed prior row.
+         xor a
++        ld (PATDELAY),a
++        ld a,(SPEED)
++        ld (ROW_LIMIT),a
++        xor a
+         ld hl,CMD1
+         ld de,CMD1+1
+         ld bc,96-1
++        ld (hl),a
++        ldir
++        ; CMD3/PAR3 live in the otherwise unused 06400h area, outside the
++        ; contiguous legacy row-effect block above.
++        ld hl,CMD3
++        ld de,CMD3+1
++        ld bc,144-1
+         ld (hl),a
+         ldir
+         ld hl,DELAY_TICK
+@@ -360,6 +416,7 @@
+         or a
+         ret z
+         ld (SPEED),a
++        call xm_update_row_limit
+         or a
+         ret
+ fx_not_speed:
+@@ -381,14 +438,65 @@
+         or a
+         ret
+ fx_not_pan:
++        cp CMD_XM_GVOL
++        jr nz,fx_not_gvol
++        ld a,e
++        cp 65
++        jr c,fx_gvol_ok
++        ld a,64
++fx_gvol_ok:
++        ld (GLOBALVOL),a
++        jp fx_extra
++fx_not_gvol:
++        cp CMD_XM_PATDELAY
++        jr nz,fx_not_patdelay
++        ld a,e
++        and 0Fh
++        ld (PATDELAY),a
++        call xm_update_row_limit
++        jp fx_extra
++fx_not_patdelay:
++        cp CMD_XM_ROWDELAY
++        jr nz,fx_not_rowdelay
++        ld a,e
++        and 0Fh
++        ld hl,ROWDELAY
++        call ptr8_cur
++        ld (hl),a
++        jp fx_extra
++fx_not_rowdelay:
++        cp CMD_XM_ROWNOTE
++        jr nz,fx_not_rownote
++        ld a,1
++        ld hl,ROWNOTE
++        call ptr8_cur
++        ld (hl),a
++        jp fx_extra
++fx_not_rownote:
++        cp CMD_XM_ROWVOL
++        jr nz,fx_not_rowvol
++        ld a,1
++        ld hl,ROWVOL
++        call ptr8_cur
++        ld (hl),a
++        jp fx_extra
++fx_not_rowvol:
++        cp CMD_XM_ROWINS
++        jr nz,fx_not_rowins
++        ld a,1
++        ld hl,ROWINS
++        call ptr8_cur
++        ld (hl),a
++        jp fx_extra
++fx_not_rowins:
+         ; FT2 profile resets are row-start actions, not continuing tick effects.
+-        ; Apply them immediately so they do not consume one of the two realtime
+-        ; effect slots (important for instrument+porta+volume-slide rows).
++        ; Apply them immediately so they do not consume one of the three realtime
++        ; effect slots (important for instrument+porta+volume-column combinations).
+         cp CMD_XMPROF
+         jr nz,fx_not_profile
+         ld a,e
+         call xm_reset_profile_a
+-        jr fx_extra
++        jp fx_extra
+ fx_not_profile:
+         ; H updates nibble memory immediately; its resolved parameter already has both nibbles.
+         cp CMD_H
+@@ -419,10 +527,10 @@
+         ld (hl),e
+         ld a,1
+         ld (FX_SLOT),a
+-        jr fx_extra
++        jp fx_extra
+ fx_store_2:
+         cp 2
+-        jr nc,fx_extra             ; consume but ignore >2 continuing tick effects
++        jr nc,fx_store_3
+         ld hl,CMD2
+         call ptr8_cur
+         ld (hl),d
+@@ -430,6 +538,18 @@
+         call ptr8_cur
+         ld (hl),e
+         ld a,2
++        ld (FX_SLOT),a
++        jp fx_extra
++fx_store_3:
++        cp 3
++        jr nc,fx_extra             ; standard FT2 needs at most three continuing effects
++        ld hl,CMD3
++        call ptr8_cur
++        ld (hl),d
++        ld hl,PAR3
++        call ptr8_cur
++        ld (hl),e
++        ld a,3
+         ld (FX_SLOT),a
+ fx_extra:
+         ld a,d
+@@ -491,16 +611,17 @@
+         ret
+ 
+ do_note_off:
+-        ld a,(LINEAR_XM)
+-        or a
+-        jp nz,xm_note_off
+-        jp keyoff_current
++        jp xm_note_off
+ 
+ queue_delayed_note:
+         ld a,(EV_DELAY)
++        ld b,a
+         ld hl,DELAY_TICK
+         call ptr8_cur
+-        ld (hl),a
++        ld (hl),b
++        ld hl,ROWDELAY
++        call ptr8_cur
++        ld (hl),b
+         ld a,(EV_NOTE_KIND)
+         ld hl,PEND_KIND
+         call ptr8_cur
+@@ -546,17 +667,29 @@
+         ld hl,WAVE
+         call ptr8_cur
+         ld (hl),a
+-        ; XM: resolve tone -> FT2 profile and reset envelope/fade/auto-vib state.
+-        ld a,(LINEAR_XM)
+-        or a
+-        jr z,normal_reset_vib
++        ; XM engine: profile/envelope state is independent of linear-vs-Amiga periods.
+         ld a,(EV_TONE)
+         ld e,a
+         ld d,0
+         ld hl,XM_TONE_PROFILE
+         add hl,de
+         ld a,(hl)
++        ld b,a
++        ld a,(EV_NOTE_KIND)
++        bit 1,a                   ; bare XM note: no literal instrument column
++        ld a,b
++        jr z,normal_reset_profile_full
++        call xm_reset_profile_preserve_pan_a
++        jr normal_profile_done
++normal_reset_profile_full:
+         call xm_reset_profile_a
++        ; FT2: a literal instrument number disables/re-arms tremor.
++        ; The host marks bare notes (no instrument column) in EV_NOTE_KIND bit 1.
++        ld a,020h
++        ld hl,TREMORCNT
++        call ptr8_cur
++        ld (hl),a
++normal_profile_done:
+         ; E4x bit 2 means don't retrigger manual vibrato phase.
+         ld hl,VIBCTRL
+         call ptr8_cur
+@@ -568,6 +701,16 @@
+         call ptr8_cur
+         ld (hl),a
+ normal_vib_done:
++        ; E7x bit 2 independently controls tremolo-phase retrigger.
++        ld hl,TREMWAVE
++        call ptr8_cur
++        bit 2,(hl)
++        jr nz,normal_trem_done
++        xor a
++        ld hl,TREMPH
++        call ptr8_cur
++        ld (hl),a
++normal_trem_done:
+         call keyoff_current
+         ; Exact host-computed base pitch and wave number 384+tone.
+         ld a,(CUR_CH)
+@@ -592,6 +735,28 @@
+         call opl4_write_de
+         jp keyon_current
+ 
++xm_update_row_limit:
++        ; ROW_LIMIT = SPEED * (PATDELAY+1), saturating at 255.
++        ld a,(PATDELAY)
++        inc a
++        ld b,a
++        ld a,(SPEED)
++        ld c,a
++        xor a
++xm_rowlim_mul:
++        add a,c
++        jr c,xm_rowlim_sat
++        djnz xm_rowlim_mul
++        or a
++        jr nz,xm_rowlim_store
++        inc a
++xm_rowlim_store:
++        ld (ROW_LIMIT),a
++        ret
++xm_rowlim_sat:
++        ld a,0FFh
++        jr xm_rowlim_store
++
+ process_all_channels:
+         xor a
+         ld (CUR_CH),a
+@@ -620,6 +785,13 @@
+         call ptr8_cur
+         ld e,(hl)
+         call apply_effect_de
++        ld hl,CMD3
++        call ptr8_cur
++        ld d,(hl)
++        ld hl,PAR3
++        call ptr8_cur
++        ld e,(hl)
++        call apply_effect_de
+         call xm_tick_modulators
+         ld a,(PITCH_DIRTY)
+         or a
+@@ -639,6 +811,10 @@
+         ld a,(TICK_NOW)
+         or a
+         ret nz
++        xor a
++        ld hl,TREMOFF
++        call ptr8_cur
++        ld (hl),a
+         ld hl,PREV_PFX
+         call ptr8_cur
+         ld b,(hl)                ; previous-row flags
+@@ -661,6 +837,17 @@
+         jr nz,row_pfx_cmd2_not_j
+         set 0,c
+ row_pfx_cmd2_not_j:
++        cp CMD_H
++        jr nz,row_pfx_cmd3
++        set 1,c
++row_pfx_cmd3:
++        ld hl,CMD3
++        call ptr8_cur
++        ld a,(hl)
++        cp CMD_J
++        jr nz,row_pfx_cmd3_not_j
++        set 0,c
++row_pfx_cmd3_not_j:
+         cp CMD_H
+         jr nz,row_pfx_decide
+         set 1,c
+@@ -702,12 +889,13 @@
+         ld hl,PEND_KIND
+         call ptr8_cur
+         ld a,(hl)
++        ld (EV_NOTE_KIND),a
+         cp 0FFh
+         jr nz,delay_not_keyoff
+-        ld a,(LINEAR_XM)
+-        or a
+-        jp nz,xm_note_off
+-        jp keyoff_current
++        ; FT2 Off+EDx retriggers envelope/sample settings but does NOT key-off
++        ; or start fadeout (OpenMPT OffDelay.xm behaviour). Pending default
++        ; volume, when appropriate, was already applied above.
++        jp xm_reset_current_profile_clocks
+ delay_not_keyoff:
+         cp 081h
+         jr z,delay_porta
+@@ -772,88 +960,137 @@
+         jp z,effect_gliss
+         cp CMD_KEYOFF
+         jp z,effect_xm_keyoff
+-        ret
++        cp CMD_XM_TREMOLO
++        jp z,effect_xm_tremolo
++        cp CMD_XM_VFNDN
++        jp z,effect_xm_vfine_down
++        cp CMD_XM_VFNUP
++        jp z,effect_xm_vfine_up
++        cp CMD_XM_VIBSPD
++        jp z,effect_xm_vibspeed
++        cp CMD_XM_VIBDEP
++        jp z,effect_xm_vibdepth
++        cp CMD_XM_PANLEFT
++        jp z,effect_xm_panleft
++        cp CMD_XM_PANRIGHT
++        jp z,effect_xm_panright
++        cp CMD_XM_VOLPORTA
++        jp z,effect_xm_volporta
++        cp CMD_XM_E9RETRIG
++        jp z,effect_xm_e9retrig
++        cp CMD_XM_FVUP
++        jp z,effect_xm_fvup
++        cp CMD_XM_FVDN
++        jp z,effect_xm_fvdn
++        cp CMD_XM_GVOLSL
++        jp z,effect_xm_gvolslide
++        cp CMD_XM_TREMWAVE
++        jp z,effect_xm_tremwave
++        cp CMD_XM_ENVPOS
++        jp z,effect_xm_envpos
++        cp CMD_XM_PANSLIDE
++        jp z,effect_xm_panslide
++        cp CMD_XM_RETRIG
++        jp z,effect_xm_retrig
++        cp CMD_XM_TREMOR
++        jp z,effect_xm_tremor
++        cp CMD_XM_VC_VOLDN
++        jp z,effect_xm_vc_voldown
++        cp CMD_XM_VC_VOLUP
++        jp z,effect_xm_vc_volup
++        ret
++
++; Return NZ when a non-volume/panning FT2 volume-column command is
++; allowed on this tick. With EDx, FT2 skips row tick 0 and also skips the
++; delayed start tick when a literal instrument is present.
++xm_volcol_allowed:
++        ld hl,ROWDELAY
++        call ptr8_cur
++        ld b,(hl)
++        ld a,b
++        or a
++        jr z,xm_vca_allowed
++        ld a,(TICK_NOW)
++        or a
++        ret z
++        cp b
++        jr nz,xm_vca_allowed
++        ld hl,ROWINS
++        call ptr8_cur
++        ld a,(hl)
++        or a
++        jr z,xm_vca_allowed
++        xor a
++        ret
++xm_vca_allowed:
++        ld a,1
++        or a
++        ret
++
++; Same as above but volume-column tone-portamento also skips the delayed
++; start tick even when there is no instrument number.
++xm_volcol_porta_allowed:
++        ld hl,ROWDELAY
++        call ptr8_cur
++        ld b,(hl)
++        ld a,b
++        or a
++        jr z,xm_vcpa_allowed
++        ld a,(TICK_NOW)
++        or a
++        ret z
++        cp b
++        jr z,xm_vcpa_skip
++xm_vcpa_allowed:
++        ld a,1
++        or a
++        ret
++xm_vcpa_skip:
++        xor a
++        ret
++
++effect_xm_vc_voldown:
++        call xm_volcol_allowed
++        ret z
++        ld a,(TICK_NOW)
++        or a
++        ret z
++        ld a,e
++        and 0Fh
++        or a
++        ret z
++        jp volume_sub_a
++
++effect_xm_vc_volup:
++        call xm_volcol_allowed
++        ret z
++        ld a,(TICK_NOW)
++        or a
++        ret z
++        ld a,e
++        and 0Fh
++        or a
++        ret z
++        jp volume_add_a
+ 
+ effect_volume_slide:
+-        ; E=parameter. Fine forms happen on tick zero, ordinary forms afterwards.
++        ; FT2 Axy / 5xy / 6xy: high-nibble priority, no S3M/IT fine forms.
++        ; Slides execute only on non-row ticks. EAx/EBx are separate commands.
++        ld a,(TICK_NOW)
++        or a
++        ret z
+         ld a,e
+         and 0F0h
+-        ld b,a
+-        ld a,e
+-        and 00Fh
+-        ld c,a
+-        ld a,b
+-        cp 0F0h
+-        jr nz,vol_not_fine_down
+-        ld a,c
+-        or a
+-        ret z
+-        cp 0Fh
+-        ret z
+-        ld a,(TICK_NOW)
+-        or a
+-        ret nz
+-        ld a,c
+-        jp volume_sub_a
+-vol_not_fine_down:
+-        ld a,c
+-        cp 0Fh
+-        jr nz,vol_regular
+-        ld a,b
+-        or a
+-        ret z
+-        cp 0F0h
+-        ret z
+-        ld a,(TICK_NOW)
+-        or a
+-        ret nz
+-        ld a,b
++        jr z,xm_volslide_down
+         rrca
+         rrca
+         rrca
+         rrca
+         and 0Fh
+         jp volume_add_a
+-vol_regular:
+-        ld a,(TICK_NOW)
+-        or a
+-        jr nz,vol_regular_do
+-        ld a,(FAST_VOL)
+-        or a
+-        ret z
+-        ; fast-slide compatibility only makes D0F/DF0 active on tick zero.
+-        ld a,b
+-        or a
+-        jr nz,vol_fast_up_test
+-        ld a,c
+-        cp 0Fh
+-        ret nz
+-        ld a,c
+-        jp volume_sub_a
+-vol_fast_up_test:
+-        cp 0F0h
+-        ret nz
+-        ld a,c
+-        or a
+-        ret nz
+-        ld a,0Fh
+-        jp volume_add_a
+-vol_regular_do:
+-        ld a,b
+-        or a
+-        jr z,vol_slide_down
+-        ld a,c
+-        or a
+-        jr nz,vol_slide_down
+-        ld a,b
+-        rrca
+-        rrca
+-        rrca
+-        rrca
++xm_volslide_down:
++        ld a,e
+         and 0Fh
+-        jp volume_add_a
+-vol_slide_down:
+-        ld a,c
+         or a
+         ret z
+         jp volume_sub_a
+@@ -1051,9 +1288,7 @@
+         ld a,(TICK_NOW)
+         or a
+         ret z
+-        ld a,(LINEAR_XM)
+-        or a
+-        jp z,effect_vibrato_legacy
++        ; FT2 vibrato waveform/timing is used for both linear and Amiga XM.
+ 
+         ; FastTracker II vibrato: 8-bit phase, table index=(phase>>2)&31,
+         ; speed memory is the high nibble but the phase increment is x*4.
+@@ -1315,7 +1550,7 @@
+         jr z,retrig_add16
+         cp 15
+         jr z,retrig_double
+-        ; x=6 (~2/3) and x=14 (~1.5) use compact approximations.
++        ; x=6 (5/8) and x=14 (3/2) use exact integer transforms.
+         cp 6
+         jr z,retrig_twothirds
+         ; x=14
+@@ -1330,15 +1565,18 @@
+         ld a,64
+         jr retrig_store_a
+ retrig_twothirds:
++        ; FT2/ST3 retrig transform x=6 is *10/16 = *5/8 exactly.
+         ld hl,VOLUME
+         call ptr8_cur
+         ld a,(hl)
+         ld b,a
+-        srl a
+-        srl a                    ; /4
++        srl a                    ; /2
+         ld c,a
+         ld a,b
+-        sub c                    ; ~3/4, conservative approximation
++        srl a
++        srl a
++        srl a                    ; /8
++        add a,c                  ; 5/8 (integer truncation)
+         jr retrig_store_a
+ retrig_half:
+         ld hl,VOLUME
+@@ -1394,19 +1632,19 @@
+         jp keyoff_current
+ 
+ effect_xm_profile:
+-        ld a,(LINEAR_XM)
+-        or a
+-        ret z
+         ld a,(TICK_NOW)
+         or a
+         ret nz
+         ld a,e
+-        jp xm_reset_profile_a
++        call xm_reset_profile_a
++        ; FT2: any explicit instrument number disables/re-arms tremor.
++        ld a,020h
++        ld hl,TREMORCNT
++        call ptr8_cur
++        ld (hl),a
++        ret
+ 
+ effect_vibctrl:
+-        ld a,(LINEAR_XM)
+-        or a
+-        ret z
+         ld a,(TICK_NOW)
+         or a
+         ret nz
+@@ -1418,9 +1656,6 @@
+         ret
+ 
+ effect_gliss:
+-        ld a,(LINEAR_XM)
+-        or a
+-        ret z
+         ld a,(TICK_NOW)
+         or a
+         ret nz
+@@ -1432,13 +1667,513 @@
+         ret
+ 
+ effect_xm_keyoff:
+-        ld a,(LINEAR_XM)
+-        or a
+-        ret z
+         ld a,(TICK_NOW)
+         cp e
+         ret nz
+         jp xm_note_off
++
++effect_xm_vfine_down:
++        call xm_volcol_allowed
++        ret z
++        ld a,(TICK_NOW)
++        or a
++        ret nz
++        ld a,e
++        and 0Fh
++        jp volume_sub_a
++
++effect_xm_vfine_up:
++        call xm_volcol_allowed
++        ret z
++        ld a,(TICK_NOW)
++        or a
++        ret nz
++        ld a,e
++        and 0Fh
++        jp volume_add_a
++
++effect_xm_vibspeed:
++        call xm_volcol_allowed
++        ret z
++        ld a,e
++        and 0Fh
++        jp store_vib_speed
++
++effect_xm_vibdepth:
++        ; Volume-column Bx changes depth and enables FT2 vibrato on non-row ticks.
++        call xm_volcol_allowed
++        ret z
++        ld a,e
++        and 0Fh
++        call store_vib_depth
++        ld a,(TICK_NOW)
++        or a
++        ret z
++        jp effect_vibrato
++
++effect_xm_panleft:
++        call xm_volcol_allowed
++        ret z
++        ld a,(TICK_NOW)
++        or a
++        ret z
++        ld a,e
++        and 0Fh
++        jr nz,xm_panleft_nonzero
++        xor a                     ; FT2 D0 volume-column pan slide quirk
++        jp set_pan_from_tracker
++xm_panleft_nonzero:
++        ld b,a                    ; FT2 volume-column slide is +/- nibble
++        ld hl,XMPAN
++        call ptr8_cur
++        ld a,(hl)
++        cp b
++        jr nc,xm_panleft_sub
++        xor a
++        jp set_pan_from_tracker
++xm_panleft_sub:
++        sub b
++        jp set_pan_from_tracker
++
++effect_xm_panright:
++        call xm_volcol_allowed
++        ret z
++        ld a,(TICK_NOW)
++        or a
++        ret z
++        ld a,e
++        and 0Fh
++        ret z
++        ld b,a
++        ld hl,XMPAN
++        call ptr8_cur
++        ld a,(hl)
++        add a,b
++        jr nc,xm_panright_ok
++        ld a,255
++xm_panright_ok:
++        jp set_pan_from_tracker
++
++effect_xm_volporta:
++        ; Volume-column Fx step is translated by FT2 to a coarser tone-porta.
++        call xm_volcol_porta_allowed
++        ret z
++        ld a,e
++        and 0Fh
++        ret z
++        add a,a
++        add a,a
++        add a,a
++        add a,a
++        ld e,a
++        jp effect_porta
++
++effect_xm_fvup:
++        ld a,(TICK_NOW)
++        or a
++        ret nz
++        ld a,e
++        and 0Fh
++        jp volume_add_a
++
++effect_xm_fvdn:
++        ld a,(TICK_NOW)
++        or a
++        ret nz
++        ld a,e
++        and 0Fh
++        jp volume_sub_a
++
++effect_xm_panslide:
++        ld a,(TICK_NOW)
++        or a
++        ret z
++        ld a,e
++        and 0F0h
++        jr z,xm_panslide_left
++        ; FT2 gives high nibble priority; +high/16 in exact 0..255 pan domain.
++        rrca
++        rrca
++        rrca
++        rrca
++        and 0Fh
++        ld b,a
++        ld hl,XMPAN
++        call ptr8_cur
++        ld a,(hl)
++        add a,b
++        jr nc,xm_panslide_store
++        ld a,255
++        jr xm_panslide_store
++xm_panslide_left:
++        ld a,e
++        and 0Fh
++        ld b,a
++        ld hl,XMPAN
++        call ptr8_cur
++        ld a,(hl)
++        cp b
++        jr nc,xm_panslide_sub
++        xor a
++        jr xm_panslide_store
++xm_panslide_sub:
++        sub b
++xm_panslide_store:
++        jp set_pan_from_tracker
++
++effect_xm_gvolslide:
++        ; FT2 Hxy global-volume slide: high-nibble priority, ordinary slide
++        ; only on non-row ticks. There are no FT2 fine-global-volume forms.
++        ld a,(TICK_NOW)
++        or a
++        ret z
++        ld a,e
++        and 0F0h
++        jr z,xm_gvol_regular_down
++        rrca
++        rrca
++        rrca
++        rrca
++        and 0Fh
++        jr xm_gvol_add_a
++xm_gvol_regular_down:
++        ld a,e
++        and 0Fh
++        or a
++        ret z
++xm_gvol_sub_a:
++        ld b,a
++        ld a,(GLOBALVOL)
++        cp b
++        jr nc,xm_gvol_sub_ok
++        xor a
++        jr xm_gvol_store
++xm_gvol_sub_ok:
++        sub b
++        jr xm_gvol_store
++xm_gvol_add_a:
++        ld b,a
++        ld a,(GLOBALVOL)
++        add a,b
++        cp 65
++        jr c,xm_gvol_store
++        ld a,64
++xm_gvol_store:
++        ld (GLOBALVOL),a
++        ret
++
++effect_xm_tremwave:
++        ld a,(TICK_NOW)
++        or a
++        ret nz
++        ld a,e
++        and 07h
++        ld hl,TREMWAVE
++        call ptr8_cur
++        ld (hl),a
++        ret
++
++effect_xm_envpos:
++        ld a,(TICK_NOW)
++        or a
++        ret nz
++        ld a,e
++        jp xm_set_env_position_a
++
++effect_xm_e9retrig:
++        ; FT2 E90 retriggers instantly once on tick 0. E9x (x>0) triggers on
++        ; tick multiples x, except a fresh note already triggered at tick 0.
++        ld a,e
++        and 0Fh
++        jr nz,xm_e9_nonzero
++        ld a,(TICK_NOW)
++        or a
++        ret nz
++        call keyoff_current
++        jp keyon_current
++xm_e9_nonzero:
++        ld b,a
++        ld a,(TICK_NOW)
++        or a
++        ret z
++xm_e9_mod:
++        cp b
++        jr c,xm_e9_done
++        sub b
++        jr xm_e9_mod
++xm_e9_done:
++        or a
++        ret nz
++        call keyoff_current
++        jp keyon_current
++
++effect_xm_retrig:
++        ; Bug-compatible FT2 Rxy counter. Unlike E9x, interval 0 is valid and
++        ; effectively retriggers every eligible tick. Rxy does not reset XM
++        ; envelopes on retrigger.
++        ld a,e
++        and 0Fh
++        ld b,a                    ; B=speed
++        ld hl,RETRIGCNT
++        call ptr8_cur
++        ld c,(hl)                 ; C=running FT2 retrig count
++        ld a,(TICK_NOW)
++        or a
++        jr nz,xm_r_after_tick0
++        ; On tick 0 an instrument number next to note-or-empty forces local
++        ; retrigCount=1. The host does not set ROWINS for Note Off rows.
++        push hl
++        ld hl,ROWINS
++        call ptr8_cur
++        ld a,(hl)
++        pop hl
++        or a
++        jr z,xm_r_tick0_no_ins
++        ld c,1
++xm_r_tick0_no_ins:
++        ; A non-zero volume-column volume causes FT2 to save the count and
++        ; return immediately on tick 0.
++        push hl
++        ld hl,ROWVOL
++        call ptr8_cur
++        ld a,(hl)
++        pop hl
++        or a
++        jr z,xm_r_after_tick0
++        ld (hl),c
++        ret
++xm_r_after_tick0:
++        ; if retrigCount >= retrigSpeed, retrigger except on tick0 with a real
++        ; note (the normal note trigger already happened there).
++        ld a,c
++        cp b
++        jr c,xm_r_no_trigger
++        ld a,(TICK_NOW)
++        or a
++        jr nz,xm_r_do_trigger
++        push hl
++        ld hl,ROWNOTE
++        call ptr8_cur
++        ld a,(hl)
++        pop hl
++        or a
++        jr nz,xm_r_no_trigger
++xm_r_do_trigger:
++        ld c,0
++        ; FT2 suppresses Rxy's volume transform whenever a volume-column
++        ; volume is present on the row.
++        push hl
++        ld hl,ROWVOL
++        call ptr8_cur
++        ld a,(hl)
++        pop hl
++        or a
++        jr nz,xm_r_rekey
++        ld a,e
++        and 0F0h
++        rrca
++        rrca
++        rrca
++        rrca
++        and 0Fh
++        call retrig_adjust_volume
++xm_r_rekey:
++        call keyoff_current
++        call keyon_current
++        ld c,1                    ; FT2 increments retrigCount after a retrigger
++        jr xm_r_store_count
++xm_r_no_trigger:
++        inc c
++xm_r_store_count:
++        ld hl,RETRIGCNT
++        call ptr8_cur
++        ld (hl),c
++        ret
++
++effect_xm_tremolo:
++        ; 7xy: calculate a transient signed volume offset. Phase advances on
++        ; non-row ticks by speed*4 in FT2's 8-bit phase domain.
++        ld a,(TICK_NOW)
++        or a
++        ret z
++        ld hl,TREMSPD
++        call ptr8_cur
++        ld a,e
++        and 0F0h
++        jr z,xm_trem_spd_keep
++        rrca
++        rrca
++        rrca
++        rrca
++        ld (hl),a
++xm_trem_spd_keep:
++        ld hl,TREMDEP
++        call ptr8_cur
++        ld a,e
++        and 0Fh
++        jr z,xm_trem_dep_keep
++        ld (hl),a
++xm_trem_dep_keep:
++        ld hl,TREMPH
++        call ptr8_cur
++        ld a,(hl)
++        ld c,a
++        srl a
++        srl a
++        and 1Fh
++        ld e,a
++        ld hl,TREMWAVE
++        call ptr8_cur
++        ld a,(hl)
++        and 3
++        cp 1
++        jr z,xm_trem_ramp
++        cp 2
++        jr nc,xm_trem_square
++        ld d,0
++        ld hl,FT2_VIB_TAB
++        add hl,de
++        ld a,(hl)
++        jr xm_trem_wave_ready
++xm_trem_ramp:
++        ld a,e
++        add a,a
++        add a,a
++        add a,a
++        bit 7,c
++        jr z,xm_trem_wave_ready
++        cpl
++        jr xm_trem_wave_ready
++xm_trem_square:
++        ld a,255
++xm_trem_wave_ready:
++        ld e,a
++        ld hl,TREMDEP
++        call ptr8_cur
++        ld b,(hl)
++        ld hl,0
++xm_trem_mul:
++        ld a,b
++        or a
++        jr z,xm_trem_mul_done
++        ld d,0
++        add hl,de
++        dec b
++        jr xm_trem_mul
++xm_trem_mul_done:
++        ; FT2 tremolo depth scale: amplitude*depth >> 6, then channel volume
++        ; unit is 4 internally; our VOLUME domain is already 0..64 -> >>8.
++        ld a,h
++        bit 7,c
++        jr z,xm_trem_sign_ok
++        neg
++xm_trem_sign_ok:
++        ld hl,TREMOFF
++        call ptr8_cur
++        ld (hl),a
++        ld hl,TREMSPD
++        call ptr8_cur
++        ld a,(hl)
++        add a,a
++        add a,a
++        add a,c
++        ld hl,TREMPH
++        call ptr8_cur
++        ld (hl),a
++        ret
++
++effect_xm_tremor:
++        ; FT2 Txy state machine (OpenMPT kFT2Tremor semantics).
++        ; Bit 7 means the state machine is active. Bits 7..5 == 100 are
++        ; the OFF phase; 110 is the ON phase. Bit 5 is also used by FT2
++        ; as the "instrument number just seen" recovery marker.
++        ld a,e
++        or a
++        jr z,xm_tremor_param_done
++        ld hl,TREMORPAR
++        call ptr8_cur
++        ld (hl),a
++xm_tremor_param_done:
++        ld hl,TREMORCNT
++        call ptr8_cur
++        ld a,(TICK_NOW)
++        or a
++        jr nz,xm_tremor_nonfirst
++        ; ProcessEffects on FT2 tick 0 only arms the tremor state.
++        ld a,(hl)
++        or 080h
++        ld (hl),a
++        ret
++xm_tremor_nonfirst:
++        ; Only a continuing Txy row advances the state machine. The command
++        ; dispatcher guarantees that we are executing Txy here.
++        ld a,(hl)
++        and 0DFh                 ; clear FT2 instrument marker bit 5
++        cp 080h
++        jr z,xm_tremor_off_done
++        cp 0C0h
++        jr z,xm_tremor_on_done
++        dec a
++        ld (hl),a
++        ret
++xm_tremor_off_done:
++        ; End of OFF time -> enter ON phase with high nibble count.
++        push hl
++        ld hl,TREMORPAR
++        call ptr8_cur
++        ld a,(hl)
++        and 0F0h
++        rrca
++        rrca
++        rrca
++        rrca
++        or 0C0h
++        pop hl
++        ld (hl),a
++        ret
++xm_tremor_on_done:
++        ; End of ON time -> enter OFF phase with low nibble count.
++        push hl
++        ld hl,TREMORPAR
++        call ptr8_cur
++        ld a,(hl)
++        and 00Fh
++        or 080h
++        pop hl
++        ld (hl),a
++        ret
++
++xm_reset_current_profile_clocks:
++        ld hl,XMPROF
++        call ptr8_cur
++        ld a,(hl)
++        jp xm_reset_profile_a
++
++xm_set_env_position_a:
++        ; Lxx sets both volume and panning envelope positions. The envelope
++        ; evaluator increments before lookup, hence store xx-1 (FFFF for 0).
++        ld e,a
++        ld d,0
++        dec de
++        ld hl,ENVVTICK
++        call ptr16_cur
++        ld (hl),e
++        inc hl
++        ld (hl),d
++        ; FT2 only applies Lxx to the panning envelope when the volume
++        ; envelope has its sustain flag set (SetEnvPos.xm quirk).
++        push de
++        call xm_profile_current
++        ld a,(hl)
++        bit 1,a
++        pop de
++        ret z
++        ld hl,ENVPTICK
++        call ptr16_cur
++        ld (hl),e
++        inc hl
++        ld (hl),d
++        ret
+ 
+ xm_profile_ptr_a:
+         and 3Fh
+@@ -1523,10 +2258,21 @@
+         ld (hl),a
+         ret
+ 
++xm_reset_profile_preserve_pan_a:
++        ; A=profile. A bare FT2 note retriggers envelopes/auto-vibrato but
++        ; does not recall the sample's default panning (PanMemory.xm).
++        push af
++        ld hl,XMPAN
++        call ptr8_cur
++        ld b,(hl)
++        pop af
++        push bc
++        call xm_reset_profile_a
++        pop bc
++        ld a,b
++        jp set_pan_from_tracker
++
+ xm_note_off:
+-        ld a,(LINEAR_XM)
+-        or a
+-        jp z,keyoff_current
+         ld a,1
+         ld hl,XMKEYOFF
+         call ptr8_cur
+@@ -1542,10 +2288,7 @@
+         jp emit_volume_current
+ 
+ xm_tick_modulators:
+-        ; implemented below; neutral for non-XM paths.
+-        ld a,(LINEAR_XM)
+-        or a
+-        ret z
++        ; XM engine: envelopes/fade/auto-vibrato apply in both frequency modes.
+         call xm_apply_auto_vib
+         call xm_apply_volume_env
+         jp xm_apply_pan_env
+@@ -1859,7 +2602,44 @@
+         ld c,a                     ; C=envelope 0..64
+         ld hl,VOLUME
+         call ptr8_cur
+-        ld b,(hl)                  ; B=base vol 0..64
++        ld a,(hl)                  ; base volume
++        ld b,a
++        ; Apply transient 7xy tremolo without modifying VOLUME memory.
++        ld hl,TREMOFF
++        call ptr8_cur
++        ld a,(hl)
++        or a
++        jr z,xm_vol_no_trem
++        jp p,xm_vol_trem_add
++        neg
++        ld c,a
++        ld a,b
++        cp c
++        jr nc,xm_vol_trem_sub_ok
++        xor a
++        jr xm_vol_trem_store
++xm_vol_trem_sub_ok:
++        sub c
++        jr xm_vol_trem_store
++xm_vol_trem_add:
++        ld c,a
++        ld a,b
++        add a,c
++        cp 65
++        jr c,xm_vol_trem_store
++        ld a,64
++xm_vol_trem_store:
++        ld b,a
++xm_vol_no_trem:
++        ; FT2 tremor off-phase mutes the mixed output, not channel volume state.
++        ld hl,TREMORCNT
++        call ptr8_cur
++        ld a,(hl)
++        and 0E0h
++        cp 080h                  ; FT2 OFF phase is exactly 10xxxxx
++        jr nz,xm_vol_tremor_on
++        ld b,0
++xm_vol_tremor_on:
+         ; base*env /64
+         ld e,c
+         ld d,0
+@@ -1923,6 +2703,39 @@
+         jr c,xm_vol_final_ok
+         ld a,64
+ xm_vol_final_ok:
++        ; XM Gxx/Hxy global volume, 0..64.
++        ld b,a
++        ld a,(GLOBALVOL)
++        ld e,a
++        ld d,0
++        ld hl,0
++xm_gv_mul:
++        ld a,b
++        or a
++        jr z,xm_gv_mul_done
++        add hl,de
++        dec b
++        jr xm_gv_mul
++xm_gv_mul_done:
++        ld de,32
++        add hl,de
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        srl h
++        rr l
++        ld a,l
++        cp 65
++        jr c,xm_gv_ok
++        ld a,64
++xm_gv_ok:
+         ld e,a
+         ld d,0
+         ld hl,VOL_LUT
+@@ -2129,16 +2942,10 @@
+ set_pan_from_tracker:
+         ; Preserve exact FT2 pan for panning envelopes, then quantize to OPL4.
+         push af
+-        ld a,(LINEAR_XM)
+-        or a
+-        jr z,set_pan_no_xm_store
++        ld hl,XMPAN
++        call ptr8_cur
+         pop af
+-        push af
+-        ld hl,XMPAN
+-        call ptr8_cur
+-        ld (hl),a
+-set_pan_no_xm_store:
+-        pop af
++        ld (hl),a
+ emit_pan_tracker_a:
+         ; A=0..255 tracker pan. OPL4: 9..15 left, 1..7 right, 0 centre.
+         cp 128
+--- a/tests/test_xm_v046.py
++++ b/tests/test_xm_v046.py
+@@ -0,0 +1,256 @@
++#!/usr/bin/env python3
++from pathlib import Path
++import struct, tempfile, sys
++ROOT=Path(__file__).resolve().parents[1]
++sys.path.insert(0,str(ROOT))
++import module_formats
++import compact_stream
++import _s3m2opl4_backend as core
++
++
++def make_empty_xm(path:Path, version=0x0104, channels=1, rows=1, tracker='FastTracker v2.00   '):
++    b=bytearray()
++    b += b'Extended Module: '
++    b += b'Test'.ljust(20,b'\0')
++    b += b'\x1a'
++    b += tracker.encode('cp437','replace')[:20].ljust(20,b' ')
++    b += struct.pack('<H',version)
++    b += struct.pack('<I',276)
++    b += struct.pack('<8H',1,0,channels,1,0,1,6,125)
++    b += bytes([0])+bytes(255)
++    assert len(b)==336
++    if version==0x0102:
++        b += struct.pack('<IBBH',8,0,max(0,rows-1),0)
++    else:
++        b += struct.pack('<IBHH',9,0,rows,0)
++    path.write_bytes(b)
++
++
++def sample(num=1,pan=128,vol=32):
++    s=core.Sample(num,'s',16,0,0,vol,0,8363,0,bytes([0])*16)
++    s.xm_relative_note=0; s.xm_finetune=0; s.xm_period_offset=0; s.xm_pan=pan; s.xm_profile_id=0
++    return s
++
++
++def module_one_sample(tmp:Path):
++    s=sample()
++    m=core.Module(tmp,b'','x',[0],[[[]]],[ ] if False else {1:s},[0]+[255]*31,6,125,64,0,1)
++    m.source_format='XM'; m.offset_quantum=256; m.xm_flags=1; m.xm_linear=True; m.xm_profile='FT2'
++    m.xm_profiles=[((),(),0,0,0,0,0,0,0,0,0,0,0,0,0,128)]
++    m.xm_instrument_keymaps={1:tuple([0]*96)}; m.xm_instrument_sample_ids={1:(1,)}
++    return m
++
++
++def test_versions(tmp):
++    for v in (0x0102,0x0103,0x0104):
++        p=tmp/f'v{v:04x}.xm'; make_empty_xm(p,v)
++        m=module_formats.parse_xm(p)
++        assert m.xm_version==v and len(m.patterns)==1 and len(m.patterns[0])>=1
++
++
++def test_max_channels(tmp):
++    p=tmp/'25ch.xm'; make_empty_xm(p,0x0104,25)
++    try: module_formats.parse_xm(p)
++    except ValueError as e: assert '24-channel' in str(e)
++    else: raise AssertionError('25-channel XM should be rejected')
++
++
++def test_pcm_decoders():
++    # Stereo split delta: left accumulates +1,+1, right -1,-1 => exact mono 0.
++    data,div=module_formats._decode_xm_pcm(bytes([1,1,255,255]),0x20,0,4)
++    assert div==2 and data==bytes([0,0]),(div,data)
++    # ADPCM table[1]=+1, nibbles 1,1 => 1,2.
++    tab=bytearray(16); tab[1]=1
++    data,div=module_formats._decode_xm_pcm(bytes(tab)+bytes([0x11]),0,0xAD,2)
++    assert div==1 and data==bytes([1,2]),data
++
++
++def test_memories(tmp):
++    cc=compact_stream.CompactCompiler(module_one_sample(tmp/'m'), 'XM', max_seconds=1)
++    st=compact_stream.ResolveState()
++    assert cc._resolve(st,compact_stream.CMD_D,0x12)==0x12
++    assert cc._resolve(st,compact_stream.CMD_K,0)==0x12
++    assert cc._resolve(st,compact_stream.CMD_L,0)==0x12
++    assert cc._resolve(st,compact_stream.CMD_XM_FINE_UP,3)==3
++    assert cc._resolve(st,compact_stream.CMD_XM_FINE_DOWN,4)==4
++    assert cc._resolve(st,compact_stream.CMD_XM_FINE_UP,0)==3
++    assert cc._resolve(st,compact_stream.CMD_XM_FINE_DOWN,0)==4
++    assert cc._resolve(st,compact_stream.CMD_XM_XFINE_UP,5)==5
++    assert cc._resolve(st,compact_stream.CMD_XM_XFINE_DOWN,6)==6
++    assert cc._resolve(st,compact_stream.CMD_XM_FINEVOLUP,7)==7
++    assert cc._resolve(st,compact_stream.CMD_XM_FINEVOLDOWN,8)==8
++
++
++def ev(ch=0,note=None,ins=None,cmd=None,param=None,vol=None,**attrs):
++    e=core.Event(ch,note,ins,vol,cmd,param)
++    for k,v in attrs.items(): setattr(e,k,v)
++    return e
++
++
++def test_note_semantics(tmp):
++    cc=compact_stream.CompactCompiler(module_one_sample(tmp/'n'),'XM',max_seconds=1)
++    # K00 ignores note+instrument; only keyoff effect remains.
++    st=compact_stream.ResolveState(instrument=1,note_index=48,period_seen=True)
++    e=ev(note=0x40,ins=1,cmd=compact_stream.CMD_KEYOFF,param=0,
++         xm_sample=1,xm_instrument_present=True,xm_instrument_number=1,xm_note_present=True,extra_effects=[])
++    a=cc._event_action(e,st)
++    assert a and a.note_kind is None and a.volume is None and any(x[0]==compact_stream.CMD_KEYOFF for x in a.effects)
++    # Tone porta with no active note must not create a normal note.
++    st=compact_stream.ResolveState()
++    e=ev(note=0x40,ins=1,cmd=compact_stream.CMD_G,param=3,
++         xm_sample=1,xm_instrument_present=True,xm_instrument_number=1,xm_note_present=True,extra_effects=[])
++    a=cc._event_action(e,st)
++    assert a and a.note_kind is None and not st.period_seen
++    # Bare note descriptor carries stream bit 1 for PanMemory semantics.
++    st=compact_stream.ResolveState(instrument=1,note_index=48,period_seen=True,xm_instrument_num=1)
++    e=ev(note=0x40,cmd=None,param=None,xm_sample=1,xm_instrument_present=False,xm_note_present=True,extra_effects=[])
++    a=cc._event_action(e,st); enc=cc._encode_action(a)
++    assert a.note_kind=='normal' and (enc[1]&0x02),enc
++
++
++
++
++def make_old_sample_xm(path:Path, version=0x0103):
++    b=bytearray()
++    b += b'Extended Module: ' + b'OldLayout'.ljust(20,b'\0') + b'\x1a'
++    b += b'FastTracker v2.00   '.ljust(20,b' ')
++    b += struct.pack('<H',version) + struct.pack('<I',276)
++    b += struct.pack('<8H',1,0,1,1,1,1,6,125)
++    b += bytes([0])+bytes(255)
++    ih=bytearray(263); struct.pack_into('<I',ih,0,263); ih[4:11]=b'OldInst'; struct.pack_into('<H',ih,27,1); struct.pack_into('<I',ih,29,40)
++    b += ih
++    sh=bytearray(40); struct.pack_into('<III',sh,0,4,0,0); sh[12]=48; sh[15]=128; sh[18:21]=b'old'; b += sh
++    cell=bytes([49,1,0,0,0])
++    b += struct.pack('<IBHH',9,0,1,len(cell)) + cell
++    b += bytes([1,0,0,0])
++    path.write_bytes(b)
++
++
++def test_old_sample_layout(tmp):
++    p=tmp/'old103.xm'; make_old_sample_xm(p)
++    m=module_formats.parse_xm(p)
++    assert m.xm_version==0x0103 and len(m.samples)==1 and m.xm_instrument_sample_ids[1]==(1,)
++    assert m.samples[1].data[:4]==bytes([1,1,1,1])
++    cc=compact_stream.CompactCompiler(m,'XM',max_seconds=1)
++    a=cc._event_action(m.patterns[0][0][0],compact_stream.ResolveState())
++    assert a and a.note_kind=='normal'
++
++def make_multisample_xm(path:Path):
++    b=bytearray()
++    b += b'Extended Module: ' + b'Keymap'.ljust(20,b'\0') + b'\x1a'
++    b += b'FastTracker v2.00   '.ljust(20,b' ')
++    b += struct.pack('<H',0x0104) + struct.pack('<I',276)
++    b += struct.pack('<8H',2,0,1,2,1,1,6,125)
++    b += bytes([0,1])+bytes(254)
++    assert len(b)==336
++    # Pattern 0: C-4, instrument 1. Pattern 1: C#4, no instrument.
++    for cell in (bytes([49,1,0,0,0]), bytes([50,0,0,0,0])):
++        b += struct.pack('<IBHH',9,0,1,len(cell)) + cell
++    ih=bytearray(263)
++    struct.pack_into('<I',ih,0,263); ih[4:10]=b'Inst 1'; struct.pack_into('<H',ih,27,2); struct.pack_into('<I',ih,29,40)
++    # sample map: C-4 sample 0, C#4 sample 1
++    ih[33:129]=bytes(96); ih[33+49]=1
++    b += ih
++    for name,vol,pan in ((b'S0',20,40),(b'S1',50,220)):
++        sh=bytearray(40); struct.pack_into('<III',sh,0,4,0,0); sh[12]=vol; sh[15]=pan; sh[18:18+len(name)]=name; b+=sh
++    b += bytes([1,0,0,0]) + bytes([2,0,0,0])
++    path.write_bytes(b)
++
++
++def test_dynamic_keymap(tmp):
++    p=tmp/'keymap.xm'; make_multisample_xm(p); m=module_formats.parse_xm(p)
++    assert m.xm_instrument_sample_ids[1] == (1,2)
++    cc=compact_stream.CompactCompiler(m,'XM',max_seconds=2)
++    st=compact_stream.ResolveState()
++    e0=m.patterns[0][0][0]; a0=cc._event_action(e0,st)
++    assert a0 and st.xm_instrument_num==1 and st.instrument==1
++    e1=m.patterns[1][0][0]; a1=cc._event_action(e1,st)
++    assert a1 and a1.note_kind=='normal' and st.instrument==2, (a1,st)
++
++
++def test_flow_and_offset(tmp):
++    m=module_one_sample(tmp/'flow')
++    # EEx extends one row by (x+1) * speed ticks and is carried as runtime cmd 56.
++    e=ev(cmd=compact_stream.CMD_XM_PATDELAY,param=2,extra_effects=[],xm_instrument_present=False,xm_note_present=False)
++    m.patterns=[[[e]]]; m.orders=[0]; m.xm_restart=0
++    cc=compact_stream.CompactCompiler(m,'XM',max_seconds=2)
++    stream,rows,rep=cc.compile()
++    assert rep['semantic_rows']==1 and abs(rep['duration_seconds']-0.36)<1e-9,rep
++    assert bytes([compact_stream.CMD_XM_PATDELAY,2]) in rows[0]
++    # F00 terminates the flattened song at this row.
++    m=module_one_sample(tmp/'stop'); m.xm_restart=0
++    stop=ev(cmd=compact_stream.CMD_XM_STOP,param=0,extra_effects=[],xm_instrument_present=False,xm_note_present=False)
++    m.patterns=[[[stop]], [[]]]; m.orders=[0]
++    cc=compact_stream.CompactCompiler(m,'XM',max_seconds=2)
++    _,_,rep=cc.compile(); assert rep['semantic_rows']==1 and rep['end_reason']=='FT2 F00 stop'
++    # FT2 9xx memory is only written next to a real note.
++    m=module_one_sample(tmp/'ofs'); cc=compact_stream.CompactCompiler(m,'XM',max_seconds=1); st=compact_stream.ResolveState(xm_instrument_num=1)
++    n=ev(note=0x40,cmd=compact_stream.CMD_O,param=0x12,xm_instrument_present=False,xm_note_present=True,extra_effects=[])
++    cc._event_action(n,st); assert st.o_mem==0x12
++    x=ev(cmd=compact_stream.CMD_O,param=0x34,xm_instrument_present=False,xm_note_present=False,extra_effects=[])
++    cc._event_action(x,st); assert st.o_mem==0x12
++
++def test_amiga_vs_linear(tmp):
++    cc=compact_stream.CompactCompiler(module_one_sample(tmp/'p'),'XM',max_seconds=1)
++    pl=cc._xm_linear_period(1,48)
++    pa=cc._xm_amiga_period(1,48)
++    assert pl==4608 and 1600<pa<1800,(pl,pa)
++    # E5x nibble 8 is zero finetune; 9 is +16.
++    assert cc._xm_linear_period(1,48,0)==4608
++    assert cc._xm_linear_period(1,48,16)<4608
++
++
++
++def test_ft2_delay_and_note_limit(tmp):
++    cc=compact_stream.CompactCompiler(module_one_sample(tmp/'delay'),'XM',max_seconds=1)
++    # FT2 NoteLimit.xm behaviour: a sample transpose that pushes the note out
++    # of NOTE_MIN+11..NOTE_MIN+130 suppresses the note trigger completely.
++    cc.m.samples[1].xm_relative_note=95
++    st=compact_stream.ResolveState()
++    e=ev(note=0x7B,cmd=None,param=None,xm_instrument_present=True,xm_instrument_number=1,
++         xm_note_present=True,xm_volume_column=0,extra_effects=[])  # B-7 / XM note 96
++    a=cc._event_action(e,st)
++    assert a is not None and a.note_kind is None and not st.period_seen
++    cc.m.samples[1].xm_relative_note=0
++
++    # VolColDelay.xm semantics are carried explicitly to the Z80 runtime.
++    st=compact_stream.ResolveState(instrument=1,note_index=48,period_seen=True,xm_instrument_num=1)
++    e=ev(note=0x40,cmd=compact_stream.CMD_S,param=0xD3,
++         xm_instrument_present=True,xm_instrument_number=1,xm_note_present=True,
++         xm_volume_column=0x64,extra_effects=[(compact_stream.CMD_XM_VC_VOLDN,4,False)])
++    a=cc._event_action(e,st)
++    cmds=[x[0] for x in a.effects]
++    assert compact_stream.CMD_XM_ROWDELAY in cmds and compact_stream.CMD_XM_ROWINS in cmds and compact_stream.CMD_XM_VC_VOLDN in cmds,cmds
++
++    # PanOff.xm: delayed Note Off ignores volume-column Cx panning.
++    st=compact_stream.ResolveState(instrument=1,note_index=48,period_seen=True,xm_instrument_num=1)
++    e=ev(note=254,cmd=compact_stream.CMD_S,param=0xD2,
++         xm_instrument_present=False,xm_note_present=False,xm_volume_column=0xC8,
++         extra_effects=[(compact_stream.CMD_X,32,False)])
++    a=cc._event_action(e,st)
++    assert all(x[0] != compact_stream.CMD_X for x in a.effects)
++
++    # RetrigTick0.xm: retain literal row note/instrument/volume markers so the
++    # runtime can reproduce FT2's Rxy first-tick counter bugs.
++    st=compact_stream.ResolveState(instrument=1,note_index=48,period_seen=True,xm_instrument_num=1)
++    e=ev(note=0x40,cmd=compact_stream.CMD_XM_RETRIG,param=0x60,vol=32,
++         xm_instrument_present=True,xm_instrument_number=1,xm_note_present=True,
++         xm_volume_column=0x30,extra_effects=[])
++    a=cc._event_action(e,st); cmds=[x[0] for x in a.effects]
++    assert compact_stream.CMD_XM_ROWNOTE in cmds and compact_stream.CMD_XM_ROWINS in cmds and compact_stream.CMD_XM_ROWVOL in cmds,cmds
++
++    asm=(ROOT/'source'/'compact_engine_xm.asm').read_text()
++    assert 'jp xm_reset_current_profile_clocks' in asm
++    assert 'CMD3            equ 06400h' in asm
++    rblock=asm.split('effect_xm_retrig:',1)[1].split('effect_xm_tremolo:',1)[0]
++    assert 'xm_reset_current_profile_clocks' not in rblock
++
++def main():
++    with tempfile.TemporaryDirectory() as d:
++        tmp=Path(d)
++        tests=[test_versions,test_max_channels]
++        for t in tests: t(tmp)
++        test_pcm_decoders(); test_memories(tmp); test_note_semantics(tmp); test_old_sample_layout(tmp); test_dynamic_keymap(tmp); test_flow_and_offset(tmp); test_amiga_vs_linear(tmp); test_ft2_delay_and_note_limit(tmp)
++    print('PASS 10 XM v0.4.6 regression groups')
++
++if __name__=='__main__': main()
